@@ -271,7 +271,7 @@ int get_SondeID() {
     }
 */
     ret = 0;
-    if ( 0  &&  option_crc  &&  crc != crc_frame) {
+    if ( /*0  &&*/  option_crc  &&  crc != crc_frame) {
         ret = -2;  // erst wichtig, wenn Cal/Cfg-Data
     }
 
@@ -1107,7 +1107,8 @@ int print_position() {  // GPS-Hoehe ueber Ellipsoid
     }
 
     if (!err2) {
-        if (option_verbose) {
+        //if (option_verbose)
+        {
             Gps2Date(gpx.week, gpx.gpssec, &gpx.jahr, &gpx.monat, &gpx.tag);
             //fprintf(stdout, "(W %d) ", gpx.week);
             fprintf(stdout, "(%04d-%02d-%02d) ", gpx.jahr, gpx.monat, gpx.tag);
