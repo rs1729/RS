@@ -1157,8 +1157,8 @@ int main(int argc, char *argv[]) {
     symlen = 1;
     headerlen = strlen(header);
     bitofs = 2; // +1 .. +2
-    K = init_buffers(header, headerlen, 2);
-    if ( K < 0) { // shape=2
+    K = init_buffers(header, headerlen, 2); // shape=2
+    if ( K < 0 ) {
         fprintf(stderr, "error: init buffers\n");
         return -1;
     };
