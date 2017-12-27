@@ -691,7 +691,7 @@ int main(int argc, char **argv) {
         k += 1;
         if (k >= K-4) {
             mv0_pos = mv_pos;
-            mp = getCorrDFT(K, 0, &mv, &mv_pos);
+            mp = getCorrDFT(0, K, 0, &mv, &mv_pos);
             k = 0;
         }
         else {
@@ -703,10 +703,10 @@ int main(int argc, char **argv) {
             if (mv_pos > mv0_pos) {
 
                 header_found = 0;
-                herrs = headcmp(symlen, rawheader, headerlen, mv_pos); // symlen=2
+                herrs = headcmp(symlen, rawheader, headerlen, mv_pos, mv<0, 0); // symlen=2
                 herr1 = 0;
                 if (herrs <= 3 && herrs > 0) {
-                    herr1 = headcmp(symlen, rawheader, headerlen, mv_pos+1);
+                    herr1 = headcmp(symlen, rawheader, headerlen, mv_pos+1, mv<0, 0);
                     if (herr1 < herrs) {
                         herrs = herr1;
                         herr1 = 1;
