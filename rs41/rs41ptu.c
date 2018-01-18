@@ -1233,7 +1233,7 @@ int print_position(int ec) {
                 fprintf(stdout, " # [");
                 for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx.crc>>i)&1);
                 fprintf(stdout, "]");
-                if (option_ecc == 2 && ec >  0) fprintf(stdout, " (%d)", ec);
+                if (option_ecc == 2 && ec > 0) fprintf(stdout, " (%d)", ec);
             }
         }
 
@@ -1286,7 +1286,7 @@ void print_frame(int len) {
         }
         if (option_ecc) {
             if (ec >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
-            if (option_ecc == 2 && ec >  0) fprintf(stdout, " (%d)", ec);
+            if (option_ecc == 2 && ec > 0) fprintf(stdout, " (%d)", ec);
         }
         fprintf(stdout, "\n");
 //        fprintf(stdout, "\n");

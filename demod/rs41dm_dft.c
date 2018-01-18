@@ -551,7 +551,7 @@ int get_PTU() {
         }
         gpx.T = Tc;
 
-        if (option_verbose == 3)
+        if (option_verbose == 4)
         {
             printf("  h: %8.2f   # ", gpx.alt); // crc_GPS3 ?
 
@@ -783,10 +783,10 @@ int get_Aux() {
         auxlen = framebyte(pos7E+1);
         auxcrc = framebyte(pos7E+2+auxlen) | (framebyte(pos7E+2+auxlen+1)<<8);
 
-        if (count7E == 0) fprintf(stdout, "\n # xdata = ");
-        else              fprintf(stdout, " # ");
-
         if ( auxcrc == crc16(pos7E+2, auxlen) ) {
+            if (count7E == 0) fprintf(stdout, "\n # xdata = ");
+            else              fprintf(stdout, " # ");
+
             //fprintf(stdout, " # %02x : ", framebyte(pos7E+2));
             for (i = 1; i < auxlen; i++) {
                 fprintf(stdout, "%c", framebyte(pos7E+2+i));
@@ -814,9 +814,11 @@ int get_Calconf(int out) {
     ui16_t fw = 0;
     int freq = 0, f0 = 0, f1 = 0;
     char sondetyp[9];
+    int err = 0;
 
     byte = framebyte(pos_CalData);
     calfr = byte;
+    err = check_CRC(pos_FRAME, pck_FRAME);
 
     if (option_verbose == 3) {
         fprintf(stdout, "\n");  // fflush(stdout);
@@ -826,12 +828,12 @@ int get_Calconf(int out) {
             byte = framebyte(pos_CalData+1+i);
             fprintf(stdout, "%02x ", byte);
         }
-        if (check_CRC(pos_FRAME, pck_FRAME)==0) fprintf(stdout, "[OK]");
-        else                                    fprintf(stdout, "[NO]");
+        if (err == 0) fprintf(stdout, "[OK]");
+        else          fprintf(stdout, "[NO]");
         fprintf(stdout, " ");
     }
 
-    if (out)
+    if (out && err == 0)
     {
         if (calfr == 0x01  &&  option_verbose /*== 2*/) {
             fw = framebyte(pos_CalData+6) | (framebyte(pos_CalData+7)<<8);
@@ -950,7 +952,7 @@ int rs41_ecc(int frmlen) {
 /* ------------------------------------------------------------------------------------ */
 
 
-int print_position() {
+int print_position(int ec) {
     int i;
     int err, err0, err1, err2, err3;
     int output, out_mask;
@@ -995,12 +997,13 @@ int print_position() {
         }
 
 
-        if (output)
+        //if (output)
         {
             if (option_crc) {
                 fprintf(stdout, " # [");
                 for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx.crc>>i)&1);
                 fprintf(stdout, "]");
+                if (option_ecc == 2 && ec > 0) fprintf(stdout, " (%d)", ec);
             }
         }
 
@@ -1019,9 +1022,14 @@ int print_position() {
 }
 
 void print_frame(int len) {
-    int i, ret = 0;
+    int i, ec = 0;
 
     gpx.crc = 0;
+
+/*
+    frame[pos_FRAME-1] == 0x0F: len == NDATA_LEN(320)
+    frame[pos_FRAME-1] == 0xF0: len == FRAME_LEN(518)
+*/
 
     for (i = len; i < FRAME_LEN; i++) {
         //xframe[i] = 0;
@@ -1029,7 +1037,7 @@ void print_frame(int len) {
     }
 
     if (option_ecc) {
-        ret = rs41_ecc(len);
+        ec = rs41_ecc(len);
     }
 
 
@@ -1038,8 +1046,8 @@ void print_frame(int len) {
             fprintf(stdout, "%02x", frame[i]);
         }
         if (option_ecc) {
-            if (ret >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
-            if (option_ecc == 2 && ret >  0) fprintf(stdout, " (%d)", ret);
+            if (ec >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
+            if (option_ecc == 2 && ec > 0) fprintf(stdout, " (%d)", ec);
         }
         fprintf(stdout, "\n");
     }
@@ -1047,7 +1055,7 @@ void print_frame(int len) {
         get_SatData();
     }
     else {
-        print_position();
+        print_position(ec);
     }
 }
 
@@ -1104,6 +1112,7 @@ int main(int argc, char *argv[]) {
         }
         else if   (strcmp(*argv, "-vx") == 0) { option_verbose = 2; }
         else if   (strcmp(*argv, "-vv") == 0) { option_verbose = 3; }
+        else if   (strcmp(*argv, "-vvv") == 0) { option_verbose = 4; }
         else if   (strcmp(*argv, "--crc") == 0) { option_crc = 1; }
         else if   (strcmp(*argv, "--res") == 0) { option_res = 1; }
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
