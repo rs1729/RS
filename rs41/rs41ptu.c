@@ -2,6 +2,10 @@
 /*
  * radiosondes RS41-SG(P)
  * author: zilog80
+ *
+ * compile:
+ *     gcc rs41ptu.c -lm -o rs41ptu
+ *     (includes bch_ecc.c)
  * usage:
  *     ./rs41ptu [options] audio.wav
  *       options:
@@ -76,6 +80,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_ptu = 0,
     option_len = 0,
     wavloaded = 0;
+int rawin = 0;
 
 
 #define HEADOFS 24 // HEADOFS+HEADLEN <= 64
@@ -93,6 +98,8 @@ int bufpos = -1;
 ui8_t //xframe[FRAME_LEN] = { 0x10, 0xB6, 0xCA, 0x11, 0x22, 0x96, 0x12, 0xF8},    = xorbyte( frame)
          frame[FRAME_LEN] = { 0x86, 0x35, 0xf4, 0x40, 0x93, 0xdf, 0x1a, 0x60}; // = xorbyte(xframe)
 
+char buffer_rawin[3*FRAME_LEN+12]; //## rawin1: buffer_rawin[2*FRAME_LEN+12];
+int frameofs = 0;
 
 #define MASK_LEN 64
 ui8_t mask[MASK_LEN] = { 0x96, 0x83, 0x3E, 0x51, 0xB1, 0x49, 0x08, 0x98,
@@ -1007,10 +1014,10 @@ int get_Aux() {
         auxlen = framebyte(pos7E+1);
         auxcrc = framebyte(pos7E+2+auxlen) | (framebyte(pos7E+2+auxlen+1)<<8);
 
-        if (count7E == 0) fprintf(stdout, "\n # xdata = ");
-        else              fprintf(stdout, " # ");
-
         if ( auxcrc == crc16(pos7E+2, auxlen) ) {
+            if (count7E == 0) fprintf(stdout, "\n # xdata = ");
+            else              fprintf(stdout, " # ");
+
             //fprintf(stdout, " # %02x : ", framebyte(pos7E+2));
             for (i = 1; i < auxlen; i++) {
                 fprintf(stdout, "%c", framebyte(pos7E+2+i));
@@ -1038,9 +1045,11 @@ int get_Calconf(int out) {
     ui16_t fw = 0;
     int freq = 0, f0 = 0, f1 = 0;
     char sondetyp[9];
+    int err = 0;
 
     byte = framebyte(pos_CalData);
     calfr = byte;
+    err = check_CRC(pos_FRAME, pck_FRAME);
 
     if (option_verbose == 3) {
         fprintf(stdout, "\n");  // fflush(stdout);
@@ -1050,8 +1059,8 @@ int get_Calconf(int out) {
             byte = framebyte(pos_CalData+1+i);
             fprintf(stdout, "%02x ", byte);
         }
-        if (check_CRC(pos_FRAME, pck_FRAME)==0) fprintf(stdout, "[OK]");
-        else                                    fprintf(stdout, "[NO]");
+        if (err == 0) fprintf(stdout, "[OK]");
+        else          fprintf(stdout, "[NO]");
         fprintf(stdout, " ");
     }
 
@@ -1059,13 +1068,13 @@ int get_Calconf(int out) {
     {
         if (calfr == 0x01  &&  option_verbose /*== 2*/) {
             fw = framebyte(pos_CalData+6) | (framebyte(pos_CalData+7)<<8);
-            fprintf(stdout, ": fw 0x%04x ", fw);
+            if (err == 0) fprintf(stdout, ": fw 0x%04x ", fw);
         }
 
         if (calfr == 0x02  &&  option_verbose /*== 2*/) {
             byte = framebyte(pos_Calburst);
             burst = byte;   // fw >= 0x4ef5, BK irrelevant? (killtimer in 0x31?)
-            fprintf(stdout, ": BK %02X ", burst);
+            if (err == 0) fprintf(stdout, ": BK %02X ", burst);
         }
 
         if (calfr == 0x00  &&  option_verbose) {
@@ -1074,7 +1083,7 @@ int get_Calconf(int out) {
             byte = framebyte(pos_Calfreq+1);
             f1 = 40 * byte;
             freq = 400000 + f1+f0; // kHz;
-            fprintf(stdout, ": fq %d ", freq);
+            if (err == 0) fprintf(stdout, ": fq %d ", freq);
         }
 
         if (calfr == 0x21  &&  option_verbose /*== 2*/) {  // eventuell noch zwei bytes in 0x22
@@ -1084,7 +1093,7 @@ int get_Calconf(int out) {
                 if ((byte >= 0x20) && (byte < 0x7F)) sondetyp[i] = byte;
                 else if (byte == 0x00) sondetyp[i] = '\0';
             }
-            fprintf(stdout, ": %s ", sondetyp);
+            if (err == 0) fprintf(stdout, ": %s ", sondetyp);
         }
     }
 
@@ -1173,7 +1182,7 @@ int rs41_ecc(int frmlen) {
 /* ------------------------------------------------------------------------------------ */
 
 
-int print_position() {
+int print_position(int ec) {
     int i;
     int err, err0, err1, err2, err3;
     int output, out_mask;
@@ -1188,6 +1197,7 @@ int print_position() {
 
     out_mask = crc_FRAME|crc_GPS1|crc_GPS3;
     output = ((gpx.crc & out_mask) != out_mask);  // (!err || !err1 || !err3);
+
     if (output) {
 
         if (!err) {
@@ -1223,6 +1233,7 @@ int print_position() {
                 fprintf(stdout, " # [");
                 for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx.crc>>i)&1);
                 fprintf(stdout, "]");
+                if (option_ecc == 2 && ec >  0) fprintf(stdout, " (%d)", ec);
             }
         }
 
@@ -1241,9 +1252,14 @@ int print_position() {
 }
 
 void print_frame(int len) {
-    int i, ret = 0;
+    int i, ec = 0;
 
     gpx.crc = 0;
+
+/*
+    frame[pos_FRAME-1] == 0x0F: len == NDATA_LEN(320)
+    frame[pos_FRAME-1] == 0xF0: len == FRAME_LEN(518)
+*/
 
     for (i = len; i < FRAME_LEN; i++) {
         //xframe[i] = 0;
@@ -1251,7 +1267,7 @@ void print_frame(int len) {
     }
 
     if (option_ecc) {
-        ret = rs41_ecc(len);
+        ec = rs41_ecc(len);
     }
 
     if (option_raw) {
@@ -1262,12 +1278,15 @@ void print_frame(int len) {
         }
         fprintf(stdout, "\n");
 */
+        if (option_ecc == 2 && ec >=  0) {
+            if (len < FRAME_LEN && frame[FRAME_LEN-1] != 0) len = FRAME_LEN;
+        }
         for (i = 0; i < len; i++) {
             fprintf(stdout, "%02x", frame[i]);
         }
         if (option_ecc) {
-            if (ret >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
-            if (option_ecc == 2 && ret >  0) fprintf(stdout, " (%d)", ret);
+            if (ec >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
+            if (option_ecc == 2 && ec >  0) fprintf(stdout, " (%d)", ec);
         }
         fprintf(stdout, "\n");
 //        fprintf(stdout, "\n");
@@ -1276,7 +1295,7 @@ void print_frame(int len) {
         get_SatData();
     }
     else {
-        print_position();
+        print_position(ec);
     }
 }
 
@@ -1291,6 +1310,8 @@ int main(int argc, char *argv[]) {
         byte, i;
     int bit, len,
         frmlen = FRAME_LEN;
+    char *pbuf = NULL,
+         *buf_sp = NULL;
 
     int sumQ, bitQ, Qerror_count;
     double ratioQ;
@@ -1343,6 +1364,8 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--std2") == 0) { option_len = 2; frmlen = 518; }  // NDATA_LEN+XDATA_LEN
         else if   (strcmp(*argv, "--sat") == 0) { option_sat = 1; }
         else if   (strcmp(*argv, "--ptu") == 0) { option_ptu = 1; }
+        else if   (strcmp(*argv, "--rawin1") == 0) { rawin = 2; }     // raw_txt input1
+        else if   (strcmp(*argv, "--rawin2") == 0) { rawin = 3; }     // raw_txt input2
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -1356,113 +1379,148 @@ int main(int argc, char *argv[]) {
     if (!wavloaded) fp = stdin;
 
 
-    i = read_wav_header(fp);
-    if (i) {
-        fclose(fp);
-        return -1;
-    }
-
     if (option_ecc) {
         rs_init_RS255();
     }
 
-    if (option_b)
-    {
-        Nvar = 32*samples_per_bit;
-        bufvar  = (float *)calloc( Nvar+1, sizeof(float)); if (bufvar  == NULL) return -1;
-        for (i = 0; i < Nvar; i++) bufvar[i] = 0;
-    }
 
-    while (!read_bits_fsk(fp, &bit, &len)) {
+    if (!rawin) {
 
-        if (len == 0) { // reset_frame();
-            if (byte_count > pos_AUX) {
-                print_frame(byte_count);
-                bit_count = 0;
-                byte_count = FRAMESTART;
-                header_found = 0;
-            }
-            //inc_bufpos();
-            //buf[bufpos] = 'x';
-            continue;   // ...
+        i = read_wav_header(fp);
+        if (i) {
+            fclose(fp);
+            return -1;
         }
 
-        for (i = 0; i < len; i++) {
+        if (option_b)
+        {
+            Nvar = 32*samples_per_bit;
+            bufvar  = (float *)calloc( Nvar+1, sizeof(float)); if (bufvar  == NULL) return -1;
+            for (i = 0; i < Nvar; i++) bufvar[i] = 0;
+        }
 
-            inc_bufpos();
-            buf[bufpos] = 0x30 + bit;  // Ascii
+        while (!read_bits_fsk(fp, &bit, &len)) {
 
-            if (!header_found) {
-                if (compare() >= HEADLEN) header_found = 1;
-            }
-            else {
-                bitbuf[bit_count] = bit;
-                bit_count++;
-
-                if (bit_count == 8) {
+            if (len == 0) { // reset_frame();
+                if (byte_count > pos_AUX) {
+                    print_frame(byte_count);
                     bit_count = 0;
-                    byte = bits2byte(bitbuf);
-                    //xframe[byte_count] = byte;
-                    frame[byte_count] = byte ^ mask[byte_count % MASK_LEN];
-                    byte_count++;
-                    if (byte_count == frmlen) {
-                        byte_count = FRAMESTART;
-                        header_found = 0;
-                        print_frame(frmlen);
-                    }
+                    byte_count = FRAMESTART;
+                    header_found = 0;
                 }
+                //inc_bufpos();
+                //buf[bufpos] = 'x';
+                continue;   // ...
             }
 
-        }
-        if (header_found && option_b) {
-            bitstart = 1;
-            sumQ = 0;
-            Qerror_count = 0;
+            for (i = 0; i < len; i++) {
 
-            while ( byte_count < frmlen ) {
-                bitQ = read_rawbit(fp, &bit); // return: zeroX/bit (oder alternativ Varianz/bit)
-                if ( bitQ == EOF) break;
-                sumQ += bitQ; // zeroX/byte
-                bitbuf[bit_count] = bit;
-                bit_count++;
-                if (bit_count == 8) {
-                    bit_count = 0;
-                    byte = bits2byte(bitbuf);
-                    //xframe[byte_count] = byte;
-                    frame[byte_count] = byte ^ mask[byte_count % MASK_LEN];
+                inc_bufpos();
+                buf[bufpos] = 0x30 + bit;  // Ascii
 
-                    mu = xsum/(float)Nvar;
-                    bvar[byte_count] = qsum/(float)Nvar - mu*mu;
+                if (!header_found) {
+                    if (compare() >= HEADLEN) header_found = 1;
+                }
+                else {
+                    bitbuf[bit_count] = bit;
+                    bit_count++;
 
-                    if (byte_count > NDATA_LEN) {  // Fehler erst ab minimaler framelen Zaehlen
-                        //ratioQ = sumQ/samples_per_bit; // approx: bei Rauschen zeroX/byte leider nicht linear in sample_rate
-                        //if (ratioQ > 0.7) {            // sr=48k: 0.7, Schwelle, ab wann wahrscheinlich Rauschbit
-                        if (bvar[byte_count]*2 > bvar[byte_count-300]*3) { // Var(frame)/Var(noise) ca. 1:2
-                            Qerror_count += 1;
+                    if (bit_count == 8) {
+                        bit_count = 0;
+                        byte = bits2byte(bitbuf);
+                        //xframe[byte_count] = byte;
+                        frame[byte_count] = byte ^ mask[byte_count % MASK_LEN];
+                        byte_count++;
+                        if (byte_count == frmlen) {
+                            byte_count = FRAMESTART;
+                            header_found = 0;
+                            print_frame(frmlen);
                         }
                     }
-                    sumQ = 0; // Fenster fuer zeroXcount: 8 bit
+                }
 
-                    byte_count++;
-                }
-                if (Qerror_count > 4 && option_len == 0) { // ab byte 320 entscheiden, ob framelen = 320 oder 518
-                    if (byte_count > NDATA_LEN  && byte_count < NDATA_LEN+XDATA_LEN-10) {
-                        byte_count = NDATA_LEN;
-                    } // in print_frame() wird ab byte_count mit 00 aufgefuellt fuer Fehlerkorrektur
-                    break;
-                }
             }
-            header_found = 0;
-            print_frame(byte_count);
-            byte_count = FRAMESTART;
+            if (header_found && option_b) {
+                bitstart = 1;
+                sumQ = 0;
+                Qerror_count = 0;
+
+                while ( byte_count < frmlen ) {
+                    bitQ = read_rawbit(fp, &bit); // return: zeroX/bit (oder alternativ Varianz/bit)
+                    if ( bitQ == EOF) break;
+                    sumQ += bitQ; // zeroX/byte
+                    bitbuf[bit_count] = bit;
+                    bit_count++;
+                    if (bit_count == 8) {
+                        bit_count = 0;
+                        byte = bits2byte(bitbuf);
+                        //xframe[byte_count] = byte;
+                        frame[byte_count] = byte ^ mask[byte_count % MASK_LEN];
+
+                        mu = xsum/(float)Nvar;
+                        bvar[byte_count] = qsum/(float)Nvar - mu*mu;
+
+                        if (byte_count > NDATA_LEN) {  // Fehler erst ab minimaler framelen Zaehlen
+                            //ratioQ = sumQ/samples_per_bit; // approx: bei Rauschen zeroX/byte leider nicht linear in sample_rate
+                            //if (ratioQ > 0.7) {            // sr=48k: 0.7, Schwelle, ab wann wahrscheinlich Rauschbit
+                            if (bvar[byte_count]*2 > bvar[byte_count-300]*3) { // Var(frame)/Var(noise) ca. 1:2
+                                Qerror_count += 1;
+                            }
+                        }
+                        sumQ = 0; // Fenster fuer zeroXcount: 8 bit
+
+                        byte_count++;
+                    }
+                    if (Qerror_count > 4 && option_len == 0) { // ab byte 320 entscheiden, ob framelen = 320 oder 518
+                        if (byte_count > NDATA_LEN  && byte_count < NDATA_LEN+XDATA_LEN-10) {
+                            byte_count = NDATA_LEN;
+                        } // in print_frame() wird ab byte_count mit 00 aufgefuellt fuer Fehlerkorrektur
+                        break;
+                    }
+                }
+                header_found = 0;
+                print_frame(byte_count);
+                byte_count = FRAMESTART;
+
+            }
 
         }
 
-    }
+        if (option_b)
+        {
+            if (bufvar)  { free(bufvar); bufvar = NULL; }
+        }
 
-    if (option_b)
+    }
+    else //if (rawin)
     {
-        if (bufvar)  { free(bufvar); bufvar = NULL; }
+        if (rawin == 3) frameofs = 8;
+        else            frameofs = 0;
+
+        while (1 > 0) {
+
+            pbuf = fgets(buffer_rawin, rawin*FRAME_LEN+12, fp);
+            if (pbuf == NULL) break;
+            buffer_rawin[rawin*FRAME_LEN] = '\0';
+            if (rawin == 2) {
+                buf_sp = strchr(buffer_rawin, ' ');
+                if (buf_sp != NULL && buf_sp-buffer_rawin < rawin*FRAME_LEN) {
+                    buffer_rawin[buf_sp-buffer_rawin] = '\0';
+                }
+            }
+            len = strlen(buffer_rawin) / rawin;
+            if (len > pos_SondeID+10) {
+                for (i = 0; i < len; i++) { //%2x  SCNx8=%hhx(inttypes.h)
+                    sscanf(buffer_rawin+rawin*i, "%2hhx", frame+frameofs+i);
+                    // wenn ohne %hhx: sscanf(buffer_rawin+rawin*i, "%2x", &byte); frame[frameofs+i] = (ui8_t)byte;
+                }
+                if (rawin == 3) {
+                    len += frameofs;
+                    if ((frame[NDATA_LEN-1]<<8)+frame[NDATA_LEN-2] == 0xc7ec) len = NDATA_LEN; //**//
+                }
+                print_frame(len);
+            }
+        }
     }
 
     fclose(fp);
