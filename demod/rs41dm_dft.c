@@ -1075,7 +1075,8 @@ void print_frame(int len) {
         frame[FRAME_LEN-2] = 0;
         frame[FRAME_LEN-1] = 0;
     }
-    len = FRAME_LEN;
+    if (len > NDATA_LEN) len = FRAME_LEN;
+    else                 len = NDATA_LEN;
 
 
     if (option_ecc) {
