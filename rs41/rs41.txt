@@ -225,7 +225,7 @@ HEADER     8
 RS-PARITY  48 = 2*24 
 DATA       264-462  (max 2*231=462)
 
-DATA hat zu Beginn z.B. 0F oder F0,
+DATA hat zu Beginn 0F (std_len=320) oder F0 (aux_len=518),
 dann Bloecke der Form IDLEN|DAT|CRC16:
 IDLEN      2  (ID+LEN)
 DAT        LEN

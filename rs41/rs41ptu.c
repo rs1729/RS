@@ -1100,6 +1100,20 @@ int get_Calconf(int out) {
     return 0;
 }
 
+/*
+  frame[pos_FRAME-1] == 0x0F: len == NDATA_LEN(320)
+  frame[pos_FRAME-1] == 0xF0: len == FRAME_LEN(518)
+*/
+int frametype() { // -4..+4: 0xF0 -> -4 , 0x0F -> +4
+    int i;
+    ui8_t b = frame[pos_FRAME-1];
+    int ft = 0;
+    for (i = 0; i < 4; i++) {
+        ft += ((b>>i)&1) - ((b>>(i+4))&1);
+    }
+    return ft;
+}
+
 /* ------------------------------------------------------------------------------------ */
 /*
    (uses fec-lib by KA9Q)
@@ -1150,6 +1164,23 @@ int rs41_ecc(int frmlen) {
 
     errors1 = rs_decode(cw1, err_pos1, err_val1);
     errors2 = rs_decode(cw2, err_pos2, err_val2);
+
+
+    if (option_ecc == 2 && (errors1 < 0 || errors2 < 0)) {
+        frame[pos_FRAME] = (pck_FRAME>>8)&0xFF; frame[pos_FRAME+1] = pck_FRAME&0xFF;
+        frame[pos_PTU]   = (pck_PTU  >>8)&0xFF; frame[pos_PTU  +1] = pck_PTU  &0xFF;
+        frame[pos_GPS1]  = (pck_GPS1 >>8)&0xFF; frame[pos_GPS1 +1] = pck_GPS1 &0xFF;
+        frame[pos_GPS2]  = (pck_GPS2 >>8)&0xFF; frame[pos_GPS2 +1] = pck_GPS2 &0xFF;
+        frame[pos_GPS3]  = (pck_GPS3 >>8)&0xFF; frame[pos_GPS3 +1] = pck_GPS3 &0xFF;
+        if (frametype() < -2) {
+            for (i = NDATA_LEN + 7; i < FRAME_LEN-2; i++) frame[i] = 0;
+        }
+        for (i = 0; i < rs_K; i++) cw1[rs_R+i] = frame[cfg_rs41.msgpos+2*i  ];
+        for (i = 0; i < rs_K; i++) cw2[rs_R+i] = frame[cfg_rs41.msgpos+2*i+1];
+        errors1 = rs_decode(cw1, err_pos1, err_val1);
+        errors2 = rs_decode(cw2, err_pos2, err_val2);
+    }
+
 
     // Wenn Fehler im 00-padding korrigiert wurden,
     // war entweder der frame zu kurz, oder
@@ -1252,19 +1283,31 @@ int print_position(int ec) {
 }
 
 void print_frame(int len) {
-    int i, ec = 0;
+    int i, ec = 0, ft;
 
     gpx.crc = 0;
 
-/*
-    frame[pos_FRAME-1] == 0x0F: len == NDATA_LEN(320)
-    frame[pos_FRAME-1] == 0xF0: len == FRAME_LEN(518)
-*/
+    //frame[pos_FRAME-1] == 0x0F: len == NDATA_LEN(320)
+    //frame[pos_FRAME-1] == 0xF0: len == FRAME_LEN(518)
+    ft = frametype();
+    if (ft > 2) len = NDATA_LEN;
+    // STD-frames mit 00 auffuellen fuer Fehlerkorrektur
+    if (len > NDATA_LEN  &&  len < NDATA_LEN+XDATA_LEN-10) {
+        if (ft < -2) {
+            len = NDATA_LEN + 7; // std-O3-AUX-frame
+        }
+    }
+    // AUX-frames mit vielen Fehlern besser mit 00 auffuellen
 
-    for (i = len; i < FRAME_LEN; i++) {
-        //xframe[i] = 0;
+    for (i = len; i < FRAME_LEN-2; i++) {
         frame[i] = 0;
     }
+    if (ft > 2 || len == NDATA_LEN) {
+        frame[FRAME_LEN-2] = 0;
+        frame[FRAME_LEN-1] = 0;
+    }
+    len = FRAME_LEN;
+
 
     if (option_ecc) {
         ec = rs41_ecc(len);
@@ -1278,7 +1321,7 @@ void print_frame(int len) {
         }
         fprintf(stdout, "\n");
 */
-        if (option_ecc == 2 && ec >=  0) {
+        if (option_ecc == 2 && ec >= 0) {
             if (len < FRAME_LEN && frame[FRAME_LEN-1] != 0) len = FRAME_LEN;
         }
         for (i = 0; i < len; i++) {
@@ -1306,6 +1349,7 @@ int main(int argc, char *argv[]) {
     char bitbuf[8];
     int bit_count = 0,
         byte_count = FRAMESTART,
+        ft_len = FRAME_LEN,
         header_found = 0,
         byte, i;
     int bit, len,
@@ -1444,6 +1488,7 @@ int main(int argc, char *argv[]) {
                 bitstart = 1;
                 sumQ = 0;
                 Qerror_count = 0;
+                ft_len = frmlen;
 
                 while ( byte_count < frmlen ) {
                     bitQ = read_rawbit(fp, &bit); // return: zeroX/bit (oder alternativ Varianz/bit)
@@ -1471,17 +1516,14 @@ int main(int argc, char *argv[]) {
 
                         byte_count++;
                     }
-                    if (Qerror_count > 4 && option_len == 0) { // ab byte 320 entscheiden, ob framelen = 320 oder 518
-                        if (byte_count > NDATA_LEN  && byte_count < NDATA_LEN+XDATA_LEN-10) {
-                            byte_count = NDATA_LEN;
-                        } // in print_frame() wird ab byte_count mit 00 aufgefuellt fuer Fehlerkorrektur
-                        break;
+                    if (Qerror_count == 4 && option_len == 0) { // framelen = 320 oder 518
+                        ft_len = byte_count;
+                        Qerror_count += 1;
                     }
                 }
                 header_found = 0;
-                print_frame(byte_count);
+                print_frame(ft_len);
                 byte_count = FRAMESTART;
-
             }
 
         }
