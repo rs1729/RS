@@ -2,7 +2,7 @@
 /* big endian forest
  *
  * gcc -o m10x m10x.c -lm
- *
+ * M10 w/ trimble GPS
  */
 
 
@@ -39,7 +39,6 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_avg = 0,      // moving average
     option_b = 0,
     option_color = 0,
-    option_rawbits = 0,
     option_ptu = 0,
     wavloaded = 0;
 
@@ -228,17 +227,16 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
 }
 
 int bitstart = 0;
+unsigned long scount = 0;
 int read_rawbit(FILE *fp, int *bit) {
     int sample;
-    int n, sum;
+    int sum;
 
     sum = 0;
-    n = 0;
 
-    if (bitstart)
-    {
-        n = 1;    // d.h. bitgrenze = sample_count-1 (?)
-        bitgrenze = sample_count-1;
+    if (bitstart) {
+        scount = 0;    // eigentlich scount = 1
+        bitgrenze = 0; //   oder bitgrenze = -1
         bitstart = 0;
     }
     bitgrenze += samples_per_bit;
@@ -249,8 +247,48 @@ int read_rawbit(FILE *fp, int *bit) {
         //sample_count++; // in read_signed_sample()
         //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
         sum += sample;
-        n++;
-    } while (sample_count < bitgrenze);  // n < samples_per_bit
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
+
+    if (sum >= 0) *bit = 1;
+    else          *bit = 0;
+
+    if (option_inv) *bit ^= 1;
+
+    return 0;
+}
+
+int read_rawbit2(FILE *fp, int *bit) {
+    int sample;
+    int sum;
+
+    sum = 0;
+
+    if (bitstart) {
+        scount = 0;    // eigentlich scount = 1
+        bitgrenze = 0; //   oder bitgrenze = -1
+        bitstart = 0;
+    }
+
+    bitgrenze += samples_per_bit;
+    do {
+        sample = read_signed_sample(fp);
+        if (sample == EOF_INT) return EOF;
+        //sample_count++; // in read_signed_sample()
+        //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
+        sum += sample;
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
+
+    bitgrenze += samples_per_bit;
+    do {
+        sample = read_signed_sample(fp);
+        if (sample == EOF_INT) return EOF;
+        //sample_count++; // in read_signed_sample()
+        //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
+        sum -= sample;
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
 
     if (sum >= 0) *bit = 1;
     else          *bit = 0;
@@ -273,23 +311,30 @@ dduudduudduudduu duduudduuduudduu  ddududuudduduudd uduuddududududud uudduduuddu
 #define BITS 8
 #define HEADLEN 32  // HEADLEN+HEADOFS=32 <= strlen(header)
 #define HEADOFS  0
-                 // Sync-Header                     // Sonde-Header
-char header[] = "11001100110011001010011001001100"; //"011001001001111100100000"; // M10: 64 9F 20 , M2K2: 64 8F 20
-                                                    //"011101101001111100100000"; // M??: 76 9F 20
+                 // Sync-Header (raw)               // Sonde-Header (bits)
+//char head[] = "11001100110011001010011001001100"; //"011001001001111100100000"; // M10: 64 9F 20 , M2K2: 64 8F 20
+                                                    //"011101101001111100100000"; // M10: 76 9F 20 , aux-data?
                                                     //"011001000100100100001001"; // M10-dop: 64 49 09
+char header[] =  "10011001100110010100110010011001";
 
-#define FRAME_LEN        102
+#define FRAME_LEN       (100+1)   // 0x64+1
 #define BITFRAME_LEN    (FRAME_LEN*BITS)
 #define RAWBITFRAME_LEN (BITFRAME_LEN*2)
 
 char buf[HEADLEN];
 int bufpos = -1;
 
-ui8_t frame_bytes[FRAME_LEN+10];
 
 #define FRAMESTART 0
-char frame_rawbits[RAWBITFRAME_LEN+8];  // frame_rawbits-32="11001100110011001010011001001100";
-char frame_bits[BITFRAME_LEN+4];
+#define AUX_LEN        20
+#define BITAUX_LEN    (AUX_LEN*BITS)
+#define RAWBITAUX_LEN (BITAUX_LEN*2)
+
+ui8_t frame_bytes[FRAME_LEN+AUX_LEN+2];
+char frame_rawbits[RAWBITFRAME_LEN+RAWBITAUX_LEN+16];  // frame_rawbits-32="11001100110011001010011001001100";
+char frame_bits[BITFRAME_LEN+BITAUX_LEN+8];
+
+int auxlen = 0; // 0 .. 0x76-0x64
 
 
 void inc_bufpos() {
@@ -338,7 +383,7 @@ int bits2bytes(char *bitstr, ui8_t *bytes) {
     bitpos = 0;
     bytepos = 0;
 
-    while (bytepos < FRAME_LEN) {
+    while (bytepos < FRAME_LEN+AUX_LEN) {
 
         byteval = 0;
         d = 1;
@@ -355,7 +400,7 @@ int bits2bytes(char *bitstr, ui8_t *bytes) {
 
     }
 
-    //while (bytepos < FRAME_LEN) bytes[bytepos++] = 0;
+    //while (bytepos < FRAME_LEN+AUX_LEN) bytes[bytepos++] = 0;
 
     return 0;
 }
@@ -368,7 +413,7 @@ void psk_bpm(char* frame_rawbits, char *frame_bits) {
     char bit;
     //int err = 0;
 
-    for (i = 0; i < BITFRAME_LEN; i++) {
+    for (i = 0; i < BITFRAME_LEN+BITAUX_LEN; i++) {
 
         //if (i > 0 && (frame_rawbits[2*i] == frame_rawbits[2*i-1])) err = 1;
 
@@ -382,19 +427,64 @@ void psk_bpm(char* frame_rawbits, char *frame_bits) {
     }
 }
 
+/*
+Header = Sync-Header + Sonde-Header:
+1100110011001100 1010011001001100  1101010011010011 0100110101010101 0011010011001100
+uudduudduudduudd ududduuddudduudd  uudududduududduu dudduudududududu dduududduudduudd (oder:)
+dduudduudduudduu duduudduuduudduu  ddududuudduduudd uduuddududududud uudduduudduudduu (komplement)
+ 0 0 0 0 0 0 0 0  1 1 - - - 0 0 0   0 1 1 0 0 1 0 0  1 0 0 1 1 1 1 1  0 0 1 0 0 0 0 0
+*/
+/*
+110101001101001101001101010101010011010011001100
+ 101010011010011010011010101010100110100110011001011001100101011001100110011001100110011001100101100110011001100110011001100101010101010101010101010101101010100110011010011001011001011010101010010101100110100110010101100110011001011001100110100101011010101001100101010101101010011001010101100110010110100110010101100101100101100110101010011001100110010110011001100110011001100110100101011010101001101010100101100101100110011001100110011001100110011001100110011001011001101010011001100110011010101001100101100110100110011001010101101001100110010110011010100110100110011010100110011001010101101001100110010101100110011010101001100110101001100110011001100101100110011001100110011001100110011001100110011001100110011001100110011001100110011001100110011010011010100110100110011001100110011001100110011001100101101001011010100101101001101001100110100110100110010110010110101010010110010110011001011001010101010101010110011001100110011010011010100110011001011001100110011001100110011001100110011001100110011001100110101001011010011010010110010110010101010110010110011001101001101010101010011010100110011010011010011010100110101001100110011010100110010110011001010110101001101001100110100101011001100110011010011001100110011001100110010101011001100110011001100110100110101001100110011001100110011001100110011001100110011001100110011001100110011001100110011001100110011010101001101001011001100101010101100110101001011001100110011001100110101001010110011001100110010110011001010110011001100110011001100110011001011001100101011010100101100110010110101001101001011001101001011001101010011010010110101001010101100110011001101010100110011001100000
+*/
+int dpsk_bpm(char* frame_rawbits, char *frame_bits, int len) {
+    int i;
+    char bit;
+    char bit0;
+    //int err = 0;
+
+    bit0 = (frame_rawbits[0] & 1) ^ 1;
+
+    for (i = 0; i < len/2; i++) {
+
+        if ((frame_rawbits[2*i  ] & 1) == 1 &&
+            (frame_rawbits[2*i+1] & 1) == 0   ) bit = 1;
+   else if ((frame_rawbits[2*i  ] & 1) == 0 &&
+            (frame_rawbits[2*i+1] & 1) == 1   ) bit = 0;
+        else {
+                bit = 2;
+                frame_bits[i] = 'x';
+                bit0 = bit&1;
+                continue;
+                //err = 1;
+             }
+
+        if (bit0 == bit) frame_bits[i] = '1';
+        else             frame_bits[i] = '0';
+// frame_bits[i] = 0x31 ^ (bit0 ^ bit);
+
+        bit0 = bit;
+
+    }
+
+    return bit0;
+}
+
 /* -------------------------------------------------------------------------- */
 
+#define stdFLEN        0x64  // pos[0]=0x64
 #define pos_GPSTOW     0x0A  // 4 byte
 #define pos_GPSlat     0x0E  // 4 byte
 #define pos_GPSlon     0x12  // 4 byte
 #define pos_GPSalt     0x16  // 4 byte
 #define pos_GPSweek    0x20  // 2 byte
 //Velocity East-North-Up (ENU)
-#define pos_GPSvO  0x04  // 2 byte
-#define pos_GPSvN  0x06  // 2 byte
-#define pos_GPSvV  0x08  // 2 byte
-#define pos_SN     0x5D  // 2+3 byte
-#define pos_Check  0x63  // 2 byte
+#define pos_GPSvE      0x04  // 2 byte
+#define pos_GPSvN      0x06  // 2 byte
+#define pos_GPSvU      0x08  // 2 byte
+#define pos_SN         0x5D  // 2+3 byte
+#define pos_Check     (stdFLEN-1)  // 2 byte
 
 
 #define ANSI_COLOR_RED     "\x1b[31m"
@@ -557,7 +647,7 @@ int get_GPSvel() {
     const double ms2kn100 = 2e2;  // m/s -> knots: 1 m/s = 3.6/1.852 kn = 1.94 kn
 
     for (i = 0; i < 2; i++) {
-        byte = frame_bytes[pos_GPSvO + i];
+        byte = frame_bytes[pos_GPSvE + i];
         gpsVel_bytes[i] = byte;
     }
     vel16 = gpsVel_bytes[0] << 8 | gpsVel_bytes[1];
@@ -584,7 +674,7 @@ int get_GPSvel() {
     datum.vD = dir;
 
     for (i = 0; i < 2; i++) {
-        byte = frame_bytes[pos_GPSvV + i];
+        byte = frame_bytes[pos_GPSvU + i];
         gpsVel_bytes[i] = byte;
     }
     vel16 = gpsVel_bytes[0] << 8 | gpsVel_bytes[1];
@@ -880,8 +970,8 @@ int print_pos(int csOK) {
             if (option_verbose) {
                 err |= get_GPSvel();
                 if (!err) {
-                    //if (option_verbose == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f°)"col_TXT" ", datum.vx, datum.vy, datum.vD2);
-                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f°"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", datum.vH, datum.vD, datum.vV);
+                    //if (option_verbose == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", datum.vx, datum.vy, datum.vD2);
+                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"°  vV: "col_GPSvel"%.1f"col_TXT" ", datum.vH, datum.vD, datum.vV);
                 }
                 if (option_verbose >= 2) {
                     get_SN();
@@ -948,31 +1038,36 @@ void print_frame(int pos) {
     int i;
     ui8_t byte;
     int cs1, cs2;
+    int flen = stdFLEN; // stdFLEN=0x64, auxFLEN=0x76
 
-    psk_bpm(frame_rawbits, frame_bits);
-    bits2bytes(frame_bits, frame_bytes);
-
-    cs1 = (frame_bytes[pos_Check] << 8) | frame_bytes[pos_Check+1];
-    cs2 = checkM10(frame_bytes, pos_Check);
-
-    if (option_rawbits == 1) {
-        fprintf(stdout, "%s\n", frame_rawbits);
+    if (option_b < 2) {
+        dpsk_bpm(frame_rawbits, frame_bits, RAWBITFRAME_LEN+RAWBITAUX_LEN);
     }
-    else
+    bits2bytes(frame_bits, frame_bytes);
+    flen = frame_bytes[0];
+    if (flen == stdFLEN) auxlen = 0;
+    else {
+        auxlen = flen - stdFLEN;
+        if (auxlen < 0 || auxlen > AUX_LEN) auxlen = 0;
+    }
+
+    cs1 = (frame_bytes[pos_Check+auxlen] << 8) | frame_bytes[pos_Check+auxlen+1];
+    cs2 = checkM10(frame_bytes, pos_Check+auxlen);
+
     if (option_raw) {
 
         if (option_color  &&  frame_bytes[1] != 0x49) {
             fprintf(stdout, col_FRTXT);
-            for (i = 0; i < FRAME_LEN-1; i++) {
+            for (i = 0; i < FRAME_LEN+auxlen; i++) {
                 byte = frame_bytes[i];
                 if ((i >= pos_GPSTOW)   &&  (i < pos_GPSTOW+4))   fprintf(stdout, col_GPSTOW);
                 if ((i >= pos_GPSlat)   &&  (i < pos_GPSlat+4))   fprintf(stdout, col_GPSlat);
                 if ((i >= pos_GPSlon)   &&  (i < pos_GPSlon+4))   fprintf(stdout, col_GPSlon);
                 if ((i >= pos_GPSalt)   &&  (i < pos_GPSalt+4))   fprintf(stdout, col_GPSalt);
                 if ((i >= pos_GPSweek)  &&  (i < pos_GPSweek+2))  fprintf(stdout, col_GPSweek);
-                if ((i >= pos_GPSvO)    &&  (i < pos_GPSvO+6))    fprintf(stdout, col_GPSvel);
+                if ((i >= pos_GPSvE)    &&  (i < pos_GPSvE+6))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_SN)       &&  (i < pos_SN+5))       fprintf(stdout, col_SN);
-                if ((i >= pos_Check)    &&  (i < pos_Check+2))    fprintf(stdout, col_Check);
+                if ((i >= pos_Check+auxlen)  &&  (i < pos_Check+auxlen+2))  fprintf(stdout, col_Check);
                 fprintf(stdout, "%02x", byte);
                 fprintf(stdout, col_FRTXT);
             }
@@ -984,7 +1079,7 @@ void print_frame(int pos) {
             fprintf(stdout, ANSI_COLOR_RESET"\n");
         }
         else {
-            for (i = 0; i < FRAME_LEN-1; i++) {
+            for (i = 0; i < FRAME_LEN+auxlen; i++) {
                 byte = frame_bytes[i];
                 fprintf(stdout, "%02x", byte);
             }
@@ -998,7 +1093,7 @@ void print_frame(int pos) {
     }
     else if (frame_bytes[1] == 0x49) {
         if (option_verbose == 3) {
-            for (i = 0; i < FRAME_LEN-1; i++) {
+            for (i = 0; i < FRAME_LEN+auxlen; i++) {
                 byte = frame_bytes[i];
                 fprintf(stdout, "%02x", byte);
             }
@@ -1014,7 +1109,8 @@ int main(int argc, char **argv) {
 
     FILE *fp;
     char *fpname;
-    int i, bit, len;
+    int i, len;
+    int bit, bit0;
     int pos;
     int header_found = 0;
 
@@ -1054,10 +1150,8 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "--avg") == 0) ) {
             option_avg = 1;
         }
-        else if   (strcmp(*argv, "-b") == 0) { option_b = 1; }
-        else if ( (strcmp(*argv, "--rawbits") == 0) ) {
-            option_rawbits = 1;
-        }
+        else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
+        else if   (strcmp(*argv, "-b2") == 0) { option_b = 2; }
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
             option_ptu = 1;
         }
@@ -1087,7 +1181,7 @@ int main(int argc, char **argv) {
 
         if (len == 0) { // reset_frame();
             if (pos > (pos_GPSweek+2)*2*BITS) {
-                for (i = pos; i < RAWBITFRAME_LEN; i++) frame_rawbits[i] = 0x30 + 0;
+                for (i = pos; i < RAWBITFRAME_LEN+RAWBITAUX_LEN; i++) frame_rawbits[i] = 0x30 + 0;
                 print_frame(pos);//byte_count
                 header_found = 0;
                 pos = FRAMESTART;
@@ -1109,7 +1203,7 @@ int main(int argc, char **argv) {
                 frame_rawbits[pos] = 0x30 + bit;  // Ascii
                 pos++;
 
-                if (pos == RAWBITFRAME_LEN) {
+                if (pos == RAWBITFRAME_LEN+RAWBITAUX_LEN) {
                     frame_rawbits[pos] = '\0';
                     print_frame(pos);//FRAME_LEN
                     header_found = 0;
@@ -1118,16 +1212,40 @@ int main(int argc, char **argv) {
             }
 
         }
-        if (header_found && option_b) {
+        if (header_found && option_b==1) {
             bitstart = 1;
 
-            while ( pos < RAWBITFRAME_LEN ) {
+            while ( pos < RAWBITFRAME_LEN+RAWBITAUX_LEN ) {
                 if (read_rawbit(fp, &bit) == EOF) break;
                 frame_rawbits[pos] = 0x30 + bit;
                 pos++;
             }
             frame_rawbits[pos] = '\0';
-            print_frame(pos);//FRAME_LEN
+            print_frame(pos);
+            header_found = 0;
+            pos = FRAMESTART;
+        }
+        if (header_found && option_b>=2) {
+            bitstart = 1;
+            bit0 = 0;
+
+            if (pos%2) {
+                if (read_rawbit(fp, &bit) == EOF) break;
+                    frame_rawbits[pos] = 0x30 + bit;
+                    pos++;
+            }
+
+            bit0 = dpsk_bpm(frame_rawbits, frame_bits, pos);
+            pos /= 2;
+
+            while ( pos < BITFRAME_LEN+BITAUX_LEN ) {
+                if (read_rawbit2(fp, &bit) == EOF) break;
+                frame_bits[pos] = 0x31 ^ (bit0 ^ bit);
+                pos++;
+                bit0 = bit;
+            }
+            frame_bits[pos] = '\0';
+            print_frame(pos);
             header_found = 0;
             pos = FRAMESTART;
         }
