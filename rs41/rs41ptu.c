@@ -686,7 +686,7 @@ int get_FrameConf() {
     if (crc == 0) {
         calfr = framebyte(pos_CalData);
         if (calfrchk[calfr] == 0) // const?
-        {
+        {                         // 0x32 not constant
             for (i = 0; i < 16; i++) {
                 calibytes[calfr*16 + i] = framebyte(pos_CalData+1+i);
             }
@@ -1261,9 +1261,26 @@ int print_position(int ec) {
         //if (output)
         {
             if (option_crc) {
-                fprintf(stdout, " # [");
-                for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx.crc>>i)&1);
-                fprintf(stdout, "]");
+                fprintf(stdout, " # ");
+                if (option_ecc && ec >= 0 && (gpx.crc & 0x1F) != 0) {
+                    int pos, blk, len, crc;   // unexpected blocks
+                    int flen = NDATA_LEN;
+                    if (frametype() < 0) flen += XDATA_LEN;
+                    pos = pos_FRAME;
+                    while (pos < flen-1) {
+                        blk = frame[pos];     // 0x80XX: encrypted block
+                        len = frame[pos+1];   // 0x76XX: 00-padding block
+                        crc = check_CRC(pos, blk<<8);
+                        fprintf(stdout, " %02X%02X", frame[pos], frame[pos+1]);
+                        fprintf(stdout, "[%d]", crc&1);
+                        pos = pos+2+len+2;
+                    }
+                }
+                else {
+                    fprintf(stdout, "[");
+                    for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx.crc>>i)&1);
+                    fprintf(stdout, "]");
+                }
                 if (option_ecc == 2 && ec > 0) fprintf(stdout, " (%d)", ec);
             }
         }
