@@ -80,6 +80,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_der = 0,      // linErr
     option_ths = 0,
     rawin = 0;
+int wav_channel = 0;     // audio channel: left
 double dop_limit = 9.9;
 double d_err = 10000;
 
@@ -1327,6 +1328,7 @@ int main(int argc, char *argv[]) {
         else if (strcmp(*argv, "-g2") == 0) { option_vergps = 2; }  //  verbose2 GPS (bancroft)
         else if (strcmp(*argv, "-gg") == 0) { option_vergps = 8; }  // vverbose GPS
         else if (strcmp(*argv, "--ecc") == 0) { option_ecc = 1; }
+        else if (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
         else if (strcmp(*argv, "--ths") == 0) {
             ++argv;
             if (*argv) {
@@ -1371,7 +1373,7 @@ int main(int argc, char *argv[]) {
     }
 
 
-    spb = read_wav_header(fp, (float)BAUD_RATE);
+    spb = read_wav_header(fp, (float)BAUD_RATE, wav_channel);
     if ( spb < 0 ) {
         fclose(fp);
         fprintf(stderr, "error: wav header\n");

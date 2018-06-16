@@ -167,6 +167,7 @@ int getCorrDFT(int abs, int K, unsigned int pos, float *maxv, unsigned int *maxv
 
 static int sample_rate = 0, bits_sample = 0, channels = 0;
 static float samples_per_bit = 0;
+static int wav_ch = 0;  // 0: links bzw. mono; 1: rechts
 
 static int findstr(char *buff, char *str, int pos) {
     int i;
@@ -176,7 +177,7 @@ static int findstr(char *buff, char *str, int pos) {
     return i;
 }
 
-float read_wav_header(FILE *fp, float baudrate) {
+float read_wav_header(FILE *fp, float baudrate, int wav_channel) {
     char txt[4+1] = "\0\0\0\0";
     unsigned char dat[4];
     int byte, p=0;
@@ -224,6 +225,10 @@ float read_wav_header(FILE *fp, float baudrate) {
     fprintf(stderr, "bits       : %d\n", bits_sample);
     fprintf(stderr, "channels   : %d\n", channels);
 
+    if (wav_channel >= 0  &&  wav_channel < channels) wav_ch = wav_channel;
+    else wav_ch = 0;
+    fprintf(stderr, "channel-In : %d\n", wav_ch+1);
+
     if ((bits_sample != 8) && (bits_sample != 16)) return -1;
 
     samples_per_bit = sample_rate/baudrate;
@@ -241,7 +246,7 @@ static int f32read_sample(FILE *fp, float *s) {
 
         if (fread( &b, bits_sample/8, 1, fp) != 1) return EOF;
 
-        if (i == 0) {  // i = 0: links bzw. mono
+        if (i == wav_ch) {  // i = 0: links bzw. mono
             //if (bits_sample ==  8)  sint = b-128;   // 8bit: 00..FF, centerpoint 0x80=128
             //if (bits_sample == 16)  sint = (short)b;
 

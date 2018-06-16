@@ -50,6 +50,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_ptu = 0,
     option_dc = 0,
     wavloaded = 0;
+int wav_channel = 0;     // audio channel: left
 
 /* -------------------------------------------------------------------------- */
 /*
@@ -825,7 +826,8 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "--dc") == 0) ) {
             option_dc = 1;
         }
-        else if   (strcmp(*argv, "--ths") == 0) {
+        else if ( (strcmp(*argv, "--ch2") == 0) ) { wav_channel = 1; }  // right channel (default: 0=left)
+        else if ( (strcmp(*argv, "--ths") == 0) ) {
             ++argv;
             if (*argv) {
                 thres = atof(*argv);
@@ -845,7 +847,7 @@ int main(int argc, char **argv) {
     if (!wavloaded) fp = stdin;
 
 
-    spb = read_wav_header(fp, (float)BAUD_RATE);
+    spb = read_wav_header(fp, (float)BAUD_RATE, wav_channel);
     if ( spb < 0 ) {
         fclose(fp);
         fprintf(stderr, "error: wav header\n");

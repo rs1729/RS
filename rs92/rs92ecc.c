@@ -111,6 +111,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_aux = 0,      // Aux/Ozon
     option_der = 0,      // linErr
     rawin = 0;
+int wav_channel = 0;     // audio channel: left
 double dop_limit = 9.9;
 double d_err = 10000;
 
@@ -244,18 +245,18 @@ unsigned long sample_count = 0;
 double bitgrenze = 0;
 
 int read_signed_sample(FILE *fp) {  // int = i32_t
-    int byte, i, sample, s=0;       // EOF -> 0x1000000
+    int byte, i, sample=0, s=0;     // EOF -> 0x1000000
 
     for (i = 0; i < channels; i++) {
                            // i = 0: links bzw. mono
         byte = fgetc(fp);
         if (byte == EOF) return EOF_INT;
-        if (i == 0) sample = byte;
+        if (i == wav_channel) sample = byte;
 
         if (bits_sample == 16) {
             byte = fgetc(fp);
             if (byte == EOF) return EOF_INT;
-            if (i == 0) sample +=  byte << 8;
+            if (i == wav_channel) sample +=  byte << 8;
         }
 
     }
@@ -1561,6 +1562,7 @@ int main(int argc, char *argv[]) {
         }
         else if   (strcmp(*argv, "-b") == 0) { option_b = 1; }
         else if   (strcmp(*argv, "--ecc") == 0) { option_ecc = 1; }
+        else if   (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
         else {
             if (!rawin) fp = fopen(*argv, "rb");
             else        fp = fopen(*argv, "r");

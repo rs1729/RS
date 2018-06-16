@@ -1,5 +1,5 @@
 
-float read_wav_header(FILE*, float);
+float read_wav_header(FILE*, float, int);
 int f32buf_sample(FILE*, int, int);
 int read_sbit(FILE*, int, int*, int, int, int, int);
 
