@@ -142,13 +142,14 @@ typedef int PaStreamCallback(
 
 // load WIN-DLL
 
-// prototypes ( __cdecl -> WINAPIV* , __stdcall -> WINAPI*)
+// prototypes ( __cdecl -> WINAPIV , __stdcall -> WINAPI )
+#define CALLCONV WINAPIV  // __cdecl
 
-typedef int (WINAPIV* t_Pa_Initialize)(void);
-typedef int (WINAPIV* t_Pa_GetDefaultInputDevice)(void);
-typedef int (WINAPIV* t_Pa_GetDeviceCount)(void);
+typedef int (CALLCONV* t_Pa_Initialize)(void);
+typedef int (CALLCONV* t_Pa_GetDefaultInputDevice)(void);
+typedef int (CALLCONV* t_Pa_GetDeviceCount)(void);
 
-typedef PaDeviceInfo* (WINAPIV* t_Pa_GetDeviceInfo)(PaDeviceIndex device);
+typedef PaDeviceInfo* (CALLCONV* t_Pa_GetDeviceInfo)(PaDeviceIndex device);
 
 t_Pa_Initialize             Pa_Initialize;
 t_Pa_GetDefaultInputDevice  Pa_GetDefaultInputDevice;
@@ -156,13 +157,13 @@ t_Pa_GetDeviceCount         Pa_GetDeviceCount;
 t_Pa_GetDeviceInfo          Pa_GetDeviceInfo;
 
 
-typedef int   (WINAPIV* t_Pa_OpenStream)(PaStream**,PaStreamParameters*,PaStreamParameters*,double,
-                                        unsigned long,PaStreamFlags,PaStreamCallback*,void*);
-typedef int   (WINAPIV* t_Pa_StartStream)(PaStream *);
-typedef int   (WINAPIV* t_Pa_ReadStream)(PaStream*,void *,unsigned long);
-typedef int   (WINAPIV* t_Pa_CloseStream)(PaStream*);
-typedef int   (WINAPIV* t_Pa_Terminate)(void);
-typedef char* (WINAPIV* t_Pa_GetErrorText)(PaError);
+typedef int   (CALLCONV* t_Pa_OpenStream)(PaStream**,PaStreamParameters*,PaStreamParameters*,double,
+                                          unsigned long,PaStreamFlags,PaStreamCallback*,void*);
+typedef int   (CALLCONV* t_Pa_StartStream)(PaStream*);
+typedef int   (CALLCONV* t_Pa_ReadStream)(PaStream*,void*,unsigned long);
+typedef int   (CALLCONV* t_Pa_CloseStream)(PaStream*);
+typedef int   (CALLCONV* t_Pa_Terminate)(void);
+typedef char* (CALLCONV* t_Pa_GetErrorText)(PaError);
 
 t_Pa_OpenStream     Pa_OpenStream;
 t_Pa_StartStream    Pa_StartStream;
