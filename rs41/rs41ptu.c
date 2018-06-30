@@ -1206,7 +1206,12 @@ int rs41_ecc(int frmlen) {
 
 
     ret = errors1 + errors2;
-    if (errors1 < 0 || errors2 < 0) ret = -1;
+    if (errors1 < 0 || errors2 < 0) {
+        ret = 0;
+        if (errors1 < 0) ret |= 0x1;
+        if (errors2 < 0) ret |= 0x2;
+        ret = -ret;
+    }
 
     return ret;
 }
@@ -1282,7 +1287,14 @@ int print_position(int ec) {
                     for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx.crc>>i)&1);
                     fprintf(stdout, "]");
                 }
-                if (option_ecc == 2 && ec > 0) fprintf(stdout, " (%d)", ec);
+                if (option_ecc == 2) {
+                    if (ec > 0) fprintf(stdout, " (%d)", ec);
+                    if (ec < 0) {
+                        if      (ec == -1)  fprintf(stdout, " (-+)");
+                        else if (ec == -2)  fprintf(stdout, " (+-)");
+                        else   /*ec == -3*/ fprintf(stdout, " (--)");
+                    }
+                }
             }
         }
 
