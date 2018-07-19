@@ -2,9 +2,11 @@
 /*
  *
  * DFM-06 und DFM-09 haben unterschiedliche Polaritaet bzw. Manchester-Varianten
+ * (Polaritaet PS-15 wie DFM-06)
  * DFM-06 hat Kanaele 0..6 (anfangs nur 0..5)
  * DFM-09 hat Kanaele 0..A
  * Ausnahme: erste DFM-09-Versionen senden wie DFM-06
+ * PS-15  hat Kanaele 0..7
  *
  * Optionen:
  *   -v, -vv  verbose/velocity, SN
@@ -30,11 +32,13 @@
 typedef unsigned char ui8_t;
 typedef unsigned int ui32_t;
 
+
 typedef struct {
     int frnr;
     int sonde_typ;
     ui32_t SN6;
     ui32_t SN9;
+    ui32_t SN15;
     int week; int gpssec;
     int jahr; int monat; int tag;
     int std; int min; float sek;
@@ -59,6 +63,8 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_ptu = 0,
     wavloaded = 0;
 int wav_channel = 0;     // audio channel: left
+
+int ptu_out = 0;
 
 int start = 0;
 
@@ -525,7 +531,7 @@ int dat_out(ui8_t *dat_bits) {
 
     if (fr_id == 1) {
         // 00..31: ? GPS-Sats in Sicht?
-        msek = bits2val(dat_bits+32, 16);
+        msek = bits2val(dat_bits+32, 16);  // UTC (= GPS - 18sec  ab 1.1.2017)
         gpx.sek = msek/1000.0;
     }
 
@@ -655,7 +661,7 @@ float get_Temp2(float *meas) { // meas[0..4]
     R = (f-f1)/g;                    // meas[0,3,4] > 0 ?
     if (R > 0)  T = 1/(1/T0 + 1/B0 * log(R/R0));
 
-    if (option_ptu && option_verbose == 2) {
+    if (option_ptu && ptu_out && option_verbose == 2) {
         printf("  (Rso: %.1f , Rb: %.1f)", Rs_o/1e3, Rb/1e3);
     }
 
@@ -702,22 +708,26 @@ float get_Temp4(float *meas) { // meas[0..4]
 }
 
 
-#define SNbit 0x0100
+#define RSNbit 0x0100  // radiosonde DFM-06,DFM-09
+#define PSNbit 0x0200  // pilotsonde PS-15
 int conf_out(ui8_t *conf_bits) {
     int conf_id;
     int ret = 0;
     int val, hl;
     static int chAbit, chA[2];
     ui32_t SN6, SN9;
+    static int ch7bit, ch7[2];
+    ui32_t SN15;
 
     conf_id = bits2val(conf_bits, 4);
 
-    //if (conf_id > 6) gpx.SN6 = 0;  //// gpx.sonde_typ & 0xF = 9; // SNbit?
+    //if (conf_id > 6) gpx.SN6 = 0;  // -> DFM-09,PS-15  // SNbit?
 
     if ((gpx.sonde_typ & 0xFF) < 9  &&  conf_id == 6) {
-        SN6 = bits2val(conf_bits+4, 4*6);  // DFM-06: Kanal 6
-        if ( SN6 == gpx.SN6 ) {            // nur Nibble-Werte 0..9
-            gpx.sonde_typ = SNbit | 6;
+        SN6 = bits2val(conf_bits+4, 4*6);    // DFM-06: Kanal 6
+        if ( SN6 == gpx.SN6  &&  SN6 != 0) { // nur Nibble-Werte 0..9
+            gpx.sonde_typ = RSNbit | 6;
+            ptu_out = 6;
             ret = 6;
         }
         else {
@@ -733,7 +743,8 @@ int conf_out(ui8_t *conf_bits) {
         if (chAbit == 3) {  // DFM-09: Kanal A
             SN9 = (chA[1] << 16) | chA[0];
             if ( SN9 == gpx.SN9 ) {
-                gpx.sonde_typ = SNbit | 9;
+                gpx.sonde_typ = RSNbit | 9;
+                ptu_out = 9;
                 ret = 9;
             }
             else {
@@ -741,6 +752,25 @@ int conf_out(ui8_t *conf_bits) {
             }
             gpx.SN9 = SN9;
             chAbit = 0;
+        }
+    }
+    if (conf_id == 0x7) {  // 0x70xxxxy
+        val = bits2val(conf_bits+8, 4*5);
+        hl =  (val & 1) == 0;
+        ch7[hl] = (val >> 4) & 0xFFFF;
+        ch7bit |= 1 << hl;
+        if (ch7bit == 3) {  // PS-15: Kanal 7
+            SN15 = (ch7[1] << 16) | ch7[0];
+            if ( SN15 == gpx.SN15 ) {
+                gpx.sonde_typ = PSNbit | 15;
+                ptu_out = 0;
+                ret = 15;
+            }
+            else {
+                gpx.sonde_typ = 0;
+            }
+            gpx.SN15 = SN15;
+            ch7bit = 0;
         }
     }
 
@@ -795,7 +825,7 @@ void print_gpx() {
           printf(" vH: %5.2f ", gpx.horiV);
           printf(" D: %5.1f ", gpx.dir);
           printf(" vV: %5.2f ", gpx.vertV);
-          if (option_ptu) {
+          if (option_ptu  &&  ptu_out) {
               float t = get_Temp(gpx.meas24);
               if (t > -270.0) printf("  T=%.1fC ", t);
               if (option_verbose == 2) {
@@ -812,15 +842,24 @@ void print_gpx() {
               printf("  U: %.2fV ", gpx.status[0]);
               printf("  Ti: %.1fK ", gpx.status[1]);
           }
-          if (option_verbose  &&  (gpx.sonde_typ & SNbit))
+          if ( option_verbose )
           {
-              if ((gpx.sonde_typ & 0xFF) == 6) {
-                  printf(" (ID%1d:%06X) ", gpx.sonde_typ & 0xF, gpx.SN6);
+              if (gpx.sonde_typ & RSNbit)
+              {
+                  if ((gpx.sonde_typ & 0xFF) == 6) {
+                      printf(" (ID%1d:%06X) ", gpx.sonde_typ & 0xF, gpx.SN6);
+                  }
+                  if ((gpx.sonde_typ & 0xFF) == 9) {
+                      printf(" (ID%1d:%06u) ", gpx.sonde_typ & 0xF, gpx.SN9);
+                  }
+                  gpx.sonde_typ ^= RSNbit;
               }
-              if ((gpx.sonde_typ & 0xFF) == 9) {
-                  printf(" (ID%1d:%06u) ", gpx.sonde_typ & 0xF, gpx.SN9);
+              if (gpx.sonde_typ & PSNbit) {
+                  if ((gpx.sonde_typ & 0xFF) == 15) {
+                      printf(" (ID15:%06u) ", gpx.SN15);
+                  }
+                  gpx.sonde_typ ^= PSNbit;
               }
-              gpx.sonde_typ ^= SNbit;
           }
       }
       printf("\n");
@@ -964,7 +1003,7 @@ int main(int argc, char **argv) {
             option_ecc = 1;
         }
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
-            option_ptu = 1;
+            option_ptu = 1; ptu_out = 1;
         }
         else if   (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
         else {
