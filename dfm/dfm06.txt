@@ -20,7 +20,7 @@ PCK_ID  bitpos
 
 0x0     24..31   Counter: 8 bit
 
-0x1     32..47   UTC-msec : 16bit  (sec*1e3),  GPS = UTC + 17s (ab 1. Juli 2015)
+0x1     32..47   UTC-msec : 16bit  (sec*1e3),  GPS = UTC + 18s (ab 1. Jan. 2017)
 
 0x2      0..31   GPS-lat  : 32bit, Faktor 1e7
         32..47   hor-V m/s: 16bit, Faktor 1e2
@@ -60,6 +60,16 @@ e.g.
 AC00070 : 0x0007
 ACDB131 : 0xDB13
 -> 0x0007DB13 = 514835
+
+PS-15
+Seriennummer/ID:
+CFG-Block 70aaaab (Kanal 7)
+b=0: high 16bit aaaa
+b=1: low  16bit aaaa
+e.g.
+7001040 : 0x0104
+7004C61 : 0x04C6
+-> 0x010404C6 = 17040582
 
 
 measure_sensor, Kanaele n=0,..,4:
@@ -102,6 +112,7 @@ DFM-06 und DFM-09 haben unterschiedliche Polaritaet bzw. Manchester-Varianten
 DFM-06 hat Kanaele 0..6 (anfangs nur 0..5)
 DFM-09 hat Kanaele 0..A
 Ausnahme: erste DFM-09-Versionen senden wie DFM-06
+PS-15  hat Kanaele 0..7 (Polaritaet wie DFM-06)
 
 
 
