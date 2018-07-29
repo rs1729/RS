@@ -843,8 +843,12 @@ int get_Calconf(int out) {
 
         if (calfr == 0x02  &&  option_verbose /*== 2*/) {
             byte = framebyte(pos_Calburst);
-            burst = byte;   // fw >= 0x4ef5, BK irrelevant? (killtimer in 0x31?)
+            burst = byte;   // fw >= 0x4ef5, BK irrelevant? (burst-killtimer in 0x31?)
             fprintf(stdout, ": BK %02X ", burst);
+            if (option_verbose == 3) { // killtimer
+                int kt = frame[0x5A] + (frame[0x5B] << 8); // short?
+                if ( kt != 0xFFFF ) fprintf(stdout, ": kt 0x%04x = %dsec = %.1fmin ", kt, kt, kt/60.0);
+            }
         }
 
         if (calfr == 0x00  &&  option_verbose) {
@@ -854,6 +858,12 @@ int get_Calconf(int out) {
             f1 = 40 * byte;
             freq = 400000 + f1+f0; // kHz;
             fprintf(stdout, ": fq %d ", freq);
+        }
+
+        if (calfr == 0x31  &&  option_verbose == 3) {
+            int bt = frame[0x59] + (frame[0x5A] << 8); // short?
+            // fw >= 0x4ef5: default=[88 77]=0x7788sec=510min
+            if ( bt != 0x0000 ) fprintf(stdout, ": bt 0x%04x = %dsec = %.1fmin ", bt, bt, bt/60.0);
         }
 
         if (calfr == 0x21  &&  option_verbose /*== 2*/) {  // eventuell noch zwei bytes in 0x22
