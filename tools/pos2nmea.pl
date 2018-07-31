@@ -55,7 +55,9 @@ while ($line = <$fpi>) {
 
     print STDERR $line; ## entweder: alle Zeilen ausgeben
 
-    if ($line =~ /(\d\d):(\d\d):(\d\d\.?\d?\d?\d?).*\ +lat:\ *(-?\d*)(\.\d*)\ +lon:\ *(-?\d*)(\.\d*)\ +alt:\ *(-?\d*\.\d*).*/) {
+    if ( ($line =~ /(\d\d):(\d\d):(\d\d\.?\d?\d?\d?).*\ +lat:\ *(-?\d*)(\.\d*)\ +lon:\ *(-?\d*)(\.\d*)\ +alt:\ *(-?\d*\.\d*).*/)
+      or ($line =~ /\((\d\d):(\d\d):(\d\d)\)\ +lat:\ *(-?\d*)(\.\d*)°\ +lon:\ *(-?\d*)(\.\d*)°\ +alt:\ *(-?\d*)m.*/) ) # imet1rs
+    {
 
     #print STDERR $line; ## oder: nur Zeile mit Koordinaten ausgeben
 
