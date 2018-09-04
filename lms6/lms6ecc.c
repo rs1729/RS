@@ -207,9 +207,9 @@ int read_rawbit(FILE *fp, int *bit) {
 // (pp pp 24)      54                  00                00                00                  (7A..: SondeID, GPS, ...)
 char header[] = /*"0000110110011000"*/"0011101100100000""0000000000000000""0000000000000000";//"0010010011110001";
 
-ui8_t block32[32];
-ui8_t block32end[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
-#define FEND 256
+ui8_t rs_ecc32[32]; // parity RS(223,32)-CCSDS
+ui8_t rs_ecc32end[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
+#define FEND 255
 
 #define FRAMESTART 0
 
@@ -766,22 +766,23 @@ void print_frame(int len) {
 
     for (i = 32; i < FEND-5; i++) {
         int bf = 0;
-        for (j = 0; j < 5; j++) bf += (frame_bytes[i+j] == block32end[j]);
+        for (j = 0; j < 5; j++) bf += (frame_bytes[i+j] == rs_ecc32end[j]);
         if (bf == 5) {
-            for (j = 0; j <  32; j++) block32[j] = frame_bytes[i-(32+5)+j];
+            for (j = 0; j <  32; j++) rs_ecc32[j] = frame_bytes[i-32+j];
             for (j = i; j < FEND-5; j++) frame_bytes[j-32] = frame_bytes[j+5];
-            for (j = 0; j <  32; j++) frame_bytes[FEND-32-5+j] = block32[j];
-            for (j = 0; j <   5; j++) frame_bytes[FEND-5+j] = block32end[j];
+            for (j = 0; j <  32; j++) frame_bytes[FEND-5+j-32] = rs_ecc32[j];
+            for (j = 0; j <   5; j++) frame_bytes[FEND-5+j] = rs_ecc32end[j];
             break;
         }
     }
 
     crc_err = check_CRC(frame);
 
+
     if (option_raw) {
       if ( err==0  ||  err>8*(pos_GPSTOW+8) ) {
         if (option_raw == 1) {
-            for (i = 0; i < len/(2*BITS); i++) printf("%02x ", frame_bytes[i]); printf("\n");
+            for (i = 0; i < len/(2*BITS); i++) printf("%02x ", frame[i]); printf("\n");
         }
         else {
             for (i = 0; i < len; i++) printf("%c", frame_rawbits[i]); printf("\n");

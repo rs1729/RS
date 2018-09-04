@@ -12,10 +12,11 @@ NRZ-S, convolutional code R=1/2
 bits: little endian
 bytes: big endian
 
+Reed-Solomon RS(223,32)-CCSDS
+(msg[223],par[32]): 223+32 byte vor 5-byte-Block [00 58 f3 3f b8] (ring-buffer!)
+
 CRC16: poly 0x1021
 crc-frame: 24 54 00 00 00 .. (len=221)
-
-Block32: 32+5 byte, enden: 00 58 f3 3f b8
 
 
 sync/header:
