@@ -16,6 +16,8 @@ typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
 typedef unsigned int   ui32_t;
 
+#include "bch_ecc.c"  // RS/ecc/
+
 
 int option_verbose = 0,  // ausfuehrliche Anzeige
     option_raw = 0,      // rohe Frames
@@ -201,27 +203,27 @@ int read_rawbit(FILE *fp, int *bit) {
 
 
 #define BITS 8
-#define HEADLEN (3*16)
 #define HEADOFS  0
-
+#define HEADLEN ((3*16)-HEADOFS)
+// RS-ECC-block kann dazwischenfunken...
 // (pp pp 24)      54                  00                00                00                  (7A..: SondeID, GPS, ...)
 char header[] = /*"0000110110011000"*/"0011101100100000""0000000000000000""0000000000000000";//"0010010011110001";
-
-ui8_t rs_ecc32[32]; // parity RS(223,32)-CCSDS
-ui8_t rs_ecc32end[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
-#define FEND 255
-
+                                                                                             // SondeID (?0x00?) 0x7A
 #define FRAMESTART 0
 
 #define FRAME_LEN       (300)  // 4800baud, 16bits/byte
 #define BITFRAME_LEN    (FRAME_LEN*BITS)
 #define RAWBITFRAME_LEN (BITFRAME_LEN*2)
+#define OVERLAP 64
+#define FRM_MINLEN (255+3)
 
-char  frame_rawbits[RAWBITFRAME_LEN+8];
-char  frame_bits[BITFRAME_LEN+16];  // init L-1 bits mit 0
+char  frm_rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2+16 +8] = "0000000000000000";
+char  *frame_rawbits = frm_rawbits+16;
 
-ui8_t frame[FRAME_LEN+8] = { 0x24, 0x54, 0x00, 0x00, 0x00}; // header
-ui8_t *frame_bytes = frame+5; // { 0x7A, ... }
+char  frame_bits[BITFRAME_LEN+OVERLAP*BITS +8];  // init L-1 bits mit 0
+
+ui8_t frame[FRAME_LEN+OVERLAP+5 +8] = { 0x24, 0x54, 0x00, 0x00, 0x00}; // header
+ui8_t *frame_bytes = frame+4; // { 0x00, 0x7A, ... }
 
 char buf[HEADLEN];
 int bufpos = -1;
@@ -235,7 +237,7 @@ char polyB[] = "00100010"; // 0x22: x^5+x         = (x+1)(x^4+x^3+x^2+x)=x(x+1)^
 char qA[] = "1110011"; // 0x73: x^6+x^5+x^4+x+1
 char qB[] = "0011110"; // 0x1e: x^4+x^3+x^2+x
 
-char vit_rawbits[RAWBITFRAME_LEN+8];
+char vit_rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2 +8];
 
 #define N (1 << K)
 #define M (1 << (K-1))
@@ -247,7 +249,7 @@ typedef struct {
     int prevState;
 } states_t;
 
-states_t vit_state[RAWBITFRAME_LEN+8][M];
+states_t vit_state[RAWBITFRAME_LEN+OVERLAP +8][M];
 
 states_t vit_d[N];
 
@@ -328,9 +330,7 @@ int vit_next(int t, char *rc) {
 }
 
 int vit_path(int j, int t) {
-    int i, c;
-
-    for (i = 0; i < RAWBITFRAME_LEN; i++) vit_rawbits[i] = 0;
+    int c;
 
     vit_rawbits[2*t] = '\0';
     while (t > 0) {
@@ -381,29 +381,30 @@ int deconv(char* rawbits, char *bits) {
     char *p;
     int len;
     int errors = 0;
+    int m = L-1;
 
-        len = strlen(rawbits);
-        for (j = 0; j < L-1; j++) bits[j] = '0';
-        n = 0;
-        while (2*n < len-2*L) {
-            p = rawbits+2*n;
-            bitA = bitB = 0;
-            for (j = 0; j < L-1; j++) {
-                bitA ^= (bits[n+j]&1) & (polyA[j]&1);
-                bitB ^= (bits[n+j]&1) & (polyB[j]&1);
-            }
-            if      ( (bitA^(p[0]&1))==(polyA[L-1]&1)  &&  (bitB^(p[1]&1))==(polyB[L-1]&1) ) bits[n+L-1] = '1';
-            else if ( (bitA^(p[0]&1))==0               &&  (bitB^(p[1]&1))==0              ) bits[n+L-1] = '0';
-            else { // error: no error correction...
-                if ( (bitA^(p[0]&1))!=(polyA[L-1]&1) && (bitB^(p[1]&1))==(polyB[L-1]&1) ) bits[n+L-1] = 0x39;
-                else bits[n+L-1] = 0x38;
-                //if (n < 256) errors++; // nur bis Ende GPS-vel; alternativ: return pos 1. error
-                errors = n;
-                break;
-            }
-            n += 1;
+    len = strlen(rawbits);
+    for (j = 0; j < m; j++) bits[j] = '0';
+    n = 0;
+    while ( 2*(m+n) < len ) {
+        p = rawbits+2*(m+n);
+        bitA = bitB = 0;
+        for (j = 0; j < m; j++) {
+            bitA ^= (bits[n+j]&1) & (polyA[j]&1);
+            bitB ^= (bits[n+j]&1) & (polyB[j]&1);
         }
-        bits[n+L-1] = '\0';
+        if      ( (bitA^(p[0]&1))==(polyA[m]&1)  &&  (bitB^(p[1]&1))==(polyB[m]&1) ) bits[n+m] = '1';
+        else if ( (bitA^(p[0]&1))==0             &&  (bitB^(p[1]&1))==0            ) bits[n+m] = '0';
+        else { // error: no error correction...
+            if ( (bitA^(p[0]&1))!=(polyA[m]&1) && (bitB^(p[1]&1))==(polyB[m]&1) ) bits[n+m] = 0x39;
+            else bits[n+m] = 0x38;
+            //if (n < 256) errors++; // nur bis Ende GPS-vel; alternativ: return pos 1. error
+            errors = n;
+            break;
+        }
+        n += 1;
+    }
+    bits[n+m] = '\0';
 
     return errors;
 }
@@ -485,12 +486,13 @@ int compare2() {
 
 int bits2bytes(char *bitstr, ui8_t *bytes) {
     int i, bit, d, byteval;
+    int len = strlen(bitstr)/8;
     int bitpos, bytepos;
 
     bitpos = 0;
     bytepos = 0;
 
-    while (bytepos < FRAME_LEN) {
+    while (bytepos < len) {
 
         byteval = 0;
         d = 1;
@@ -505,7 +507,7 @@ int bits2bytes(char *bitstr, ui8_t *bytes) {
         bytes[bytepos++] = byteval & 0xFF;
     }
 
-    //while (bytepos < FRAME_LEN) bytes[bytepos++] = 0;
+    //while (bytepos < FRAME_LEN+OVERLAP) bytes[bytepos++] = 0;
 
     return 0;
 }
@@ -530,25 +532,26 @@ gpx_t gpx;
 gpx_t gpx0 = { 0 };
 
 
-#define pos_SondeSN  0x00  // ?3 byte 7A....
-#define pos_FrameNb  0x03  // 2 byte
+#define pos_SondeSN  0x00  // ?4 byte 00 7A....
+#define pos_FrameNb  0x04  // 2 byte
 //GPS Position
-#define pos_GPSTOW   0x05  // 4 byte
-#define pos_GPSlat   0x0D  // 4 byte
-#define pos_GPSlon   0x11  // 4 byte
-#define pos_GPSalt   0x15  // 4 byte
+#define pos_GPSTOW   0x06  // 4 byte
+#define pos_GPSlat   0x0E  // 4 byte
+#define pos_GPSlon   0x12  // 4 byte
+#define pos_GPSalt   0x16  // 4 byte
 //#define pos_GPSweek   0x20  // 2 byte
 //GPS Velocity East-North-Up (ENU)
-#define pos_GPSvO  0x19  // 3 byte
-#define pos_GPSvN  0x1C  // 3 byte
-#define pos_GPSvV  0x1F  // 3 byte
+#define pos_GPSvO  0x1A  // 3 byte
+#define pos_GPSvN  0x1D  // 3 byte
+#define pos_GPSvV  0x20  // 3 byte
 
 
 int get_SondeSN() {
     unsigned byte;
 
-    byte = (frame_bytes[pos_SondeSN]<<16) | (frame_bytes[pos_SondeSN+1]<<8) | frame_bytes[pos_SondeSN+2];
-    gpx.sn = byte;
+    byte =  (frame_bytes[pos_SondeSN]<<24) | (frame_bytes[pos_SondeSN+1]<<16)
+          | (frame_bytes[pos_SondeSN+2]<<8) | frame_bytes[pos_SondeSN+3];
+    gpx.sn = byte & 0xFFFFFF;
 
     return 0;
 }
@@ -738,60 +741,113 @@ int get_GPSvel24() {
     return 0;
 }
 
+#define rs_N 255
+#define rs_K 223
+#define rs_R (rs_N-rs_K) // 32
+ui8_t rs_cw[rs_N];
+int eccnt = 0;
+
+ui8_t rs_ecc32[rs_R]; // parity RS(223,32)-CCSDS
+ui8_t rs_ecc32end[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
+
+ui8_t frm_bytes[FRAME_LEN+OVERLAP +8];
+
+#define ECCBUF_LEN (3*FRAME_LEN+32)
+ui8_t ecc_buf[ECCBUF_LEN];
+ui8_t ecc_frame[rs_N];
+int bufidx = 0;
+
+int lms6_ecc(ui8_t *cw) {
+    int errors;
+    ui8_t err_pos[rs_R],
+          err_val[rs_R];
+
+    errors = rs_decode(cw, err_pos, err_val);
+
+    return errors;
+}
 
 void print_frame(int len) {
 
-    int i, j, err = 0;
-    int crc_err = 0;
     char *rawbits = NULL;
-
-    if (len > RAWBITFRAME_LEN) len = RAWBITFRAME_LEN;
-
-    for (i = len; i < RAWBITFRAME_LEN; i++) frame_rawbits[i] = 0;  // oder: '0'
+    int i, j, k, n;
+    int err = 0;
+    int crc_err = 0;
+    int ecerrs[4] = { 0, 0, 0, 0};
+    int bf_pos[4] = { 0, 0, 0, 0};
+    int flen = len / (2*BITS);
+    int pos;
 
     if (option_ecc) {
-        viterbi(frame_rawbits);
+        viterbi(frm_rawbits);
         rawbits = vit_rawbits;
     }
-    else rawbits = frame_rawbits;
+    else rawbits = frm_rawbits;
 
     err = deconv(rawbits, frame_bits);
 
 
-    if (err) { for (i=err; i < BITFRAME_LEN; i++) frame_bits[i] = 0; }
+    if (err) { for (i=err; i < BITFRAME_LEN+OVERLAP*BITS; i++) frame_bits[i] = 0; }
 
-    if (err > 8*(pos_GPSTOW+4)) err = 0;
 
-    bits2bytes(frame_bits+L-1, frame_bytes);
+    bits2bytes(frame_bits, frm_bytes);
 
-    for (i = 32; i < FEND-5; i++) {
-        int bf = 0;
-        for (j = 0; j < 5; j++) bf += (frame_bytes[i+j] == rs_ecc32end[j]);
-        if (bf == 5) {
-            for (j = 0; j <  32; j++) rs_ecc32[j] = frame_bytes[i-32+j];
-            for (j = i; j < FEND-5; j++) frame_bytes[j-32] = frame_bytes[j+5];
-            for (j = 0; j <  32; j++) frame_bytes[FEND-5+j-32] = rs_ecc32[j];
-            for (j = 0; j <   5; j++) frame_bytes[FEND-5+j] = rs_ecc32end[j];
-            break;
-        }
+
+    if (option_raw == 2) {
+        //printf("len: %d  ", len);
+        for (i = 0; i < flen; i++) printf("%02x ", frm_bytes[i]); printf("\n");
     }
+
+
+    for (i = 0; i < flen; i++) {
+        ecc_buf[bufidx] = frm_bytes[i];
+        bufidx = (bufidx+1) % ECCBUF_LEN;
+    }
+
+
+    k = 0;
+    pos = 0;
+    for (n = 0; n < flen-rs_R-5; n++) {
+        int bf = 0;
+        for (j = 0; j < 5; j++) bf += (frm_bytes[n+rs_R+j] == rs_ecc32end[j]);
+        if (bf == 5) {
+            if (k < 4) bf_pos[k] = n+rs_R;
+            for (j = 0; j < rs_N; j++) rs_cw[j] = ecc_buf[ (bufidx-1-flen+n+rs_R-j+ECCBUF_LEN) % ECCBUF_LEN ];
+            if (option_ecc == 2) {
+                int errs = lms6_ecc(rs_cw);
+                if (k < 4) ecerrs[k] = errs;
+                if (option_raw == 4) {
+                   for (j = 0; j < rs_N; j++) printf("%02x", rs_cw[rs_N-1-j]);
+                   printf(" (%d)\n", errs);
+               }
+            }
+            n += rs_R+5;
+            k++;
+        }
+        frame_bytes[pos] = frm_bytes[n];
+        pos++;
+    }
+    while (n < flen) frame_bytes[pos++] = frm_bytes[n++];
 
     crc_err = check_CRC(frame);
 
 
     if (option_raw) {
-      if ( err==0  ||  err>8*(pos_GPSTOW+8) ) {
+      if ( err==0  ||  err>8*(pos_GPSTOW+8) )
+      {
         if (option_raw == 1) {
-            for (i = 0; i < len/(2*BITS); i++) printf("%02x ", frame[i]); printf("\n");
+            for (i = 0; i < pos+4; i++) printf("%02x ", frame[i]);
+            if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
+            printf("\n");
         }
-        else {
+        else if (option_raw == 8) {
             for (i = 0; i < len; i++) printf("%c", frame_rawbits[i]); printf("\n");
         }
       }
     }
     else if ((err==0   || err>8*(pos_GPSTOW+4)  )  &&  len > 8*2*(pos_GPSTOW+4)) {
 
-        if ((frame_bytes[0] & 0xF0) == 0x70)  // ? beginnen alle SNs mit 0x7A.... bzw 80..... ?
+        //if ((frame_bytes[1] & 0xF0) == 0x70)  // ? beginnen alle SNs mit 0x7A.... bzw 80..... ?
         {
             get_FrameNb();
             get_GPStime();
@@ -849,12 +905,19 @@ int main(int argc, char **argv) {
         }
         //else if ( (strcmp(*argv, "-vv") == 0) ) option_verbose = 2;
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
-            option_raw = 1;
+            option_raw = 1; // bytes - rs_ecc_codewords
+        }
+        else if ( (strcmp(*argv, "-r0") == 0) || (strcmp(*argv, "--raw0") == 0) ) {
+            option_raw = 2; // bytes: info + codewords
+        }
+        else if ( (strcmp(*argv, "-rc") == 0) || (strcmp(*argv, "--rawecc") == 0) ) {
+            option_raw = 4; // rs_ecc_codewords
         }
         else if ( (strcmp(*argv, "-R") == 0) || (strcmp(*argv, "--RAW") == 0) ) {
-            option_raw = 2;
+            option_raw = 8; // rawbits
         }
-        else if   (strcmp(*argv, "--ecc") == 0) { option_ecc = 1; }
+        else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // viterbi
+        else if   (strcmp(*argv, "--ecc2") == 0) { option_ecc = 2; } // RS-ECC (+viterbi)
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1; // unnoetig, NRZ-S...
         }
@@ -878,7 +941,15 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    if (option_ecc) vit_initCodes();
+
+    if (option_raw == 4) option_ecc = 2;
+
+    if (option_ecc) {
+        vit_initCodes();
+    }
+    if (option_ecc == 2) {
+        rs_init_RS255ccsds(); // bch_ecc.c
+    }
 
 
     pos = FRAMESTART;
@@ -888,7 +959,7 @@ int main(int argc, char **argv) {
 
         if (len == 0) { // reset_frame();
           /*if (pos > 8*2*pos_GPSlon) {
-                //for (i = pos; i < RAWBITFRAME_LEN; i++) frame_rawbits[i] = '0';
+                //for (i = pos; i < RAWBITFRAME_LEN+OVERLAP*BITS*2; i++) frame_rawbits[i] = '0';
                 print_frame(pos);
                 //header_found = 0;
                 pos = FRAMESTART;
@@ -910,17 +981,18 @@ int main(int argc, char **argv) {
                 header_found = compare2();
             }
             else {
-                frame_rawbits[pos] = bit;
-                pos++;
+                if (pos < RAWBITFRAME_LEN+OVERLAP*BITS*2) {
+                    frame_rawbits[pos] = bit;
+                    pos++;
+                }
             }
-
-            if (pos > (FEND+2)*(2*BITS)) {
+            if (pos > FRM_MINLEN*(2*BITS)) {
                 next_header = compare2();
             }
 
-            if (pos >= RAWBITFRAME_LEN  ||  next_header) {
+            if (pos >= RAWBITFRAME_LEN+OVERLAP*BITS*2  ||  next_header) {
                     frame_rawbits[pos] = '\0';
-                    print_frame(pos);//FRAME_LEN
+                    print_frame(pos);
                     pos = FRAMESTART;
                     header_found = next_header;
                     next_header = 0;
@@ -930,7 +1002,7 @@ int main(int argc, char **argv) {
         if (header_found && option_b) {
             bitstart = 1;
 
-            while ( pos < (FEND+2)*(2*BITS) ) {  // RAWBITFRAME_LEN=4800
+            while ( pos < FRM_MINLEN*(2*BITS) ) {
                 if (read_rawbit(fp, &rbit) == EOF) break;
                 bit = 0x30 + (rbit==rbit0);  // Ascii, NRZ-S
                 rbit0 = rbit;
