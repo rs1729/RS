@@ -216,6 +216,7 @@ char header[] = /*"0000110110011000"*/"0011101100100000""0000000000000000""00000
 #define RAWBITFRAME_LEN (BITFRAME_LEN*2)
 #define OVERLAP 64
 #define FRM_MINLEN (255+3)
+#define OFS 4
 
 char  frm_rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2+16 +8] = "0000000000000000";
 char  *frame_rawbits = frm_rawbits+16;
@@ -223,7 +224,9 @@ char  *frame_rawbits = frm_rawbits+16;
 char  frame_bits[BITFRAME_LEN+OVERLAP*BITS +8];  // init L-1 bits mit 0
 
 ui8_t frame[FRAME_LEN+OVERLAP+5 +8] = { 0x24, 0x54, 0x00, 0x00, 0x00}; // header
-ui8_t *frame_bytes = frame+4; // { 0x00, 0x7A, ... }
+ui8_t *frame_bytes = frame+OFS; // { 0x00, 0x7A, ... }
+
+ui8_t *p_frame = frame;
 
 char buf[HEADLEN];
 int bufpos = -1;
@@ -532,25 +535,25 @@ gpx_t gpx;
 gpx_t gpx0 = { 0 };
 
 
-#define pos_SondeSN  0x00  // ?4 byte 00 7A....
-#define pos_FrameNb  0x04  // 2 byte
+#define pos_SondeSN  (OFS+0x00)  // ?4 byte 00 7A....
+#define pos_FrameNb  (OFS+0x04)  // 2 byte
 //GPS Position
-#define pos_GPSTOW   0x06  // 4 byte
-#define pos_GPSlat   0x0E  // 4 byte
-#define pos_GPSlon   0x12  // 4 byte
-#define pos_GPSalt   0x16  // 4 byte
+#define pos_GPSTOW   (OFS+0x06)  // 4 byte
+#define pos_GPSlat   (OFS+0x0E)  // 4 byte
+#define pos_GPSlon   (OFS+0x12)  // 4 byte
+#define pos_GPSalt   (OFS+0x16)  // 4 byte
 //#define pos_GPSweek   0x20  // 2 byte
 //GPS Velocity East-North-Up (ENU)
-#define pos_GPSvO  0x1A  // 3 byte
-#define pos_GPSvN  0x1D  // 3 byte
-#define pos_GPSvV  0x20  // 3 byte
+#define pos_GPSvO    (OFS+0x1A)  // 3 byte
+#define pos_GPSvN    (OFS+0x1D)  // 3 byte
+#define pos_GPSvV    (OFS+0x20)  // 3 byte
 
 
 int get_SondeSN() {
     unsigned byte;
 
-    byte =  (frame_bytes[pos_SondeSN]<<24) | (frame_bytes[pos_SondeSN+1]<<16)
-          | (frame_bytes[pos_SondeSN+2]<<8) | frame_bytes[pos_SondeSN+3];
+    byte =  (p_frame[pos_SondeSN]<<24) | (p_frame[pos_SondeSN+1]<<16)
+          | (p_frame[pos_SondeSN+2]<<8) | p_frame[pos_SondeSN+3];
     gpx.sn = byte & 0xFFFFFF;
 
     return 0;
@@ -565,7 +568,7 @@ int get_FrameNb() {
     gpx = gpx0;
 
     for (i = 0; i < 2; i++) {
-        byte = frame_bytes[pos_FrameNb + i];
+        byte = p_frame[pos_FrameNb + i];
         frnr_bytes[i] = byte;
     }
 
@@ -588,7 +591,7 @@ int get_GPStime() {
     float ms;
 
     for (i = 0; i < 4; i++) {
-        byte = frame_bytes[pos_GPSTOW + i];
+        byte = p_frame[pos_GPSTOW + i];
         gpstime_bytes[i] = byte;
     }
     gpstime = 0;
@@ -624,7 +627,7 @@ int get_GPSlat() {
     double lat;
 
     for (i = 0; i < 4; i++) {
-        byte = frame_bytes[pos_GPSlat + i];
+        byte = p_frame[pos_GPSlat + i];
         if (byte > 0xFF) return -1;
         gpslat_bytes[i] = byte;
     }
@@ -647,7 +650,7 @@ int get_GPSlon() {
     double lon;
 
     for (i = 0; i < 4; i++) {
-        byte = frame_bytes[pos_GPSlon + i];
+        byte = p_frame[pos_GPSlon + i];
         if (byte > 0xFF) return -1;
         gpslon_bytes[i] = byte;
     }
@@ -670,7 +673,7 @@ int get_GPSalt() {
     double height;
 
     for (i = 0; i < 4; i++) {
-        byte = frame_bytes[pos_GPSalt + i];
+        byte = p_frame[pos_GPSalt + i];
         if (byte > 0xFF) return -1;
         gpsheight_bytes[i] = byte;
     }
@@ -694,7 +697,7 @@ int get_GPSvel24() {
     double vx, vy, vz, dir; //, alpha;
 
     for (i = 0; i < 3; i++) {
-        byte = frame_bytes[pos_GPSvO + i];
+        byte = p_frame[pos_GPSvO + i];
         if (byte > 0xFF) return -1;
         gpsVel_bytes[i] = byte;
     }
@@ -703,7 +706,7 @@ int get_GPSvel24() {
     vx = vel24 / 1e3; // ost
 
     for (i = 0; i < 3; i++) {
-        byte = frame_bytes[pos_GPSvN + i];
+        byte = p_frame[pos_GPSvN + i];
         if (byte > 0xFF) return -1;
         gpsVel_bytes[i] = byte;
     }
@@ -712,7 +715,7 @@ int get_GPSvel24() {
     vy= vel24 / 1e3; // nord
 
     for (i = 0; i < 3; i++) {
-        byte = frame_bytes[pos_GPSvV + i];
+        byte = p_frame[pos_GPSvV + i];
         if (byte > 0xFF) return -1;
         gpsVel_bytes[i] = byte;
     }
@@ -747,15 +750,30 @@ int get_GPSvel24() {
 ui8_t rs_cw[rs_N];
 int eccnt = 0;
 
-ui8_t rs_ecc32[rs_R]; // parity RS(223,32)-CCSDS
 ui8_t rs_ecc32end[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
 
 ui8_t frm_bytes[FRAME_LEN+OVERLAP +8];
 
 #define ECCBUF_LEN (3*FRAME_LEN+32)
 ui8_t ecc_buf[ECCBUF_LEN];
-ui8_t ecc_frame[rs_N];
 int bufidx = 0;
+
+typedef struct {
+    int pos;
+    ui8_t bytes[FRAME_LEN+OVERLAP+5 +8];
+} efb_t;
+
+efb_t f0 = { 263, { 0x0 , 0x54, 0x00, 0x00, 0x00} };
+efb_t f1 = {   0, { 0x24, 0x54, 0x00, 0x00, 0x00} };
+
+#define kMAX 2
+typedef struct {
+    int errs;
+    int fpos;
+    int epos;
+} rs_bf_t;
+
+rs_bf_t rsbf[kMAX];
 
 int lms6_ecc(ui8_t *cw) {
     int errors;
@@ -767,16 +785,84 @@ int lms6_ecc(ui8_t *cw) {
     return errors;
 }
 
-void print_frame(int len) {
+void print_frame(int crc_err, int len, int pos) {
+    int i ,err=0;
+
+    if (p_frame[0] != 0)
+    {
+        if (option_raw) {
+          //if ( err==0  ||  err>8*(pos_GPSTOW+8) )
+          {
+            if (option_raw == 1) {
+                for (i = 0; i < pos+OFS; i++) printf("%02x ", p_frame[i]);
+                if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
+                printf("\n");
+            }
+            else if (option_raw == 8) {
+                if (option_ecc) {
+                    for (i = 0; i < len; i++) printf("%c", vit_rawbits[i]); printf("\n");
+                }
+                else {
+                    for (i = 0; i < len; i++) printf("%c", frame_rawbits[i]); printf("\n");
+                }
+            }
+          }
+        }
+        else
+        {
+            //if ((p_frame[pos_SondeSN+1] & 0xF0) == 0x70)  // ? beginnen alle SNs mit 0x7A.... bzw 80..... ?
+            if ( p_frame[pos_SondeSN+1] )
+            {
+                get_FrameNb();
+                get_GPStime();
+                get_SondeSN();
+                if (option_verbose) printf(" (%7d) ", gpx.sn);
+                printf(" [%5d] ", gpx.frnr);
+                printf("%s ", weekday[gpx.wday]);
+                printf("(%02d:%02d:%06.3f) ", gpx.std, gpx.min, gpx.sek); // falls Rundung auf 60s: Ueberlauf
+
+                get_GPSlat();
+                get_GPSlon();
+                err = get_GPSalt();
+                if (!err) {
+                    printf(" lat: %.6f° ", gpx.lat);
+                    printf(" lon: %.6f° ", gpx.lon);
+                    printf(" alt: %.2fm ", gpx.h);
+                    //if (option_verbose)
+                    {
+                        get_GPSvel24();
+                        //if (option_verbose == 2) printf("  (%.1f ,%.1f,%.1f) ", gpx.vE, gpx.vN, gpx.vU);
+                        printf("  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
+                    }
+                }
+                if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
+
+                printf("\n");
+            }
+        }
+    }
+}
+
+void proc_frame(int len) {
 
     char *rawbits = NULL;
     int i, j, k, n;
     int err = 0;
+    int errs = 0;
     int crc_err = 0;
-    int ecerrs[4] = { 0, 0, 0, 0};
-    int bf_pos[4] = { 0, 0, 0, 0};
-    int flen = len / (2*BITS);
+    int flen;
     int pos;
+
+    memset(rsbf, 0, sizeof(rsbf));
+
+    if ((len % 8) > 4) {
+        while (len % 8) frame_rawbits[len++] = '0';
+    }
+    //if (len > RAWBITFRAME_LEN+OVERLAP*BITS*2) len = RAWBITFRAME_LEN+OVERLAP*BITS*2;
+    //for (i = len; i < RAWBITFRAME_LEN+OVERLAP*BITS*2; i++) frame_rawbits[i] = 0;  // oder: '0'
+    frame_rawbits[len] = '\0';
+
+    flen = len / (2*BITS);
 
     if (option_ecc) {
         viterbi(frm_rawbits);
@@ -786,24 +872,19 @@ void print_frame(int len) {
 
     err = deconv(rawbits, frame_bits);
 
-
     if (err) { for (i=err; i < BITFRAME_LEN+OVERLAP*BITS; i++) frame_bits[i] = 0; }
 
 
     bits2bytes(frame_bits, frm_bytes);
 
-
     if (option_raw == 2) {
-        //printf("len: %d  ", len);
         for (i = 0; i < flen; i++) printf("%02x ", frm_bytes[i]); printf("\n");
     }
-
 
     for (i = 0; i < flen; i++) {
         ecc_buf[bufidx] = frm_bytes[i];
         bufidx = (bufidx+1) % ECCBUF_LEN;
     }
-
 
     k = 0;
     pos = 0;
@@ -811,71 +892,59 @@ void print_frame(int len) {
         int bf = 0;
         for (j = 0; j < 5; j++) bf += (frm_bytes[n+rs_R+j] == rs_ecc32end[j]);
         if (bf == 5) {
-            if (k < 4) bf_pos[k] = n+rs_R;
-            for (j = 0; j < rs_N; j++) rs_cw[j] = ecc_buf[ (bufidx-1-flen+n+rs_R-j+ECCBUF_LEN) % ECCBUF_LEN ];
-            if (option_ecc == 2) {
-                int errs = lms6_ecc(rs_cw);
-                if (k < 4) ecerrs[k] = errs;
-                if (option_raw == 4) {
-                   for (j = 0; j < rs_N; j++) printf("%02x", rs_cw[rs_N-1-j]);
-                   printf(" (%d)\n", errs);
-               }
+            if (k < kMAX) {
+                rsbf[k].epos = rs_R + n;
+                rsbf[k].fpos = rs_R + pos;
+                k++;
             }
             n += rs_R+5;
-            k++;
         }
         frame_bytes[pos] = frm_bytes[n];
         pos++;
     }
     while (n < flen) frame_bytes[pos++] = frm_bytes[n++];
 
-    crc_err = check_CRC(frame);
 
+    if (option_ecc == 2) {
 
-    if (option_raw) {
-      if ( err==0  ||  err>8*(pos_GPSTOW+8) )
-      {
-        if (option_raw == 1) {
-            for (i = 0; i < pos+4; i++) printf("%02x ", frame[i]);
-            if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
-            printf("\n");
-        }
-        else if (option_raw == 8) {
-            for (i = 0; i < len; i++) printf("%c", frame_rawbits[i]); printf("\n");
-        }
-      }
-    }
-    else if ((err==0   || err>8*(pos_GPSTOW+4)  )  &&  len > 8*2*(pos_GPSTOW+4)) {
+        for (j = 0; j < pos; j++) f1.bytes[OFS+j] = frame_bytes[j];
 
-        //if ((frame_bytes[1] & 0xF0) == 0x70)  // ? beginnen alle SNs mit 0x7A.... bzw 80..... ?
-        {
-            get_FrameNb();
-            get_GPStime();
-            get_SondeSN();
-            if (option_verbose) printf(" (%7d) ", gpx.sn);
-            printf(" [%5d] ", gpx.frnr);
-            printf("%s ", weekday[gpx.wday]);
-            printf("(%02d:%02d:%06.3f) ", gpx.std, gpx.min, gpx.sek); // falls Rundung auf 60s: Ueberlauf
+        for (i = 0; i < k; i++) {
 
-            get_GPSlat();
-            get_GPSlon();
-            err = get_GPSalt();
-            if (!err) {
-                printf(" lat: %.6f° ", gpx.lat);
-                printf(" lon: %.6f° ", gpx.lon);
-                printf(" alt: %.2fm ", gpx.h);
-                //if (option_verbose)
-                {
-                    get_GPSvel24();
-                    //if (option_verbose == 2) printf("  (%.1f ,%.1f,%.1f) ", gpx.vE, gpx.vN, gpx.vU);
-                    printf("  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
-                }
+            for (j = 0; j < rs_N; j++) rs_cw[j] = ecc_buf[ (bufidx-1-flen+rsbf[i].epos-j +ECCBUF_LEN) % ECCBUF_LEN ];
+
+            errs = lms6_ecc(rs_cw);
+            for (j = rs_R; j < rs_N; j++) {
+                int idx = rsbf[i].fpos-j;
+                if (f1.pos-1 + idx < 0) f0.bytes[OFS+ f0.pos-1 + idx ] = rs_cw[j];
+                else                    f1.bytes[OFS+ f1.pos-1 + idx ] = rs_cw[j];
             }
-            if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
+            // delay 1 frame due to overlap
 
-            printf("\n");
+            rsbf[i].errs = errs;
+            if (option_raw == 4) {
+               for (j = 0; j < rs_N; j++) printf("%02x", rs_cw[rs_N-1-j]);
+               printf(" (%d)\n", errs);
+            }
         }
     }
+
+
+    f1.pos  = pos;
+
+    if (option_ecc == 2) {
+        p_frame = f0.bytes;
+        pos = f0.pos;
+    }
+    else {
+        p_frame = frame;
+    }
+    crc_err = check_CRC(p_frame);
+
+    print_frame(crc_err, len, pos);
+
+    f0 = f1;
+    f1.pos = 0;
 
 }
 
@@ -960,7 +1029,7 @@ int main(int argc, char **argv) {
         if (len == 0) { // reset_frame();
           /*if (pos > 8*2*pos_GPSlon) {
                 //for (i = pos; i < RAWBITFRAME_LEN+OVERLAP*BITS*2; i++) frame_rawbits[i] = '0';
-                print_frame(pos);
+                proc_frame(pos);
                 //header_found = 0;
                 pos = FRAMESTART;
             }*/
@@ -992,7 +1061,7 @@ int main(int argc, char **argv) {
 
             if (pos >= RAWBITFRAME_LEN+OVERLAP*BITS*2  ||  next_header) {
                     frame_rawbits[pos] = '\0';
-                    print_frame(pos);
+                    proc_frame(pos);
                     pos = FRAMESTART;
                     header_found = next_header;
                     next_header = 0;
