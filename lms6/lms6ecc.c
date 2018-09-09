@@ -4,7 +4,7 @@
    (403 MHz)
 
     gcc lms6ecc.c -lm -o lms6ecc
-    ./lms6ecc -v -b --ecc <audio.wav>
+    ./lms6ecc -v -b --ecc2 <audio.wav>
 */
 
 #include <stdio.h>
@@ -227,6 +227,12 @@ ui8_t frame[FRAME_LEN+OVERLAP+5 +8] = { 0x24, 0x54, 0x00, 0x00, 0x00}; // header
 ui8_t *frame_bytes = frame+OFS; // { 0x00, 0x7A, ... }
 
 ui8_t *p_frame = frame;
+
+// RS-SYNC
+// (00)              58               f3               3f               b8              
+//  ................ 0000001011110011 1110110100100011 0110100000001011 0101110001011110
+ui8_t rs_sync[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
+
 
 char buf[HEADLEN];
 int bufpos = -1;
@@ -748,15 +754,12 @@ int get_GPSvel24() {
 #define rs_K 223
 #define rs_R (rs_N-rs_K) // 32
 ui8_t rs_cw[rs_N];
-int eccnt = 0;
-
-ui8_t rs_ecc32end[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
-
-ui8_t frm_bytes[FRAME_LEN+OVERLAP +8];
 
 #define ECCBUF_LEN (3*FRAME_LEN+32)
 ui8_t ecc_buf[ECCBUF_LEN];
 int bufidx = 0;
+
+ui8_t frm_bytes[FRAME_LEN+OVERLAP +8];
 
 typedef struct {
     int pos;
@@ -890,7 +893,7 @@ void proc_frame(int len) {
     pos = 0;
     for (n = 0; n < flen-rs_R-5; n++) {
         int bf = 0;
-        for (j = 0; j < 5; j++) bf += (frm_bytes[n+rs_R+j] == rs_ecc32end[j]);
+        for (j = 0; j < 5; j++) bf += (frm_bytes[n+rs_R+j] == rs_sync[j]);
         if (bf == 5) {
             if (k < kMAX) {
                 rsbf[k].epos = rs_R + n;

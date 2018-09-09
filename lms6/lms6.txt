@@ -2,6 +2,7 @@
 Lockheed Martin Sippican LMS6
 (403 MHz)
 
+
 FSK 4800 baud
 NRZ-S, convolutional code R=1/2
     K=8: 0x95: pA = x^7+x^4+x^2+1 = (x+1)(x^6+x^5+x^4+x+1)        = (x+1)qA
@@ -12,11 +13,29 @@ NRZ-S, convolutional code R=1/2
 bits: little endian
 bytes: big endian
 
-Reed-Solomon RS(223,32)-CCSDS
-(msg[223],par[32]): 223+32 byte vor 5-byte-Block [00 58 f3 3f b8] (ring-buffer!)
 
+4800 bit/s: rate=1/2: 300 byte/s
+
+Reed-Solomon RS(223,32)-CCSDS blocks
+block format: SYNC (5 byte) + RS-codeword (255 byte) (-> block size: 260 byte)
+SYNC: 0x0058f33fb8
+RS-codeword: RS-MSG (223 byte) + RS-PAR (32 byte)
+
+260:300 = 13:15 - every 13 sec block-position repeats,
+full-frame length 13 sec (data-frames): 13*300 byte = 15 blocks
+
+1 data-frame per sec: 223 DATA bytes ( + fill)
+DATA = 221 byte + 2 byte CRC16
+DATA: 24 54 00 00 .. (len=221+2)
 CRC16: poly 0x1021
-crc-frame: 24 54 00 00 00 .. (len=221)
+
+synchronisation:
+a) (24)54 00 00 .. (DATA-frame)
+b) (00)58 f3 3f b8 (RS-block)
+
+every 6/7 sec: DATA=RS-MSG | SYNC | ...
+
+
 
 
 sync/header:
