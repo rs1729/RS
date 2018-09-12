@@ -18,7 +18,7 @@ bytes: big endian
 
 Reed-Solomon RS(255,223)-CCSDS blocks
 block format: SYNC (5 byte) + RS-codeword (255 byte) (-> block size: 260 byte)
-SYNC: 0x0058f33fb8
+SYNC: 0x0058f33fb8 (0x58f33fb8 little-endian <-> 0x1ACFFC1D big-endian bytes)
 RS-codeword: RS-MSG (223 byte) + RS-PAR (32 byte)
 
 260:300 = 13:15 - every 13 sec block-position repeats,
