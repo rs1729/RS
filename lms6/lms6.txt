@@ -4,11 +4,20 @@ Lockheed Martin Sippican LMS6
 
 
 FSK 4800 baud
-NRZ-S, convolutional code R=1/2
+convolutional code R=1/2, K=7 (CCSDS)
+(c0,inv c1)
+polyA = x^6+x^3+x^2+x+1    (0x4f)
+polyB = x^6+x^5+x^3+x^2+1  (0x6d)
+
+(
+NRZ-S:
+polyA = qA + x*qB
+polyB = qA + qB
     K=8: 0x95: pA = x^7+x^4+x^2+1 = (x+1)(x^6+x^5+x^4+x+1)        = (x+1)qA
          0x22: pB = x^5+x         = (x+1)(x^4+x^3+x^2+x)=x(x+1)^3 = (x+1)qB
  -> K=7: 0x73: qA = x^6+x^5+x^4+x+1
-         0x1e: qB = x^4+x^3+x^2+x   (d_f=6)
+         0x1e: qB = x^4+x^3+x^2+x   (d_f=6) ((x+1)-catastrophic)
+)
 
 bits: little endian
 bytes: big endian
