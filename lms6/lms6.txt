@@ -5,7 +5,7 @@ Lockheed Martin Sippican LMS6
 
 FSK 4800 baud
 convolutional code R=1/2, K=7 (CCSDS)
-(c0,inv c1)
+(inv(c0),c1)
 polyA = x^6+x^3+x^2+x+1    (0x4f)
 polyB = x^6+x^5+x^3+x^2+1  (0x6d)
 
@@ -75,4 +75,42 @@ SN: 0x7A9A4A = 8034890
  [ 7262] Di (11:12:33.0)  lat: 50.876588°  lon: -0.953366°  alt: 18811.52m   vH: 44.1m/s  D: 87.1°  vV: 4.9m/s 
  [ 7263] Di (11:12:34.0)  lat: 50.876597°  lon: -0.952767°  alt: 18815.11m   vH: 42.3m/s  D: 88.7°  vV: 3.6m/s 
  [ 7264] Di (11:12:35.0)  lat: 50.876602°  lon: -0.952174°  alt: 18818.83m   vH: 41.9m/s  D: 89.3°  vV: 3.7m/s 
+
+
+
+
+pA = x^7+x^4+x^2+1 = (x+1)qA
+pB = x^5+x         = (x+1)qB
+qA = x^6+x^5+x^4+x+1
+qB = x^4+x^3+x^2+x
+
+receive:
+...,a(n-1),b(n-1),a(n),b(n),a(n+1),b(n+1),...
+if NRZ-S demod:
+alpha(n)=[a(n)==b(n-1)]=a(n)+b(n-1)+1
+beta(n)=[a(n)==b(n)]=b(n)+a(n)+1
+
+alpha = a + x*b + 1/(1+x)
+beta = a + b + 1/(1+x)
+
+m*pA = alpha
+m*pB = beta
+
+m*polyA = cA
+m*ployB = cB
+
+polyA = qA + x*qB = x^6+x^3+x^2+x+1
+polyB = qA + qB = x^6+x^5+x^3+x^2+1
+
+polyA + polyB = (x+1)qB = pB
+polyA + x*polyB = (x+1)qA = pA
+
+beta = m*pB = m*polyA + m*polyB = cA + cB
+alpha = m*pA = m*polyA + x*m*polyB = cA + x*cB
+
+alpha + beta = (1+x)cB = (1+x)b
+alpha + x*beta = (1+x)cA = (1+x)a + 1
+
+cB = b
+cA = a + 1/(1+x)
 
