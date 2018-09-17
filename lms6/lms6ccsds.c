@@ -1007,7 +1007,7 @@ int main(int argc, char **argv) {
         for (i = 0; i < len; i++) {
 
             inc_bufpos();
-            bit = rbit ^ (bc%2);  // (inv(c0),c1)
+            bit = rbit ^ (bc%2);  // (c0,inv(c1))
             bc++;
             buf[bufpos] = 0x30 + bit;
 
@@ -1035,7 +1035,7 @@ int main(int argc, char **argv) {
 
             while ( pos < RAWBITBLOCK_LEN ) {
                 if (read_rawbit(fp, &rbit) == EOF) break;
-                bit = rbit ^ (bc%2);  // (inv(c0),c1)
+                bit = rbit ^ (bc%2);  // (c0,inv(c1))
                 bc++;
                 blk_rawbits[pos] = 0x30 + bit;
                 pos++;
