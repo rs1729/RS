@@ -8,6 +8,8 @@
  *  compile:
  *      gcc -c demod_dft.c
  *      gcc lms6dm_dft.c demod_dft.o -lm -o lms6dm_dft
+ *  usage:
+ *      ./lms6dm_dft -v --vit --ecc <audio.wav>
  *
  *  author: zilog80
  */
@@ -27,7 +29,6 @@ typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
 typedef unsigned int   ui32_t;
 
-//#include "demod_dft.c"
 #include "demod_dft.h"
 
 #include "bch_ecc.c"  // RS/ecc/
@@ -36,6 +37,7 @@ typedef unsigned int   ui32_t;
 int option_verbose = 0,  // ausfuehrliche Anzeige
     option_raw = 0,      // rohe Frames
     option_ecc = 0,
+    option_vit = 0,
     option_inv = 0,      // invertiert Signal
     option_dc = 0,
     wavloaded = 0;
@@ -67,6 +69,13 @@ ui8_t rs_sync[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
 //                                                      (00)               58                f3                3f                b8
 char  blk_rawbits[RAWBITBLOCK_LEN+SYNC_LEN*BITS*2 +8] = "0000000000000000""0000001101011101""0100100111000010""0100111111110010""0110100001101011";
 //char  *block_rawbits = blk_rawbits+SYNC_LEN*BITS*2;
+
+float  soft_rawbits[RAWBITBLOCK_LEN+SYNC_LEN*BITS*2 +8] =
+ { -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,
+   -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,  1.0,  1.0, -1.0,  1.0, -1.0,  1.0,  1.0,  1.0, -1.0,  1.0,
+   -1.0,  1.0, -1.0, -1.0,  1.0, -1.0, -1.0,  1.0,  1.0,  1.0, -1.0, -1.0, -1.0, -1.0,  1.0, -1.0,
+   -1.0,  1.0, -1.0, -1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0, -1.0, -1.0,  1.0, -1.0,
+   -1.0,  1.0,  1.0, -1.0,  1.0, -1.0, -1.0, -1.0, -1.0,  1.0,  1.0, -1.0,  1.0, -1.0,  1.0,  1.0 };
 
 ui8_t block_bytes[BLOCK_LEN+8];
 
@@ -100,22 +109,25 @@ polyB = qA + qB
 */
 
 char vit_rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2 +8];
+char vits_rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2 +8];
+char vits_bits[BITFRAME_LEN+OVERLAP*BITS +8];
 
 #define N (1 << L)
 #define M (1 << (L-1))
 
 typedef struct {
-    int bIn;
-    int codeIn;
+    ui8_t bIn;
+    ui8_t codeIn;
     int w;
     int prevState;
+    float sw;
 } states_t;
 
 states_t vit_state[RAWBITFRAME_LEN+OVERLAP +8][M];
 
 states_t vit_d[N];
 
-char vit_code[N];
+ui8_t vit_code[N];
 
 
 int vit_initCodes() {
@@ -231,6 +243,115 @@ int viterbi(char *rc) {
         }
     }
     vit_path(j_min, tmax);
+
+    return 0;
+}
+
+
+float vits_dist(int c, float *rc) {
+    int bit0 = ((c>>1)&1) * 2 - 1;
+    int bit1 = (c&1) * 2 - 1;
+    return sqrt( (bit0-rc[0])*(bit0-rc[0]) + (bit1-rc[1])*(bit1-rc[1]) );
+}
+
+int vits_start(float *rc) {
+    int t, m, j, c;
+    float d;
+
+    t = L-1;
+    m = M;
+    while ( t > 0 ) {  // t=0..L-2: nextState<M
+        for (j = 0; j < m; j++) {
+            vit_state[t][j].prevState = j/2;
+        }
+        t--;
+        m /= 2;
+    }
+
+    m = 2;
+    for (t = 1; t < L; t++) {
+        for (j = 0; j < m; j++) {
+            c = vit_code[j];
+            vit_state[t][j].bIn = j % 2;
+            vit_state[t][j].codeIn = c;
+            d = vits_dist( c, rc+2*(t-1) );
+            vit_state[t][j].sw = vit_state[t-1][vit_state[t][j].prevState].sw + d;
+        }
+        m *= 2;
+    }
+
+    return t;
+}
+
+int vits_next(int t, float *rc) {
+    int b, nstate;
+    int j, index;
+
+    for (j = 0; j < M; j++) {
+        for (b = 0; b < 2; b++) {
+            nstate = j*2 + b;
+            vit_d[nstate].bIn = b;
+            vit_d[nstate].codeIn = vit_code[nstate];
+            vit_d[nstate].prevState = j;
+            vit_d[nstate].sw = vit_state[t][j].sw + vits_dist( vit_d[nstate].codeIn, rc );
+        }
+     }
+
+    for (j = 0; j < M; j++) {
+
+        if ( vit_d[j].sw <= vit_d[j+M].sw ) index = j; else index = j+M;
+
+        vit_state[t+1][j] = vit_d[index];
+    }
+
+    return 0;
+}
+
+int vits_path(int j, int t) {
+    int c;
+    int dec;
+
+    vits_rawbits[2*t] = '\0';
+    vits_bits[t] = '\0';
+    while (t > 0) {
+        dec = vit_state[t][j].bIn;
+        vits_bits[t-1] = 0x30 + dec;
+        c = vit_state[t][j].codeIn;
+        vits_rawbits[2*t -2] = 0x30 + ((c>>1) & 1);
+        vits_rawbits[2*t -1] = 0x30 + (c & 1);
+        j = vit_state[t][j].prevState;
+        t--;
+    }
+
+    return 0;
+}
+
+int viterbi_soft(float *rc, int len) {
+    int t, tmax;
+    int j, j_min;
+    float sw_min;
+
+    vits_start(rc);
+
+    tmax = len/2;
+
+    for (t = L-1; t < tmax; t++)
+    {
+        vits_next(t, rc+2*t);
+    }
+
+    sw_min = -1.0;
+    for (j = 0; j < M; j++) {
+        if (sw_min < 0.0) {
+            sw_min = vit_state[tmax][j].sw;
+            j_min = j;
+        }
+        if (vit_state[tmax][j].sw < sw_min) {
+            sw_min = vit_state[tmax][j].sw;
+            j_min = j;
+        }
+    }
+    vits_path(j_min, tmax);
 
     return 0;
 }
@@ -363,7 +484,6 @@ gpx_t gpx0 = { 0 };
 #define pos_GPSlat   (OFS+0x0E)  // 4 byte
 #define pos_GPSlon   (OFS+0x12)  // 4 byte
 #define pos_GPSalt   (OFS+0x16)  // 4 byte
-//#define pos_GPSweek   0x20  // 2 byte
 //GPS Velocity East-North-Up (ENU)
 #define pos_GPSvO    (OFS+0x1A)  // 3 byte
 #define pos_GPSvN    (OFS+0x1D)  // 3 byte
@@ -566,6 +686,7 @@ int get_GPSvel24() {
 }
 
 
+// RS(255,223)-CCSDS
 #define rs_N 255
 #define rs_K 223
 #define rs_R (rs_N-rs_K) // 32
@@ -641,9 +762,13 @@ void proc_frame(int len) {
 
     flen = len / (2*BITS);
 
-    if (option_ecc) {
+    if (option_vit == 1) {
         viterbi(blk_rawbits);
         rawbits = vit_rawbits;
+    }
+    else if (option_vit == 2) {
+        viterbi_soft(soft_rawbits, len);
+        rawbits = vits_rawbits;
     }
     else rawbits = blk_rawbits;
 
@@ -656,7 +781,7 @@ void proc_frame(int len) {
     for (j = blen; j < flen; j++) block_bytes[j] = 0;
 
 
-    if (option_ecc == 2) {
+    if (option_ecc) {
         for (j = 0; j < rs_N; j++) rs_cw[rs_N-1-j] = block_bytes[SYNC_LEN+j];
         errs = lms6_ecc(rs_cw);
         for (j = 0; j < rs_N; j++) block_bytes[SYNC_LEN+j] = rs_cw[rs_N-1-j];
@@ -664,17 +789,20 @@ void proc_frame(int len) {
 
     if (option_raw == 2) {
         for (i = 0; i < flen; i++) printf("%02x ", block_bytes[i]);
-        if (option_ecc == 2) printf("(%d)", errs);
+        if (option_ecc) printf("(%d)", errs);
         printf("\n");
     }
-    else if (option_raw == 4  &&  option_ecc == 2) {
+    else if (option_raw == 4  &&  option_ecc) {
         for (i = 0; i < rs_N; i++) printf("%02x", block_bytes[SYNC_LEN+i]);
         printf(" (%d)", errs);
         printf("\n");
     }
     else if (option_raw == 8) {
-        if (option_ecc) {
+        if (option_vit == 1) {
             for (i = 0; i < len; i++) printf("%c", vit_rawbits[i]); printf("\n");
+        }
+        else if (option_vit == 2) {
+            for (i = 0; i < len; i++) printf("%c", vits_rawbits[i]); printf("\n");
         }
         else {
             for (i = 0; i < len; i++) printf("%c", blk_rawbits[i]); printf("\n");
@@ -723,6 +851,7 @@ void proc_frame(int len) {
 
 }
 
+
 int main(int argc, char **argv) {
 
     FILE *fp = NULL;
@@ -748,6 +877,10 @@ int main(int argc, char **argv) {
     int symlen = 1;
     unsigned int bc = 0;
 
+    float sb = 0.0;
+    float sbit = 0.0;
+    float level = -1.0, ll = -1.0;
+
 
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _setmode(_fileno(stdin), _O_BINARY);
@@ -762,6 +895,8 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  options:\n");
             fprintf(stderr, "       -v, --verbose\n");
             fprintf(stderr, "       -r, --raw\n");
+            fprintf(stderr, "       --vit,--vit2 (Viterbi/soft)\n");
+            fprintf(stderr, "       --ecc        (Reed-Solomon)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
@@ -771,7 +906,7 @@ int main(int argc, char **argv) {
             option_raw = 1; // bytes - rs_ecc_codewords
         }
         else if ( (strcmp(*argv, "-r0") == 0) || (strcmp(*argv, "--raw0") == 0) ) {
-            option_raw = 2; // bytes: info + codewords
+            option_raw = 2; // bytes: sync + codewords
         }
         else if ( (strcmp(*argv, "-rc") == 0) || (strcmp(*argv, "--rawecc") == 0) ) {
             option_raw = 4; // rs_ecc_codewords
@@ -779,8 +914,9 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-R") == 0) || (strcmp(*argv, "--RAW") == 0) ) {
             option_raw = 8; // rawbits
         }
-        else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // viterbi
-        else if   (strcmp(*argv, "--ecc2") == 0) { option_ecc = 2; } // RS-ECC (+viterbi)
+        else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // RS-ECC
+        else if   (strcmp(*argv, "--vit" ) == 0) { option_vit = 1; } // viterbi-hard
+        else if   (strcmp(*argv, "--vit2") == 0) { option_vit = 2; } // viterbi-soft
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
         }
@@ -792,6 +928,13 @@ int main(int argc, char **argv) {
             ++argv;
             if (*argv) {
                 thres = atof(*argv);
+            }
+            else return -1;
+        }
+        else if ( (strcmp(*argv, "--level") == 0) ) {
+            ++argv;
+            if (*argv) {
+                ll = atof(*argv);
             }
             else return -1;
         }
@@ -819,12 +962,12 @@ int main(int argc, char **argv) {
     }
 
 
-    if (option_raw == 4) option_ecc = 2;
+    if (option_raw == 4) option_ecc = 1;
 
-    if (option_ecc) {
+    if (option_vit) {
         vit_initCodes();
     }
-    if (option_ecc == 2) {
+    if (option_ecc) {
         rs_init_RS255ccsds(); // bch_ecc.c
     }
 
@@ -838,7 +981,7 @@ int main(int argc, char **argv) {
         return -1;
     };
 
-
+    level = ll;
     k = 0;
     mv = -1; mv_pos = 0;
 
@@ -873,22 +1016,33 @@ int main(int argc, char **argv) {
 
                 if (header_found) {
 
+                    if (ll <= 0) level = header_level(rawheader, headerlen, mv_pos, mv<0) * 0.6;
+
                     bitpos = 0;
                     pos = BLOCKSTART;
+
                     if (mv > 0) bc = 0; else bc = 1;
 
                     while ( pos < RAWBITBLOCK_LEN ) {
                         header_found = !(pos>=RAWBITBLOCK_LEN-10);
-                        bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
+                        //bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
+                        bitQ = read_softbit(fp, symlen, &rbit, &sb, level, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
                         if (bitQ == EOF) { break; }
+
                         bit = rbit ^ (bc%2);  // (c0,inv(c1))
-                        bc++;
                         blk_rawbits[pos] = 0x30 + bit;
+
+                        sbit = sb * (-(int)(bc%2)*2+1);
+                        soft_rawbits[pos] = sbit;
+
+                        bc++;
                         pos++;
                         bitpos += 1;
                     }
 
                     blk_rawbits[pos] = '\0';
+                    soft_rawbits[pos] = 0;
+
                     proc_frame(pos);
 
                     if (pos < RAWBITBLOCK_LEN) break;

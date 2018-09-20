@@ -4,7 +4,7 @@
    (403 MHz)
 
     gcc lms6ccsds.c -lm -o lms6ccsds
-    ./lms6ccsds -v -b --ecc2 <audio.wav>
+    ./lms6ccsds -b -v --vit --ecc <audio.wav>
 */
 
 #include <stdio.h>
@@ -20,9 +20,10 @@ typedef unsigned int   ui32_t;
 
 
 int option_verbose = 0,  // ausfuehrliche Anzeige
+    option_b   = 0,
     option_raw = 0,      // rohe Frames
     option_ecc = 0,
-    option_b   = 0,
+    option_vit = 0,
     option_inv = 0,      // invertiert Signal
     option_res = 0,      // genauere Bitmessung
     wavloaded = 0;
@@ -265,8 +266,8 @@ char vit_rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2 +8];
 #define M (1 << (K-1))
 
 typedef struct {
-    int bIn;
-    int codeIn;
+    ui8_t bIn;
+    ui8_t codeIn;
     int w;
     int prevState;
 } states_t;
@@ -275,7 +276,7 @@ states_t vit_state[RAWBITFRAME_LEN+OVERLAP +8][M];
 
 states_t vit_d[N];
 
-char vit_code[N];
+ui8_t vit_code[N];
 
 
 int vit_initCodes() {
@@ -560,7 +561,6 @@ gpx_t gpx0 = { 0 };
 #define pos_GPSlat   (OFS+0x0E)  // 4 byte
 #define pos_GPSlon   (OFS+0x12)  // 4 byte
 #define pos_GPSalt   (OFS+0x16)  // 4 byte
-//#define pos_GPSweek   0x20  // 2 byte
 //GPS Velocity East-North-Up (ENU)
 #define pos_GPSvO    (OFS+0x1A)  // 3 byte
 #define pos_GPSvN    (OFS+0x1D)  // 3 byte
@@ -763,6 +763,7 @@ int get_GPSvel24() {
 }
 
 
+// RS(255,223)-CCSDS
 #define rs_N 255
 #define rs_K 223
 #define rs_R (rs_N-rs_K) // 32
@@ -838,7 +839,7 @@ void proc_frame(int len) {
 
     flen = len / (2*BITS);
 
-    if (option_ecc) {
+    if (option_vit) {
         viterbi(blk_rawbits);
         rawbits = vit_rawbits;
     }
@@ -853,7 +854,7 @@ void proc_frame(int len) {
     for (j = blen; j < flen; j++) block_bytes[j] = 0;
 
 
-    if (option_ecc == 2) {
+    if (option_ecc) {
         for (j = 0; j < rs_N; j++) rs_cw[rs_N-1-j] = block_bytes[SYNC_LEN+j];
         errs = lms6_ecc(rs_cw);
         for (j = 0; j < rs_N; j++) block_bytes[SYNC_LEN+j] = rs_cw[rs_N-1-j];
@@ -861,16 +862,16 @@ void proc_frame(int len) {
 
     if (option_raw == 2) {
         for (i = 0; i < flen; i++) printf("%02x ", block_bytes[i]);
-        if (option_ecc == 2) printf("(%d)", errs);
+        if (option_ecc) printf("(%d)", errs);
         printf("\n");
     }
-    else if (option_raw == 4  &&  option_ecc == 2) {
+    else if (option_raw == 4  &&  option_ecc) {
         for (i = 0; i < rs_N; i++) printf("%02x", block_bytes[SYNC_LEN+i]);
         printf(" (%d)", errs);
         printf("\n");
     }
     else if (option_raw == 8) {
-        if (option_ecc) {
+        if (option_vit) {
             for (i = 0; i < len; i++) printf("%c", vit_rawbits[i]); printf("\n");
         }
         else {
@@ -939,6 +940,8 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  options:\n");
             fprintf(stderr, "       -v, --verbose\n");
             fprintf(stderr, "       -r, --raw\n");
+            fprintf(stderr, "       --vit        (Viterbi)\n");
+            fprintf(stderr, "       --ecc        (Reed-Solomon)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
@@ -949,7 +952,7 @@ int main(int argc, char **argv) {
             option_raw = 1; // bytes - rs_ecc_codewords
         }
         else if ( (strcmp(*argv, "-r0") == 0) || (strcmp(*argv, "--raw0") == 0) ) {
-            option_raw = 2; // bytes: info + codewords
+            option_raw = 2; // bytes: sync + codewords
         }
         else if ( (strcmp(*argv, "-rc") == 0) || (strcmp(*argv, "--rawecc") == 0) ) {
             option_raw = 4; // rs_ecc_codewords
@@ -957,8 +960,8 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-R") == 0) || (strcmp(*argv, "--RAW") == 0) ) {
             option_raw = 8; // rawbits
         }
-        else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // viterbi
-        else if   (strcmp(*argv, "--ecc2") == 0) { option_ecc = 2; } // RS-ECC (+viterbi)
+        else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // RS-ECC
+        else if   (strcmp(*argv, "--vit" ) == 0) { option_vit = 1; } // viterbi-hard
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
         }
@@ -983,12 +986,12 @@ int main(int argc, char **argv) {
     }
 
 
-    if (option_raw == 4) option_ecc = 2;
+    if (option_raw == 4) option_ecc = 1;
 
-    if (option_ecc) {
+    if (option_vit) {
         vit_initCodes();
     }
-    if (option_ecc == 2) {
+    if (option_ecc) {
         rs_init_RS255ccsds(); // bch_ecc.c
     }
 

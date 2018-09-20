@@ -416,6 +416,92 @@ int read_sbit(FILE *fp, int symlen, int *bit, int inv, int ofs, int reset, int c
 
 /* -------------------------------------------------------------------------- */
 
+int read_softbit(FILE *fp, int symlen, int *bit, float *sb, float level, int inv, int ofs, int reset, int cm) {
+// symlen==2: manchester2 10->0,01->1: 2.bit
+
+    static double bitgrenze;
+    static unsigned long scount;
+
+    float sample;
+
+    double sum = 0.0;
+    int n = 0;
+
+    if (reset) {
+        scount = 0;
+        bitgrenze = 0;
+    }
+
+    if (symlen == 2) {
+        bitgrenze += samples_per_bit;
+        do {
+            if (buffered > 0) buffered -= 1;
+            else if (f32buf_sample(fp, inv, cm) == EOF) return EOF;
+
+            sample = bufs[(sample_out-buffered + ofs + M) % M];
+            if (scount > bitgrenze-samples_per_bit  &&  scount < bitgrenze-2)
+            {
+                sum -= sample;
+                n++;
+            }
+            scount++;
+        } while (scount < bitgrenze);  // n < samples_per_bit
+    }
+
+    bitgrenze += samples_per_bit;
+    do {
+        if (buffered > 0) buffered -= 1;
+        else if (f32buf_sample(fp, inv, cm) == EOF) return EOF;
+
+        sample = bufs[(sample_out-buffered + ofs + M) % M];
+        if (scount > bitgrenze-samples_per_bit  &&  scount < bitgrenze-2)
+        {
+            sum += sample;
+            n++;
+        }
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
+
+    if (sum >= 0) *bit = 1;
+    else          *bit = 0;
+
+    *sb = sum / n;
+
+    if (*sb > +2.5*level) *sb = +0.8*level;
+    if (*sb > +level) *sb = +level;
+
+    if (*sb < -2.5*level) *sb = -0.8*level;
+    if (*sb < -level) *sb = -level;
+
+   *sb /= level;
+
+    return 0;
+}
+
+float header_level(char hdr[], int hLen, unsigned int pos, int inv) {
+    int n, bitn;
+    int sgn = 0;
+    double s = 0.0;
+    double sum = 0.0;
+
+    n = 0;
+    bitn = 0;
+    while ( bitn < hLen && (n < N) ) {
+        sgn = (hdr[bitn]&1)*2-1; // {'0','1'} -> {-1,1}
+        s = bufs[(pos-N + n + M) % M];
+        if (inv) s = -s;
+        sum += s * sgn;
+        n++;
+        bitn = n / samples_per_bit;
+    }
+    sum /= n;
+
+    return sum;
+}
+
+/* -------------------------------------------------------------------------- */
+
+
 static double norm2_match() {
     int i;
     double x, y = 0.0;
