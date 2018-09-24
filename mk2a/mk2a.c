@@ -105,7 +105,7 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
         byte = fgetc(fp);
         if (byte == EOF) return EOF_INT;
         if (i == 0) ret = byte;
-    
+
         if (bits_sample == 16) {
             byte = fgetc(fp);
             if (byte == EOF) return EOF_INT;
@@ -165,7 +165,7 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
 
 #define HEADLEN 40
 #define HEADOFS 0
-              //  CA          CA          CA          24              52      
+             //  CA          CA          CA          24              52
 char header[] = "0010100111""0010100111""0010100111""0001001001"; //"0010010101";
 // moeglicherweise auch anderes sync-byte als 0xCA moeglich
 char sync[]   = "0010100111""0010100111""0010100111""0010100111"; // CA CA CA CA
@@ -319,14 +319,15 @@ gpx_t gpx;
 #define pos_GPSvV  (OFS+0x22)  // 3 byte
 
 
-int check_CRC() {
+int check_CRC(int len) {
     ui32_t crclen = 0,
            crcdat = 0;
-
+/*
     if      (frame_bytes[OFS] == 0x4D) crclen = 67;
-    else if (frame_bytes[OFS] == 0x54) crclen = 172;
-    else return -1;
-
+    else if (frame_bytes[OFS] == 0x54) crclen = 172; // 172, 146? variable? Mk2a, LMS6-1680?
+    else crclen = len;
+*/
+    crclen = len;
     crcdat = (frame_bytes[crclen]<<8) | frame_bytes[crclen+1];
     if ( crcdat != crc16_0(frame_bytes, crclen) ) {
         return 1;  // CRC NO
@@ -519,17 +520,31 @@ int get_GPSvel24() {
 void print_frame(int len) {
 
     int i, crc_err = 0;
+    int flen = len/BITS;
 
     for (i = len; i < BITFRAME_LEN; i++) frame_bits[i] = 0;  // oder: '0'
     bits2bytes(frame_bits, frame_bytes+1);
 
+    while (flen > 2 && frame_bytes[flen-1] == 0xCA) flen--; // if crc != 0xYYCA ...
+
+    crc_err = check_CRC(flen-2);
+    if (crc_err) { // crc_bytes == sync_bytes?
+        crc_err = check_CRC(flen-1);
+        if (crc_err == 0) flen += 1;
+        else {
+            crc_err = check_CRC(flen);
+            if (crc_err == 0) flen += 2;
+        }
+    }
 
     if (option_raw) {
-        for (i = 0; i < len/BITS; i++) printf("%02x ", frame_bytes[i]); printf("\n");
+        for (i = 0; i < flen; i++) printf("%02x ", frame_bytes[i]);
+        if (option_crc) {
+            if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
+        }
+        printf("\n");
     }
     else {
-
-        crc_err = check_CRC();
 
         if (frame_bytes[OFS] == 0x54  &&  len/BITS > pos_GPSalt+4) {
 
