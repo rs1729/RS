@@ -778,7 +778,7 @@ int main(int argc, char **argv) {
     int herrs, herr1;
     int headerlen = 0;
 
-    int k,K;
+    int k, K;
     float mv;
     unsigned int mv_pos, mv0_pos;
     int mp = 0;
@@ -860,7 +860,7 @@ int main(int argc, char **argv) {
 
     symlen = 2;
     headerlen = strlen(rawheader);
-    bitofs = 1; // +1 .. +2
+    bitofs = 0; // 0 .. +2
     K = init_buffers(rawheader, headerlen, 1); // shape=0 (alt. shape=1)
     if ( K < 0 ) {
         fprintf(stderr, "error: init buffers\n");
@@ -888,10 +888,11 @@ int main(int argc, char **argv) {
             if (mv_pos > mv0_pos) {
 
                 header_found = 0;
-                herrs = headcmp(1, rawheader, headerlen, mv_pos, mv<0, option_dc); // (symlen=2)
+                herrs = headcmp(1, rawheader, headerlen, mv_pos, mv<0, option_dc); // header nicht manchester!
                 herr1 = 0;
                 if (herrs <= 3 && herrs > 0) {
-                    herr1 = headcmp(symlen, rawheader, headerlen, mv_pos+1, mv<0, option_dc);
+                    herr1 = headcmp(1, rawheader, headerlen, mv_pos+1, mv<0, option_dc);
+                    //int herr2 = headcmp(1, rawheader, headerlen, mv_pos-1, mv<0, option_dc);
                     if (herr1 < herrs) {
                         herrs = herr1;
                         herr1 = 1;
