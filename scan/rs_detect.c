@@ -24,7 +24,8 @@ struct tm *gmt;
 
 int wavloaded = 0,
     option_gmt = 0,
-    option_silent = 0;
+    option_silent = 0,
+    option_b = 0;
 
 
 #define  DFM   2
@@ -66,6 +67,11 @@ int bufpos48 = -1;
 
 char buf96[HEADLEN+1] = "x";
 int bufpos96 = -1;
+
+
+int L, M;
+char *bufb = NULL;
+float *bufs  = NULL;
 
 
 /* -------------------------------------------------------------------------- */
@@ -136,44 +142,43 @@ int read_wav_header(FILE *fp) {
 }
 
 
-#define EOF_INT  0x1000000
-
-int read_signed_sample(FILE *fp) {  // int = i32_t
-    int byte, i, ret;         //  EOF -> 0x1000000
+static int f32read_sample(FILE *fp, float *s) {
+    int i;
+    short b = 0;
 
     for (i = 0; i < channels; i++) {
-                           // i = 0: links bzw. mono
-        byte = fgetc(fp);
-        if (byte == EOF) return EOF_INT;
-        if (i == 0) ret = byte;
-    
-        if (bits_sample == 16) {
-            byte = fgetc(fp);
-            if (byte == EOF) return EOF_INT;
-            if (i == 0) ret +=  byte << 8;
-        }
 
+        if (fread( &b, bits_sample/8, 1, fp) != 1) return EOF;
+
+        if (i == 0) {  // i = 0: links bzw. mono
+            //if (bits_sample ==  8)  sint = b-128;   // 8bit: 00..FF, centerpoint 0x80=128
+            //if (bits_sample == 16)  sint = (short)b;
+
+            if (bits_sample ==  8) { b -= 128; }
+            *s = b/128.0;
+            if (bits_sample == 16) { *s /= 256.0; }
+        }
     }
 
-    if (bits_sample ==  8) return ret-128;
-    if (bits_sample == 16) return (short)ret;
-
-    return ret;
+    return 0;
 }
 
 int par=1, par_alt=1;
 unsigned long sample_count = 0;
 
 int read_bits_fsk(FILE *fp, int *bit, int *len) {
-    int n, sample;
+    float s = 0.0;
+    int n;
 
     n = 0;
     do{
-        sample = read_signed_sample(fp);
-        if (sample == EOF_INT) return EOF;
+        if (f32read_sample(fp, &s) == EOF) return EOF;
+        if (option_b) {
+            bufs[sample_count%M] = s;
+        }
         sample_count++;
         par_alt = par;
-        par =  (sample >= 0) ? 1 : -1;  // 8bit: 0..127,128..255 (-128..-1,0..127)
+        par =  (s >= 0.0) ? 1 : -1;
         n++;
     } while (par*par_alt > 0);
 
@@ -184,6 +189,49 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
 
     return 0;
 }
+
+
+int read_bufb(char *bits, unsigned int mvp, int reset, float spb) {
+
+    static unsigned int rcount;
+    static float rbitgrenze;
+
+    double sum = 0.0;
+
+    if (reset) {
+        rcount = 0;
+        rbitgrenze = 0;
+    }
+
+    rbitgrenze += spb;
+    do {
+        sum += bufs[(rcount + mvp + M) % M];
+        rcount++;
+    } while (rcount < rbitgrenze);  // n < spb
+
+    if (sum >= 0) *bits = '1';
+    else          *bits = '0';
+
+    return 0;
+}
+
+int bufscmp(char *hdr, int len, unsigned int bufspos, float spb) {
+    int errs = 0;
+    int pos;
+
+    for (pos = 0; pos < len; pos += 1) {
+        read_bufb(bufb+pos, bufspos, pos==0, spb);
+    }
+    bufb[pos] = '\0';
+
+    while (len > 0) {
+        if (bufb[len-1] != hdr[len-1]) errs += 1;
+        len--;
+    }
+
+    return errs;
+}
+
 
 /* -------------------------------------------------------------------------- */
 
@@ -200,7 +248,7 @@ void inc_buf(int *bufpos) {
 
 int compare(char buf[], char header[], int bufpos) {
     int i, j;
-    
+
     i = 0;
     j = bufpos;
     while (i < HEADLEN) {
@@ -235,6 +283,7 @@ int main(int argc, char **argv) {
     int header_found, bit, len, i;
     int len25, len48, len96;
     int zeit = 0;
+    int herrs = 0;
 
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _setmode(_fileno(stdin), _O_BINARY);
@@ -259,6 +308,9 @@ int main(int argc, char **argv) {
             if (*argv) zeit = atoi(*argv);
             else return -1;
         }
+        else if ( (strcmp(*argv, "-b") == 0) ) {
+            option_b = 1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -277,6 +329,14 @@ int main(int argc, char **argv) {
         fclose(fp);
         return -1;
     }
+
+    if (option_b) {
+        L = strlen(m10_header);
+        M = L*sample_rate/9600.0;
+        bufb = (char *)calloc( L+3, sizeof(char)); if (bufb == NULL) return -1;
+        bufs = (float *)calloc( M+17, sizeof(float)); if (bufs  == NULL) return -1;
+    }
+
 
     header_found = 0;
 
@@ -306,7 +366,25 @@ int main(int argc, char **argv) {
             inc_buf(&bufpos96);
             buf96[bufpos96] = 0x30 + bit;  // Ascii
             header_found = compare(buf96, m10_header, bufpos96) * M10;
-            if (header_found) goto ende;
+            if (header_found) {
+                if (option_b) {
+                    // rs41-preamble similar to m10-preamble; diffs:
+                    // - iq: modulation-index rs41 < m10
+                    // - pulse-shaping
+                    //      m10: 00110011 at 9600 bps
+                    //      rs41: 0101 at 4800 bps
+                    // - m10 top-carrier
+                    // - m10-header ..110(1)0110011()011.. bit shuffle
+                    float spb = sample_rate/9600.0;
+                    char hdr[HEADLEN+1];
+                    unsigned long mvp = sample_count - (HEADLEN+len96-1-i)*spb - 1;
+                    int j;
+                    for (j = 0; j < HEADLEN; j++) hdr[j] = buf96[(bufpos96+1+j)%HEADLEN]; hdr[HEADLEN] = '\0';
+                    herrs = bufscmp(hdr, HEADLEN, mvp, spb);
+                    if (herrs < 3) goto ende; // threshold: max errors 2nd pass
+                }
+                else goto ende;
+            }
             header_found = compare(buf96, imet_header+32, bufpos96) * iMet;
             if (header_found) goto ende;
         }
@@ -317,6 +395,11 @@ int main(int argc, char **argv) {
 
 ende:
     fclose(fp);
+
+    if (option_b) {
+        if (bufb) { free(bufb); bufb = NULL; }
+        if (bufs) { free(bufs); bufs = NULL; }
+    }
 
     if (!option_silent) {
         printf("sample: %lu\n", sample_count);
@@ -330,7 +413,10 @@ ende:
             if (header_found*header_found == DFM*DFM)   printf("DFM");
             if (header_found*header_found == RS41*RS41) printf("RS41");
             if (header_found*header_found == RS92*RS92) printf("RS92");
-            if (header_found*header_found == M10*M10)   printf("M10");
+            if (header_found*header_found == M10*M10) {
+                printf("M10");
+                if (option_b) printf(" (%d)", herrs);
+            }
             if (header_found*header_found == iMet*iMet) printf("iMet");
             if (option_gmt) {
                 printf(" (%4d-%02d-%02d %02d:%02dZ) ", gmt->tm_year+1900, gmt->tm_mon,
