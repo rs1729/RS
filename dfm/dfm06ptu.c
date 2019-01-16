@@ -39,6 +39,7 @@ typedef struct {
     ui32_t SN6;
     ui32_t SN9;
     ui32_t SN15;
+    ui32_t SN17;
     int week; int gpssec;
     int jahr; int monat; int tag;
     int std; int min; float sek;
@@ -718,6 +719,8 @@ int conf_out(ui8_t *conf_bits) {
     ui32_t SN6, SN9;
     static int ch7bit, ch7[2];
     ui32_t SN15;
+    static int chCbit, chC[2];
+    ui32_t SN17;
 
     conf_id = bits2val(conf_bits, 4);
 
@@ -771,6 +774,25 @@ int conf_out(ui8_t *conf_bits) {
             }
             gpx.SN15 = SN15;
             ch7bit = 0;
+        }
+    }
+    if (conf_id == 0xC) {  // 0xCCxxxxy
+        val = bits2val(conf_bits+8, 4*5);
+        hl =  (val & 1) == 0;
+        chC[hl] = (val >> 4) & 0xFFFF;
+        chCbit |= 1 << hl;
+        if (chCbit == 3) {  // DFM-17: Kanal C
+            SN17 = (chC[1] << 16) | chC[0];
+            if ( SN17 == gpx.SN17 ) {
+                gpx.sonde_typ = RSNbit | 17;
+                ptu_out = 9;
+                ret = 17;
+            }
+            else {
+                gpx.sonde_typ = 0;
+            }
+            gpx.SN17 = SN17;
+            chCbit = 0;
         }
     }
 
@@ -851,6 +873,9 @@ void print_gpx() {
                   }
                   if ((gpx.sonde_typ & 0xFF) == 9) {
                       printf(" (ID%1d:%06u) ", gpx.sonde_typ & 0xF, gpx.SN9);
+                  }
+                  if ((gpx.sonde_typ & 0xFF) == 17) {
+                      printf(" (ID%2d:%06u) ", gpx.sonde_typ & 0xFF, gpx.SN17);
                   }
                   gpx.sonde_typ ^= RSNbit;
               }
