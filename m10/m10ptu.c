@@ -40,6 +40,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_b = 0,
     option_color = 0,
     option_ptu = 0,
+    option_sat = 0,
     wavloaded = 0;
 int wav_channel = 0;     // audio channel: left
 
@@ -1030,6 +1031,16 @@ int print_pos(int csOK) {
         }
         fprintf(stdout, "\n");
 
+        if (csOK && option_sat) {
+            int i, byte;
+            fprintf(stdout, " %2d", frame_bytes[pos_GPSweek-2]); // GPS-sats
+            fprintf(stdout, " : ");
+            for (i = 0; i < frame_bytes[pos_GPSweek-2]; i++) {   // PRN
+                fprintf(stdout, " %2d", frame_bytes[pos_GPSweek+2+i]&0x3F);
+            }
+            fprintf(stdout, "\n");
+        }
+
     }
 
     return err;
@@ -1155,6 +1166,9 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "-b2") == 0) { option_b = 2; }
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
             option_ptu = 1;
+        }
+        else if ( (strcmp(*argv, "--sat") == 0) ) {
+            option_sat = 1;
         }
         else if   (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
         else {
