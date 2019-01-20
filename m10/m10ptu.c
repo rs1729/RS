@@ -18,6 +18,7 @@
 typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
 typedef unsigned int   ui32_t;
+typedef          int    i32_t;
 
 typedef struct {
     int week; int gpssec;
@@ -314,9 +315,9 @@ dduudduudduudduu duduudduuduudduu  ddududuudduduudd uduuddududududud uudduduuddu
 #define HEADLEN 32  // HEADLEN+HEADOFS=32 <= strlen(header)
 #define HEADOFS  0
                  // Sync-Header (raw)               // Sonde-Header (bits)
-//char head[] = "11001100110011001010011001001100"; //"011001001001111100100000"; // M10: 64 9F 20 , M2K2: 64 8F 20
-                                                    //"011101101001111100100000"; // M10: 76 9F 20 , aux-data?
-                                                    //"011001000100100100001001"; // M10-dop: 64 49 09
+//char head[] = "11001100110011001010011001001100"; //"011001001001111100100000"; // M10: 64 9F , M2K2: 64 8F
+                                                    //"011101101001111100100000"; // M10: 76 9F , aux-data?
+                                                    //"011001000100100100001001"; // M10-dop: 64 49
 char header[] =  "10011001100110010100110010011001";
 
 #define FRAME_LEN       (100+1)   // 0x64+1
@@ -473,7 +474,55 @@ int dpsk_bpm(char* frame_rawbits, char *frame_bits, int len) {
     return bit0;
 }
 
-/* -------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------------------------------------------- */
+
+/*
+M10 w/ trimble GPS
+
+frame[0x0] = framelen
+frame[0x1] = 0x9F (type M10)
+
+init/noGPS: frame[0x2]=0x23
+GPS: frame[0x2]=0x20 (GPS trimble pck 0x8F-20 sub-id)
+
+frame[0x02..0x21] = GPS trimble pck 0x8F-20 byte 0..31 (sub-id, vel, tow, lat, lon, alt, fix, NumSV, UTC-ofs, week)
+frame[0x22..0x2D] = GPS trimble pck 0x8F-20 byte 32..55:2 (PRN 1..12 only)
+
+Trimble Copernicus II
+GPS packet 0x8F-20 (p.138)
+byte
+0      sub-pck id (always 0x20)
+2-3    velE (i16) 0.005m/s
+4-5    velN (i16) 0.005m/s
+6-7    velU (i16) 0.005m/s
+8-11   TOW (ms)
+12-15  lat (scale 2^32/360) (i32) -90..90
+16-19  lon (scale 2^32/360) (ui32) 0..360 <-> (i32) -180..180
+20-23  alt (i32) mm above ellipsoid)
+24     bit0: vel-scale (0: 0.005m/s)
+26     datum (1: WGS-84)
+27     fix: bit0(0:valid fix, 1:invalid fix), bit2(0:3D, 1:2D)
+28     numSVs
+29     UTC offset = (GPS - UTC) sec
+30-31  GPS week
+32+2*n PRN_(n+1), bit0-5
+
+frame[0x32..0x5C] sensors (rel.hum., temp.)
+frame[0x5D..0x61] SN
+frame[0x62] counter
+frame[0x63..0x64] check  (AUX len=0x76: frame[0x63..0x74], frame[0x75..0x76])
+
+
+6449/10sec-frame:
+GPS trimble pck 0x47 (signal levels): numSats sat1 lev1 sat2 lev2 ..
+frame[0x0] = framelen
+frame[0x1] = 0x49
+frame[0x2] = numSats (max 12)
+frame[0x3+2*n] = PRN_(n+1)
+frame[0x4+2*n] = signal level (float32 -> i8-byte level)
+
+*/
+
 
 #define stdFLEN        0x64  // pos[0]=0x64
 #define pos_GPSTOW     0x0A  // 4 byte
@@ -578,7 +627,7 @@ int get_GPSlat() {
     int i;
     unsigned byte;
     ui8_t gpslat_bytes[4];
-    int gpslat;
+    i32_t gpslat;
     double lat;
 
     for (i = 0; i < 4; i++) {
@@ -600,7 +649,7 @@ int get_GPSlon() {
     int i;
     unsigned byte;
     ui8_t gpslon_bytes[4];
-    int gpslon;
+    i32_t gpslon;  // (ui32) 0..360 <-> (i32) -180..180
     double lon;
 
     for (i = 0; i < 4; i++) {
@@ -622,7 +671,7 @@ int get_GPSalt() {
     int i;
     unsigned byte;
     ui8_t gpsalt_bytes[4];
-    int gpsalt;
+    i32_t gpsalt;
     double alt;
 
     for (i = 0; i < 4; i++) {
@@ -644,23 +693,23 @@ int get_GPSvel() {
     int i;
     unsigned byte;
     ui8_t gpsVel_bytes[2];
-    short vel16;
+    short vel16; // i16_t
     double vx, vy, dir, alpha;
-    const double ms2kn100 = 2e2;  // m/s -> knots: 1 m/s = 3.6/1.852 kn = 1.94 kn
+    const double sc5 = 2e2;  // scale 0.005m/s
 
     for (i = 0; i < 2; i++) {
         byte = frame_bytes[pos_GPSvE + i];
         gpsVel_bytes[i] = byte;
     }
     vel16 = gpsVel_bytes[0] << 8 | gpsVel_bytes[1];
-    vx = vel16 / ms2kn100; // ost
+    vx = vel16 / sc5; // ost
 
     for (i = 0; i < 2; i++) {
         byte = frame_bytes[pos_GPSvN + i];
         gpsVel_bytes[i] = byte;
     }
     vel16 = gpsVel_bytes[0] << 8 | gpsVel_bytes[1];
-    vy= vel16 / ms2kn100; // nord
+    vy= vel16 / sc5; // nord
 
     datum.vx = vx;
     datum.vy = vy;
@@ -680,7 +729,7 @@ int get_GPSvel() {
         gpsVel_bytes[i] = byte;
     }
     vel16 = gpsVel_bytes[0] << 8 | gpsVel_bytes[1];
-    datum.vV = vel16 / ms2kn100;
+    datum.vV = vel16 / sc5;
 
     return 0;
 }
@@ -1032,7 +1081,7 @@ int print_pos(int csOK) {
         fprintf(stdout, "\n");
 
         if (csOK && option_sat) {
-            int i, byte;
+            int i;
             fprintf(stdout, " %2d", frame_bytes[pos_GPSweek-2]); // GPS-sats
             fprintf(stdout, " : ");
             for (i = 0; i < frame_bytes[pos_GPSweek-2]; i++) {   // PRN
