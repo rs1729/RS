@@ -19,6 +19,7 @@ Tools for decoding M10 radiosonde signals.
      `-r`: output raw data <br />
      `-v`, `-vv`: additional data/info (velocities, SN, checksum) <br />
      `-c`: colored output <br />
+     `-b`, `-b2`: integrate rawbit-/symbol-samples <br />
 
 
   ##### Examples
@@ -27,6 +28,12 @@ Tools for decoding M10 radiosonde signals.
     `./m10ptu -r -v -c 20150701_402MHz.wav` <br />
     `sox 20150701_402MHz.wav -t wav - lowpass 6000 2>/dev/null | ./m10ptu -vv -c` <br />
     `sox 20150701_402MHz.wav -t wav - highpass 20  2>/dev/null | ./m10ptu -vv -c` <br />
+    `./m10ptu -b2 -vv -c 20150701_402MHz.wav` <br />
+
+  If the signal quality is low and (default) zero-crossing-demod is used,
+  a lowpass filter is recommended.
+  If sample rate is high and timing/sync is not an issue, try integrating the symbol-samples (option `-b2`).
+
 
  #####
    <br />
