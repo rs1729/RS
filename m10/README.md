@@ -19,7 +19,7 @@ Tools for decoding M10 radiosonde signals.
      `-r`: output raw data <br />
      `-v`, `-vv`: additional data/info (velocities, SN, checksum) <br />
      `-c`: colored output <br />
-     `-b`, `-b2`: integrate rawbit-/symbol-samples <br />
+     `-b`, `-b2`: integrate rawbit-/bit-samples <br />
 
 
   ##### Examples
@@ -32,7 +32,7 @@ Tools for decoding M10 radiosonde signals.
 
   If the signal quality is low and (default) zero-crossing-demod is used,
   a lowpass filter is recommended.
-  If sample rate is high and timing/sync is not an issue, try integrating the symbol-samples (option `-b2`).
+  If sample rate is high and timing/sync is not an issue, try integrating the bit-samples (option `-b2`).
 
 
  #####

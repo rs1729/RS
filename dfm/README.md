@@ -13,7 +13,7 @@
   * `<audio.wav>`: FM-demodulated signal, recorded as wav audio file
   * `options`: <br />
       `-i`: invert signal/polarity (DFM-09)<br />
-      `-b`, `-b2`: integrate rawbit-/symbol-samples<br />
+      `-b`, `-b2`: integrate rawbit-/bit-samples<br />
       `-r`: output raw data <br />
      `-v`: additional info <br />
      `--ecc`: Hamming code error correction <br />
@@ -27,7 +27,7 @@
   a lowpass filter is recommended:
   * `sox dfm-audio.wav -t wav - lowpass 2000 2>/dev/null | ./dfm06ptu --ecc --ptu -v`
 
-  If timing/sync is not an issue, integrating the symbol-samples (option `-b2`) is better for error correction:
+  If timing/sync is not an issue, integrating the bit-samples (option `-b2`) is better for error correction:
   * `./dfm06ptu -b2 --ecc --ptu -v dfm-audio.wav`
 
   For DFM-09 or if the signal is inverted
