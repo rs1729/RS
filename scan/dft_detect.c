@@ -44,13 +44,13 @@ static char m10_header[] = "10011001100110010100110010011001";
 // M10-aux: 76 9F : 0111011010011111 (framelen 0x76+1)
 // M10+   : 64 AF : 0110010010101111 (w/ gtop-GPS)
 
-//int  imet1ab_baudrate = 9600;
+//int  imet1ab_bps = 9600;
 static char imet1ab_header[] = "11110000111100001111000011110000"
                      "11110000""10101100110010101100101010101100"
                      "11110000""10101100110010101100101010101100";
 
 typedef struct {
-    int bps;
+    int bps;  // header: here bps means baudrate ...
     int hLen;
     int N;
     char *header;
