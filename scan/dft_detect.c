@@ -54,6 +54,7 @@ typedef struct {
     int hLen;
     int N;
     char *header;
+    float BT;
     float spb;
     float thres;
     float complex *Fm;
@@ -62,12 +63,12 @@ typedef struct {
 
 #define Nrs 6
 static rsheader_t rs_hdr[Nrs] = {
-    { 2500, 0, 0, dfm_header,  0.0, 0.60, NULL, "DFM"},
-    { 4800, 0, 0, rs41_header, 0.0, 0.70, NULL, "RS41"},
-    { 4800, 0, 0, rs92_header, 0.0, 0.70, NULL, "RS92"},
-    { 4800, 0, 0, lms6_header, 0.0, 0.70, NULL, "LMS6"},
-    { 9600, 0, 0, m10_header,  0.0, 0.76, NULL, "M10"},
-    { 9600, 0, 0, imet1ab_header,  0.0, 0.70, NULL, "IMET1AB"}
+    { 2500, 0, 0, dfm_header,     0.5, 0.0, 0.60, NULL, "DFM"},
+    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, NULL, "RS41"},
+    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, NULL, "RS92"},
+    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, NULL, "LMS6"},
+    { 9600, 0, 0, m10_header,     1.0, 0.0, 0.76, NULL, "M10"},
+    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.70, NULL, "IMET1AB"}
 };
 
 /*
@@ -532,6 +533,7 @@ static int init_buffers() {
         rs_hdr[j].Fm = (float complex *)calloc(N_DFT+1, sizeof(complex float));  if (rs_hdr[j].Fm == NULL) return -1;
         bits = rs_hdr[j].header;
         spb = rs_hdr[j].spb;
+        sigma = sqrt(log(2)) / (2*M_PI*rs_hdr[j].BT);
 
         for (i = 0; i < rs_hdr[j].N; i++) {
 
