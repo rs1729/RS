@@ -127,7 +127,8 @@ ui8_t mask[MASK_LEN] = { 0x96, 0x83, 0x3E, 0x51, 0xB1, 0x49, 0x08, 0x98,
 int LOG2N;
 int N_DFT, M_DFT;
 int N_IQBUF;
-double complex *iqbuf = NULL;
+double complex *raw_iqbuf = NULL;
+double complex *rot_iqbuf = NULL;
 
 
 int Nvar = 0;
@@ -252,7 +253,13 @@ int read_csample(FILE *fp, double complex *z) {
 
 int sample_head_start = 0;
 int sample_framestart = 0;
+int sample_posnoise = 0;
 double df = 0.0;
+
+int len_sq = 0;
+double V_noise = 0.0;
+double V_signal = 0.0;
+double SNRdB = 0.0;
 
 int read_signed_sample(FILE *fp, double *s) {  // int = i32_t
     double x=0, x0=0;
@@ -261,14 +268,43 @@ int read_signed_sample(FILE *fp, double *s) {  // int = i32_t
     double gain = 1.0;
 
     if (option_iq) {
+
         if ( read_csample(fp, &z) == EOF ) return EOF;
+        raw_iqbuf[sample_count % N_IQBUF] = z;
         double t = (double)(sample_count) / sample_rate;
+
         z *= cexp(-t*2*M_PI*df*I);
         w = z * conj(z0);
         x = gain * carg(w)/M_PI; // d1
         //x = _gain * cimag(w) / (cabs(z0)*cabs(z0)); // for small angles ... d2
         z0 = z;
-        iqbuf[sample_count % N_IQBUF] = z;
+        rot_iqbuf[sample_count % N_IQBUF] = z;
+
+        if (sample_posnoise > 0)
+        {
+            if (sample_count >= sample_framestart && sample_count < sample_framestart+len_sq) {
+                if (sample_count == sample_framestart) V_signal = 0.0;
+                V_signal += cabs(z);
+            }
+            if (sample_count == sample_framestart+len_sq) V_signal /= (double)len_sq;
+
+            if (sample_count >= sample_posnoise && sample_count < sample_posnoise+len_sq) {
+                if (sample_count == sample_posnoise) V_noise = 0.0;
+                V_noise += cabs(z);
+            }
+            if (sample_count == sample_posnoise+len_sq) {
+                V_noise = V_noise/(double)len_sq;
+#if defined(DBG) || defined(DBG1)
+                if (V_signal > 0 && V_noise > 0) {
+                    // iq-samples/V [-1..1]
+                    // dBw = 2*dBv, P=c*U*U
+                    // dBw = 2*10*log10(V/V0)
+                    SNRdB = 20.0 * log10(V_signal/V_noise+1e-20);
+                    fprintf(stderr, "SNR: %.2f dB\n", SNRdB);
+                }
+#endif
+            }
+        }
 
 #ifdef DBG1
         if ( sample_framestart > 0 && sample_count >= (unsigned long)sample_framestart &&
@@ -380,7 +416,7 @@ int read_rawbit(FILE *fp, int *bit) {
             double f2 = -f1;
             while (n > 0) {
                 t = -n / (double)sample_rate;
-                z = iqbuf[(sample_count-n + N_IQBUF) % N_IQBUF];
+                z = rot_iqbuf[(sample_count-n + N_IQBUF) % N_IQBUF];
                 X1 += z*cexp(-t*2*M_PI*f1*I);
                 X2 += z*cexp(-t*2*M_PI*f2*I);
                 n--;
@@ -392,7 +428,7 @@ int read_rawbit(FILE *fp, int *bit) {
             double complex x1 = xi1;
             double complex x2 = xi2;
             while (n > 0) {
-                z = iqbuf[(sample_count-n + N_IQBUF) % N_IQBUF];
+                z = rot_iqbuf[(sample_count-n + N_IQBUF) % N_IQBUF];
                 X1 += z*x1;  x1 *= xi1;
                 X2 += z*x2;  x2 *= xi2;
                 n--;
@@ -426,8 +462,8 @@ int init_dft() {
     int i, k, n;
     int WLEN = M_DFT;
 
-    xn     = calloc(N_DFT,   sizeof(complex double));  if (xn     == NULL) return -1;
-    Z      = calloc(N_DFT,   sizeof(complex double));  if (Z      == NULL) return -1;
+    xn = calloc(N_DFT, sizeof(complex double));  if (xn     == NULL) return -1;
+    Z  = calloc(N_DFT, sizeof(complex double));  if (Z      == NULL) return -1;
     ew = calloc(LOG2N, sizeof(complex double));  if (ew == NULL) return -1;
     db = calloc(N_DFT, sizeof(double));  if (db == NULL) return -1;
 
@@ -1695,8 +1731,10 @@ int main(int argc, char *argv[]) {
             N_DFT = (1 << LOG2N);
             init_dft();
             N_IQBUF = M_DFT + samples_per_bit*(64+16);
-            iqbuf = calloc(N_IQBUF+1, sizeof(complex double));  if (iqbuf == NULL) return -1;
+            raw_iqbuf = calloc(N_IQBUF+1, sizeof(complex double));  if (raw_iqbuf == NULL) return -1;
+            rot_iqbuf = calloc(N_IQBUF+1, sizeof(complex double));  if (rot_iqbuf == NULL) return -1;
 
+            len_sq = samples_per_bit*8;
         }
 
         if (option_b)
@@ -1732,7 +1770,7 @@ int main(int argc, char *argv[]) {
                         int buf_start = sample_count - (HEADOFS+HEADLEN+(len-i)+256)*samples_per_bit;
                         while (buf_start < 0) buf_start += N_IQBUF;
                         for (j = 0; j < M_DFT; j++) {
-                           xn[j] = Hann[j]*iqbuf[(buf_start+j) % N_IQBUF]; // Hann[j]*buffer[(ptr + j + 1)%N];
+                           xn[j] = Hann[j]*raw_iqbuf[(buf_start+j) % N_IQBUF]; // Hann[j]*buffer[(ptr + j + 1)%N];
                         }
                         dft2();
                         db_power(Z, db);
@@ -1743,8 +1781,9 @@ int main(int argc, char *argv[]) {
                         if (fabs(df) > 1000.0) df = 0.0;
                         sample_head_start = sample_count - (HEADOFS+HEADLEN+(len-i-1))*samples_per_bit;
                         sample_framestart = sample_head_start + 64*samples_per_bit;
-                        double phase0 = carg(iqbuf[sample_head_start % N_IQBUF]);
+                        sample_posnoise = sample_framestart + sample_rate*7/8.0;
 #ifdef DBG1
+                        double phase0 = carg(rot_iqbuf[sample_head_start % N_IQBUF]);
                         fprintf(stderr, "%lu  phase0 : %+.2f\n", sample_count, phase0/M_PI);
 #endif
                     }
@@ -1818,7 +1857,8 @@ int main(int argc, char *argv[]) {
         }
         if (option_iq)
         {
-            if (iqbuf)  { free(iqbuf); iqbuf = NULL; }
+            if (raw_iqbuf)  { free(raw_iqbuf); raw_iqbuf = NULL; }
+            if (rot_iqbuf)  { free(rot_iqbuf); rot_iqbuf = NULL; }
             free_dft();
         }
 
