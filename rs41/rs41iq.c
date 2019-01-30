@@ -270,13 +270,13 @@ int read_signed_sample(FILE *fp, double *s) {  // int = i32_t
         z0 = z;
         iqbuf[sample_count % N_IQBUF] = z;
 
+#ifdef DBG1
         if ( sample_framestart > 0 && sample_count >= (unsigned long)sample_framestart &&
-            (((int)sample_count-sample_framestart) % 100 == 0) ) { // 8*12.5, 12.5=60000/4800
-            double phase = carg(z);
-#ifdef DBG
+            ((int)(sample_count-sample_framestart) % (int)(samples_per_bit*8.0) == 0) ) {
+            double phase = carg(z);   // ignore ISI ...
             fprintf(stderr, "%lu  phase  : %+.2f\n", sample_count, phase/M_PI);
-#endif
         }
+#endif
 
     }
     else {
@@ -1737,7 +1737,7 @@ int main(int argc, char *argv[]) {
                         dft2();
                         db_power(Z, db);
                         df = bin2freq(max_bin());
-#ifdef DBG
+#if defined(DBG) || defined(DBG1)
                         fprintf(stderr, "fq-ofs: %+.1f Hz\n", -df);
 #endif
                         if (fabs(df) > 1000.0) df = 0.0;
