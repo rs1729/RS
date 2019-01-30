@@ -1776,9 +1776,11 @@ int main(int argc, char *argv[]) {
                         db_power(Z, db);
                         df = bin2freq(max_bin());
 #if defined(DBG) || defined(DBG1)
-                        fprintf(stderr, "fq-ofs: %+.1f Hz\n", -df);
+                        fprintf(stderr, "fq-ofs: %+.1f Hz\n", df);
 #endif
+                        // if |df|<eps, +-2400Hz dominant
                         if (fabs(df) > 1000.0) df = 0.0;
+
                         sample_head_start = sample_count - (HEADOFS+HEADLEN+(len-i-1))*samples_per_bit;
                         sample_framestart = sample_head_start + 64*samples_per_bit;
                         sample_posnoise = sample_framestart + sample_rate*7/8.0;
