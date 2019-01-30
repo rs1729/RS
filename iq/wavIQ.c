@@ -365,13 +365,13 @@ int main(int argc, char *argv[]) {
 
         case DEMOD:
             z0 = 0;
-            gain = 2.0/PI;
+            gain = 1.0;
             while ( read_csample(fp, &z) != EOF ) {
                 w = z * conj(z0);
                 switch ( phi ) {  // phi'-Algo
-                  case 1: fm = carg(w); break; // = atan2( cimag(w) , creal(w) );
-                  case 2: fm = cimag(w) / (cabs(z0)*cabs(z0)); break;
-                }         //fm3 = cimag(w); // FM: |z|=const
+                  case 1: fm = carg(w)/PI; break; // = atan2( cimag(w) , creal(w) )/PI \in [-1,1];
+                  case 2: fm = cimag(w) / (cabs(z0)*cabs(z0)); break; // for small angles ... gain?
+                }       //fm3 = cimag(w); // FM: |z|=const
                 write_sample(fout, fm*gain);
                 z0 = z;
                 sample++;

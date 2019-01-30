@@ -258,15 +258,15 @@ int read_signed_sample(FILE *fp, double *s) {  // int = i32_t
     double x=0, x0=0;
     double complex z, w;
     static double complex z0;
-    double gain = 2.0/M_PI;
+    double gain = 1.0;
 
     if (option_iq) {
         if ( read_csample(fp, &z) == EOF ) return EOF;
         double t = (double)(sample_count) / sample_rate;
         z *= cexp(-t*2*M_PI*df*I);
         w = z * conj(z0);
-        x = gain * carg(w); // d1
-        //x = cimag(w) / (cabs(z0)*cabs(z0)); // d2
+        x = gain * carg(w)/M_PI; // d1
+        //x = _gain * cimag(w) / (cabs(z0)*cabs(z0)); // for small angles ... d2
         z0 = z;
         iqbuf[sample_count % N_IQBUF] = z;
 
@@ -368,7 +368,7 @@ int read_rawbit(FILE *fp, int *bit) {
 
     if (option_iq >= 2) {
 
-        double h = 1.0; // modulation index, GFSK
+        double h = 1.0; // modulation index, GFSK; h(rs41)=0.8?
         double complex z = 0;
         double complex X1 = 0;
         double complex X2 = 0;
