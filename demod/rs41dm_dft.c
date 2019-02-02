@@ -69,6 +69,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_sat = 0,      // GPS sat data
     option_ptu = 0,
     option_ths = 0,
+    option_json = 0,     // JSON output (auto_rx)
     wavloaded = 0;
 int wav_channel = 0;     // audio channel: left
 
@@ -1037,6 +1038,17 @@ int print_position(int ec) {
                 //fprintf(stdout, "  (%.1f %.1f %.1f) ", gpx.vN, gpx.vE, gpx.vU);
                 fprintf(stdout,"  vH: %4.1f  D: %5.1f°  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
             }
+
+            if (option_json){
+                // Print JSON output required by auto_rx.
+                if (!err1 && !err2 && !err3){
+                    if (option_ptu && !err0 && gpx.T > -273.0) {
+                        printf("\n{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"temp\":%.1f }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.T );
+                    } else {
+                        printf("\n{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU );
+                    }
+                }
+            }
         }
         if (option_ptu && !err0) {
             if (gpx.T > -273.0) printf("  T=%.1fC ", gpx.T);
@@ -1192,6 +1204,7 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "       --ecc        (Reed-Solomon)\n");
             fprintf(stderr, "       --std        (std framelen)\n");
             fprintf(stderr, "       --ths <x>    (peak threshold; default=%.1f)\n", thres);
+            fprintf(stderr, "       --json       (JSON output)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
@@ -1214,6 +1227,7 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--std2") == 0) { frmlen = 518; }  // NDATA_LEN+XDATA_LEN
         else if   (strcmp(*argv, "--sat") == 0) { option_sat = 1; }
         else if   (strcmp(*argv, "--ptu") == 0) { option_ptu = 1; }
+        else if   (strcmp(*argv, "--json") == 0) { option_json = 1; }
         else if   (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--ths") == 0) {
             ++argv;

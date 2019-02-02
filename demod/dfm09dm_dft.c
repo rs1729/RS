@@ -46,6 +46,8 @@ gpx_t gpx;
 
 char dat_str[9][13+1];
 
+// Buffer to store sonde ID
+char sonde_id[] = "DFMxx-xxxxxxxx";
 
 int option_verbose = 0,  // ausfuehrliche Anzeige
     option_raw = 0,      // rohe Frames
@@ -53,6 +55,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_ecc = 0,
     option_ptu = 0,
     option_ths = 0,
+    option_json = 0,    // JSON blob output (for auto_rx)
     wavloaded = 0;
 int wav_channel = 0;     // audio channel: left
 
@@ -563,25 +566,37 @@ void print_gpx() {
               {
                   if ((gpx.sonde_typ & 0xF) == 6) { // DFM-06
                       printf(" (ID6:%06X) ", gpx.SN6);
+                      sprintf(sonde_id, "DFM06-%06X", gpx.SN6);
                   }
                   if ((gpx.sonde_typ & 0xF) == 0xA) { // DFM-09
                       printf(" (ID9:%06u) ", gpx.SN);
+                      sprintf(sonde_id, "DFM09-%06u", gpx.SN);
                   }
                   if ((gpx.sonde_typ & 0xF) == 0xC || // DFM-17?
                       (gpx.sonde_typ & 0xF) == 0xD ) {
                       printf(" (ID-%1X:%06u) ", gpx.sonde_typ & 0xF, gpx.SN);
+                      sprintf(sonde_id, "DFM17-%06u", gpx.SN);
                   }
                   gpx.sonde_typ ^= RSNbit;
               }
               if (gpx.sonde_typ & PSNbit) {
                   if ((gpx.sonde_typ & 0xF) == 0x7) { // PS-15?
                       printf(" (ID15:%06u) ", gpx.SN);
+                      sprintf(sonde_id, "DFM15-%06u", gpx.SN);
                   }
                   gpx.sonde_typ ^= PSNbit;
               }
           }
       }
       printf("\n");
+
+      if (option_json)
+      {
+          // Print JSON blob
+          // Get temperature
+          float t = get_Temp(gpx.meas24);
+          printf("\n{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"temp\":%.1f }\n",  gpx.frnr, sonde_id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.horiV, gpx.dir, gpx.vertV, t );
+      }
 
   }
 }
@@ -711,6 +726,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "       -i, --invert\n");
             fprintf(stderr, "       --ecc        (Hamming ECC)\n");
             fprintf(stderr, "       --ths <x>    (peak threshold; default=%.1f)\n", thres);
+            fprintf(stderr, "       --json       (JSON output)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
@@ -727,6 +743,7 @@ int main(int argc, char **argv) {
             option_inv = 0x1;
         }
         else if ( (strcmp(*argv, "--ecc") == 0) ) { option_ecc = 1; }
+        else if ( (strcmp(*argv, "--json") == 0) ) { option_json = 1; }
         else if ( (strcmp(*argv, "--ptu") == 0) ) { option_ptu = 1;  ptu_out = 1; }
         else if ( (strcmp(*argv, "--ch2") == 0) ) { wav_channel = 1; }  // right channel (default: 0=left)
         else if ( (strcmp(*argv, "--ths") == 0) ) {
