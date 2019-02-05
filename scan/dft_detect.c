@@ -16,6 +16,7 @@ typedef int   i32_t;
 static int option_verbose = 0,  // ausfuehrliche Anzeige
            option_inv = 0,      // invertiert Signal
            option_dc = 0,
+           option_silent = 0,
            wavloaded = 0;
 static int wav_channel = 0;     // audio channel: left
 
@@ -28,7 +29,7 @@ static char rs41_header[] = "00001000011011010101001110001000"
                             "01000100011010010100100000011111";
 static char rs92_header[] = //"10100110011001101001"
                             //"10100110011001101001"
-                            //"10100110011001101001"
+                            "10100110011001101001"
                             "10100110011001101001"
                             "1010011001100110100110101010100110101001";
 
@@ -44,10 +45,33 @@ static char m10_header[] = "10011001100110010100110010011001";
 // M10-aux: 76 9F : 0111011010011111 (framelen 0x76+1)
 // M10+   : 64 AF : 0110010010101111 (w/ gtop-GPS)
 
-//int  imet1ab_bps = 9600;
+// imet_9600 / 1200 Hz;
+static char imet_preamble[] = "11110000111100001111000011110000"
+                              "11110000111100001111000011110000"
+                              "11110000111100001111000011110000"
+                              "11110000111100001111000011110000"; // 1200 Hz preamble
+
+
+//int  imet1ab_bps = 9600; // 1200 bits/sec
 static char imet1ab_header[] = "11110000111100001111000011110000"
-                     "11110000""10101100110010101100101010101100"
+                    // "11110000""10101100110010101100101010101100"
                      "11110000""10101100110010101100101010101100";
+
+
+// 11110000:1 , 001100110:0 // 11/4=2.1818..
+static char imet1rs_header[] =
+    "0000""1111""0000""1111""0000""1111"   // preamble
+    "0000""1111";
+
+// imet1rs/imet4 1200Hz preamble , lead_out , 8N1 byte: lead-in 8bits lead-out , ...
+// 1:1200Hz/0:2200Hz tones, bit-duration 1/1200 sec, phase ...
+// bits: 1111111111111111111 10 10000000 10 ..;
+
+
+// C34/C50: 2400 baud, 1:2900Hz/0:4800Hz
+static char c34_preheader[] =
+"01010101010101010101010101010101";   // 2900 Hz tone
+// dft, dB-max(1000Hz..5000Hz) = 2900Hz ?
 
 typedef struct {
     int bps;  // header: here bps means baudrate ...
@@ -59,17 +83,24 @@ typedef struct {
     float thres;
     float complex *Fm;
     char *type;
+    unsigned char tn;
 } rsheader_t;
 
-#define Nrs 6
+#define Nrs 9
+#define idxAB 7
+#define idxRS 8
 static rsheader_t rs_hdr[Nrs] = {
-    { 2500, 0, 0, dfm_header,     0.5, 0.0, 0.60, NULL, "DFM"},
-    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, NULL, "RS41"},
-    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, NULL, "RS92"},
-    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, NULL, "LMS6"},
-    { 9600, 0, 0, m10_header,     1.0, 0.0, 0.76, NULL, "M10"},
-    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.70, NULL, "IMET1AB"}
+    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, NULL, "DFM",  2},
+    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, NULL, "RS41", 3},
+    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, NULL, "RS92", 4},
+    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, NULL, "LMS6", 8},
+    { 9600, 0, 0, m10_header,     1.0, 0.0, 0.76, NULL, "M10",  5},
+    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, NULL, "C34C50", 9},  // C34/C50 2900 Hz tone
+    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, NULL, "IMET", 6},    // IMET1AB=7, IMET1RS=8
+    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, NULL, "IMET1AB", 6},
+    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, NULL, "IMET1RS", 7}  // IMET4
 };
+
 
 /*
 // m10-false-positive:
@@ -85,6 +116,15 @@ static rsheader_t rs_hdr[Nrs] = {
 // - m10 frame byte[1]=type(M2K2,M10,M10+)
 */
 
+/*
+// rs92
+// imet1ab-false-positive
+// ...
+*/
+
+
+static int sample_rate = 0, bits_sample = 0, channels = 0;
+static int wav_ch = 0;  // 0: links bzw. mono; 1: rechts
 
 static unsigned int sample_in, sample_out, delay;
 
@@ -115,6 +155,7 @@ static float complex  *ew;
 
 static float complex  *X, *Z, *cx;
 static float *xn;
+static float *db;
 
 static void dft_raw(float complex *Z) {
     int s, l, l2, i, j, k;
@@ -164,6 +205,14 @@ static void Nidft(float complex *Z, float complex *z) {
     dft_raw(z);
     // idft():
     // for (i = 0; i < N_DFT; i++)  z[i] = conj(z[i])/(float)N_DFT; // hier: z reell
+}
+
+static float freq2bin(int f) {
+    return  f * N_DFT / (float)sample_rate;
+}
+
+static float bin2freq(int k) {
+    return  sample_rate * k / (float)N_DFT;
 }
 
 /* ------------------------------------------------------------------------------------ */
@@ -242,9 +291,6 @@ static int getCorrDFT(int abs, int K, unsigned int pos, float *maxv, unsigned in
 }
 
 /* ------------------------------------------------------------------------------------ */
-
-static int sample_rate = 0, bits_sample = 0, channels = 0;
-static int wav_ch = 0;  // 0: links bzw. mono; 1: rechts
 
 static int findstr(char *buff, char *str, int pos) {
     int i;
@@ -512,6 +558,7 @@ static int init_buffers() {
 */
 
     xn = calloc(N_DFT+1, sizeof(float));  if (xn == NULL) return -1;
+    db = calloc(N_DFT+1, sizeof(float));  if (db == NULL) return -1;
 
     ew = calloc(LOG2N+1, sizeof(complex float));  if (ew == NULL) return -1;
     X  = calloc(N_DFT+1, sizeof(complex float));  if (X  == NULL) return -1;
@@ -527,9 +574,8 @@ static int init_buffers() {
     m = (float *)calloc(N_DFT+1, sizeof(float));  if (m  == NULL) return -1;
 
 
-    for (j = 0; j < Nrs; j++)
+    for (j = 0; j < Nrs-1; j++)
     {
-
         rs_hdr[j].Fm = (float complex *)calloc(N_DFT+1, sizeof(complex float));  if (rs_hdr[j].Fm == NULL) return -1;
         bits = rs_hdr[j].header;
         spb = rs_hdr[j].spb;
@@ -585,12 +631,13 @@ static int free_buffers() {
     if (rawbits) { free(rawbits); rawbits = NULL; }
 
     if (xn) { free(xn); xn = NULL; }
+    if (db) { free(xn); xn = NULL; }
     if (ew) { free(ew); ew = NULL; }
     if (X)  { free(X);  X  = NULL; }
     if (Z)  { free(Z);  Z  = NULL; }
     if (cx) { free(cx); cx = NULL; }
 
-    for (j = 0; j < Nrs; j++) {
+    for (j = 0; j < Nrs-1; j++) {
         if (rs_hdr[j].Fm) { free(rs_hdr[j].Fm); rs_hdr[j].Fm = NULL; }
     }
 
@@ -615,6 +662,8 @@ int main(int argc, char **argv) {
     int herrs;
     float thres = 0.76;
 
+    int j_max;
+    float mv_max;
 
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _setmode(_fileno(stdin), _O_BINARY);
@@ -633,11 +682,11 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
             option_verbose = 1;
         }
-        else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
-            option_inv = 1;  // nicht noetig
-        }
         else if ( (strcmp(*argv, "--dc") == 0) ) {
             option_dc = 1;
+        }
+        else if ( (strcmp(*argv, "-s") == 0) || (strcmp(*argv, "--silent") == 0) ) {
+            option_silent = 1;
         }
         else if ( (strcmp(*argv, "--ch2") == 0) ) { wav_channel = 1; }  // right channel (default: 0=left)
         else if ( (strcmp(*argv, "--ths") == 0) ) {
@@ -676,7 +725,7 @@ int main(int argc, char **argv) {
     };
 
     for (j = 0; j < Nrs; j++) {
-        mv[j] = -1;
+        mv[j] = 0;
         mv_pos[j] = 0;
         mp[j] = 0;
     }
@@ -688,42 +737,145 @@ int main(int argc, char **argv) {
         k += 1;
 
         if (k >= K-4) {
-            for (j = 0; j < Nrs; j++) {
+            for (j = 0; j < Nrs-2; j++) {
                 mv0_pos[j] = mv_pos[j];
                 mp[j] = getCorrDFT(-1, K, 0, mv+j, mv_pos+j, rs_hdr[j]);
             }
             k = 0;
         }
         else {
-            for (j = 0; j < Nrs; j++) mv[j] = 0.0;
+            //for (j = 0; j < Nrs; j++) mv[j] = 0.0;
             continue;
         }
 
         header_found = 0;
-        for (j = 0; j < Nrs; j++)
+        for (j = 0; j < Nrs-2; j++)
         {
             if (mp[j] > 0 && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
                 if (mv_pos[j] > mv0_pos[j]) {
 
                     herrs = headcmp(1, rs_hdr[j].header, rs_hdr[j].hLen, mv_pos[j], mv[j]<0, option_dc, rs_hdr[j].spb);
                     if (herrs < 2) {  // max 1 bitfehler in header
-                        fprintf(stdout, "sample: %d\n", mv_pos[j]);
-                        fprintf(stdout, "%s: %.4f  (%d)\n", rs_hdr[j].type, mv[j], herrs);
-                        header_found = 1;
+
+                        if ( strncmp(rs_hdr[j].type, "IMET", 4) == 0 )
+                        {
+                            int n, m;
+                            int D = N_DFT/2 - 3;
+                            float df;
+                            float pow2200, pow2400;
+                            int bin2200, bin2400;
+
+                            for (n = 0; n < N_DFT; n++) {
+                                xn[n] = 0.0;
+                                db[n] = 0.0;
+                            }
+
+                            n = 0;
+                            while (n < sample_rate) { // 1 sec
+
+                                if (f32buf_sample(fp, option_inv, 1) == EOF) break;//goto ende;
+
+                                xn[n % D] = bufs[sample_out % M];
+                                n++;
+
+                                if (n % D == 0) {
+                                    dft(xn, X);
+                                    for (m = 0; m < N_DFT; m++) db[m] += cabs(X[m]);
+                                }
+                            }
+
+                            df = bin2freq(1);
+                            m = 50.0/df;
+                            if (m < 1) m = 1;
+                            if (freq2bin(2500) > N_DFT/2) goto ende;
+
+                            bin2200 = freq2bin(2200);
+                            pow2200 = 0.0;
+                            for (n = 0; n < m; n++) pow2200 += db[ bin2200 - m/4 + n ];
+
+                            bin2400 = freq2bin(2400);
+                            pow2400 = 0.0;
+                            for (n = 0; n < m; n++) pow2400 += db[ bin2400 - m/4 + n ];
+
+
+                            mv[j] = fabs(mv[j]);
+
+                            if (pow2200 > pow2400) {  // IMET1RS
+                                mv[idxRS] = mv[j];
+                                mv[j] = 0;     // IMET1 -> IMET1RS
+                                mv_pos[idxRS] = mv_pos[j];
+                                j = idxRS;
+                                header_found = 1;
+                            }
+                            else {                    // IMET1AB
+                                mv[j] = 0;
+                                j = idxAB;
+                                mv_pos[j] = sample_out;
+                                n = 0;
+
+                                // detect header/polarity
+                                k = 0;
+                                while ( n < 4*sample_rate && f32buf_sample(fp, option_inv, 1) != EOF ) {
+
+                                    n += 1;
+                                    k += 1;
+
+                                    if (k >= K-4) {
+                                        mv0_pos[j] = mv_pos[j];
+                                        mp[j] = getCorrDFT(-1, K, 0, mv+j, mv_pos+j, rs_hdr[j]);
+                                        k = 0;
+                                    }
+                                    else {
+                                        //mv[j] = 0.0;
+                                        continue;
+                                    }
+
+                                    if (mp[j] > 0 && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
+                                        header_found = 1;
+                                        if (mv[j] < 0) header_found = -1;
+                                        break;
+                                    }
+                                    mv[j] = 0.0;
+                                }
+                            }
+                        }
+                        else header_found = 1;
+
+                        if (header_found) {
+                            if (!option_silent) {
+                                fprintf(stdout, "sample: %d\n", mv_pos[j]);
+                                fprintf(stdout, "%s: %.4f\n", rs_hdr[j].type, mv[j]);
+                            }
+                            if ((j < 3) && mv[j] < 0) header_found = -1;
+                        }
                     }
                 }
             }
         }
+
         if (header_found) break;
         header_found = 0;
+        for (j = 0; j < Nrs; j++) mv[j] = 0.0;
+    }
 
+ende:
+    free_buffers();
+    fclose(fp);
+
+    // return only best result
+    // latest: j
+    k = j;
+    j_max = 0;
+    mv_max = 0.0;
+    for (j = 0; j < Nrs; j++) {
+        if ( fabs(mv_max) < fabs(mv[j]) ) {
+            mv_max = mv[j];
+            j_max = j;
+        }
     }
 
 
-    free_buffers();
-
-    fclose(fp);
-
-    return 0;
+    // rs_hdr[k].tn
+    return (header_found * rs_hdr[j_max].tn);
 }
 
