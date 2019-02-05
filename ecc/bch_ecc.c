@@ -846,7 +846,7 @@ int rs_encode(ui8_t cw[]) {
     for (j = RS.R; j < RS.N; j++) __cw[j] = cw[j];
     poly_divmod(__cw, RS.g, d, parity);
     //if (poly_deg(parity) >= RS.R) return -1;
-    for (j = 0; j <= poly_deg(parity); j++) cw[j] = parity[j];
+    for (j = 0; j < RS.R; j++) cw[j] = parity[j];
     return 0;
 }
 

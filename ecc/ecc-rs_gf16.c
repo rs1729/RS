@@ -151,7 +151,7 @@ int main(int argc, char *argv[]) {
             for (i = 0; i < errors; i++) printf(" %d", errpos[i]);
             printf("\n");
         }
-        for (i = 0; i < rs_N; i++) printf("%1X", codeword[i]); printf("\n");
+        for (i = 0; i < rs_N; i++) printf("%1x", codeword[i]); printf("\n");
 #endif
 
     } else {
@@ -218,9 +218,9 @@ RS(15,9):
     message length 9
     parity length 6
 
-./ecc-rs15 str1 [str2]
-    str1: 9 nibbles (msg)
-    str2: 6 nibbles (par)
+./ecc-rs15 msg [par]
+    msg: 9 nibbles
+    par: 6 nibbles
 
 ecc-rs15 input/output: nibbles
 cw[]: 1 byte / 1 nibble
@@ -228,7 +228,7 @@ cw[]: 1 byte / 1 nibble
 
 examples:
 
-$./ecc-rs15 000000001
+$ ./ecc-rs15 000000001
 
 msg: 000000001
 
@@ -243,8 +243,7 @@ parity : 1af243
 codeword:
 1000000001af243
 
-
-$./ecc-rs15 000000001 342FA1
+$ ./ecc-rs15 000000001 342FA1
 
 msg: 000000001
 par: 342FA1
@@ -255,7 +254,7 @@ errs: 0
 
 codeword
 errors: 0
-1000000001AF243
+1000000001af243
 
 */
 
