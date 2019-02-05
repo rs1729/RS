@@ -104,8 +104,8 @@ static RS_t RS256 = { 255, 12, 24, 231, 0, 1, 1, {0}};
 static RS_t RS256ccsds = { 255, 16, 32, 223, 112, 11, 116, {0}};
 static RS_t BCH64 = {  63,  2, 12,  51, 1, 1, 1, {0}};
 
-static RS_t RS16_0 = { 15, 3, 6, 9, 0, 1, 1, {0}};
-//static RS_t RS16_1 = { 15, 3, 6, 9, 1, 1, 1, {0}};
+// static RS_t RS16_0 = { 15, 3, 6,  9, 0, 1, 1, {0}};
+static RS_t RS16ccsds = { 15, 2, 4, 11, 6, 1, 1, {0}};
 
 
 static GF_t GF;
@@ -813,15 +813,15 @@ int rs_init_BCH64() {
     return check_gen;
 }
 
-int rs_init_RS15() {
+int rs_init_RS15ccsds() {
     int i, check_gen;
     ui8_t Xalp[MAX_DEG+1];
 
     GF = GF16RS;
     check_gen = GF_genTab( GF, exp_a, log_a);
 
-    RS = RS16_0; // N=15, t=3, b=0, p=1
-    //RS = RS16_1; // N=15, t=3, b=1, p=1
+    //RS = RS16_0; // N=15, t=3, b=0, p=1
+    RS = RS16ccsds; // N=15, t=2, b=6, p=1
     for (i = 0; i <= MAX_DEG; i++) RS.g[i] = 0;
     for (i = 0; i <= MAX_DEG; i++) Xalp[i] = 0;
 

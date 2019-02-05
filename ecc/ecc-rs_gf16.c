@@ -1,6 +1,6 @@
 
 /*
-    GF(2^4) - RS(15,9)
+    GF(2^4) - RS(15,11)
     (no bit-packing, i.e. 1 nibble <-> 1 byte)
 
 a)
@@ -9,10 +9,10 @@ a)
     gcc -c encode_rs_char.c
     gcc -c decode_rs_char.c
 
-  gcc -DKA9Q ecc-rs_gf16.c init_rs_char.o encode_rs_char.o decode_rs_char.o -o ecc-rs15
+  gcc -DKA9Q ecc-rs_gf16.c init_rs_char.o encode_rs_char.o decode_rs_char.o -o ecc-rs15ccsds
 
 b)
-  gcc ecc-rs_gf16.c -o ecc-rs15
+  gcc ecc-rs_gf16.c -o ecc-rs15ccsds
 
 */
 
@@ -33,7 +33,7 @@ typedef unsigned int  ui32_t;
 
 #define BFSIZE 512
 #define rs_N 15
-#define rs_R 6
+#define rs_R 4
 #define rs_K (rs_N-rs_R)
 
 ui8_t data[BFSIZE];
@@ -58,11 +58,11 @@ int main(int argc, char *argv[]) {
          *str2 = NULL;
 
 
-    rs_init_RS15(); // 0x13: X^4 + X + 1
+    rs_init_RS15ccsds(); // 0x13: X^4 + X + 1, t=2, b=6
 
 #ifdef KA9Q
-    rs = init_rs_char( 4, 0x13, 0, 1, 6, 0); // RS16_0
-    //rs = init_rs_char( 4, 0x13, 1, 1, 6, 0); // RS16_1
+    //rs = init_rs_char( 4, 0x13, 0, 1, 6, 0); // RS16_0
+    rs = init_rs_char( 4, 0x13, 6, 1, 4, 0); // RS16ccsds
 #endif
 
     if (argv[0] == NULL) return -1;
@@ -121,11 +121,17 @@ int main(int argc, char *argv[]) {
         for (i = 0; i < rs_N; i++) codeword[rs_N-1-i] = cw[i];
 #endif
 
+        printf("(received)\n");
         printf("msg: ");
         for (i = rs_R; i < rs_N; i++) printf("%1X", cw[i]); // dbg: printf("%02X", cw[i]);
         printf("\n");
         printf("par: ");
-        for (i = 0; i < rs_R; i++) printf("%1X", cw[i]); printf("\n");
+        for (i = 0; i < rs_R; i++) printf("%1X", cw[i]);
+        printf("\n");
+        printf("msg+par:\n");
+        for (i = 0; i < rs_N; i++) printf("%1X", cw[i]);
+        printf("\n");
+
         printf("\n");
 
 
@@ -213,14 +219,14 @@ int main(int argc, char *argv[]) {
 
 /*
 
-RS(15,9):
+RS(15,11):
     codeword length 15
-    message length 9
-    parity length 6
+    message length 11
+    parity length 4
 
 ./ecc-rs15 msg [par]
-    msg: 9 nibbles
-    par: 6 nibbles
+    msg: 11 nibbles
+    par: 4 nibbles
 
 ecc-rs15 input/output: nibbles
 cw[]: 1 byte / 1 nibble
@@ -228,33 +234,54 @@ cw[]: 1 byte / 1 nibble
 
 examples:
 
-$ ./ecc-rs15 000000001
+$ ./ecc-rs15ccsds 00000000001
 
-msg: 000000001
+msg: 00000000001
 
 cw
-par: 342FA1
+par: 8281
 cw-enc:
-342FA1000000001
+828100000000001
 
 codeword
-message: 100000000
-parity : 1af243
+message: 10000000000
+parity : 1828
 codeword:
-1000000001af243
+100000000001828
 
-$ ./ecc-rs15 000000001 342FA1
+$ ./ecc-rs15ccsds 00000000001 8281
 
-msg: 000000001
-par: 342FA1
+(received)
+msg: 00000000001
+par: 8281
+msg+par:
+828100000000001
 
 cw
 errs: 0
-342FA1000000001
+828100000000001
 
 codeword
 errors: 0
-1000000001af243
+100000000001828
+
+$ ./ecc-rs15ccsds 00000000001 8283
+
+(received)
+msg: 00000000001
+par: 8283
+msg+par:
+828300000000001
+
+cw
+errs: 1
+pos:  3
+828100000000001
+
+codeword
+errors: 1
+pos:  11
+100000000001828
 
 */
 
