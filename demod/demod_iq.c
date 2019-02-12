@@ -504,7 +504,7 @@ int get_fqofs(int hdrlen, unsigned int mvp, float *freq, float *snr) {
     while (buf_start < 0) buf_start += N_IQBUF;
 
     for (j = 0; j < M_DFT; j++) {
-       Z[j] = Hann[j]*raw_iqbuf[(buf_start+j) % N_IQBUF];
+        Z[j] = Hann[j]*raw_iqbuf[(buf_start+j) % N_IQBUF];
     }
     while (j < N_DFT) Z[j++] = 0;
 
@@ -811,8 +811,8 @@ int init_buffers(char hdr[], int hLen, float BT, int opt_iq) {
     Z  = calloc(N_DFT+1, sizeof(float complex));  if (Z  == NULL) return -1;
     cx = calloc(N_DFT+1, sizeof(float complex));  if (cx == NULL) return -1;
 
-    M_DFT = M;
-    Hann = calloc(N_DFT+1, sizeof(float complex)); if (Hann == NULL) return -1;
+    Hann = calloc(N_DFT+1, sizeof(float complex));  if (Hann == NULL) return -1;
+    M_DFT = N_DFT/2 - 1; // odd, N_DFT=2^log2N
     for (i = 0; i < M_DFT; i++)  Hann[i] = 0.5 * (1 - cos( 2 * M_PI * i / (double)(M_DFT-1) ) );
 
     for (n = 0; n < LOG2N; n++) {
