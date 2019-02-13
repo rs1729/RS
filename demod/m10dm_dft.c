@@ -906,8 +906,8 @@ int main(int argc, char **argv) {
                 herrs = headcmp(1, rawheader, headerlen, mv_pos, mv<0, option_dc); // header nicht manchester!
                 herr1 = 0;
                 if (herrs <= 3 && herrs > 0) {
-                    herr1 = headcmp(1, rawheader, headerlen, mv_pos+1, mv<0, option_dc);
-                    //int herr2 = headcmp(1, rawheader, headerlen, mv_pos-1, mv<0, option_dc);
+                    herr1 = headcmp(1, rawheader, headerlen, mv_pos+1, mv<0, 0); // nur 1x dc
+                    //int herr2 = headcmp(1, rawheader, headerlen, mv_pos-1, mv<0, 0);
                     if (herr1 < herrs) {
                         herrs = herr1;
                         herr1 = 1;

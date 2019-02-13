@@ -775,7 +775,7 @@ int init_buffers(char hdr[], int hLen, float BT, int opt_iq) {
             b += b0*pulse(t+1, sigma);
         }
 
-        if (pos < hLen) {
+        if (pos < hLen-1) {
             b2 = ((hdr[pos+1] & 0x1) - 0.5)*2.0;
             b += b2*pulse(t-1, sigma);
         }

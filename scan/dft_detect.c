@@ -594,7 +594,7 @@ static int init_buffers() {
                 b += b0*pulse(t+1, sigma);
             }
 
-            if (pos < hLen) {
+            if (pos < hLen-1) {
                 b2 = ((bits[pos+1] & 0x1) - 0.5)*2.0;
                 b += b2*pulse(t-1, sigma);
             }
@@ -682,9 +682,7 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
             option_verbose = 1;
         }
-        else if ( (strcmp(*argv, "--dc") == 0) ) {
-            option_dc = 1;
-        }
+        //else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
         else if ( (strcmp(*argv, "-s") == 0) || (strcmp(*argv, "--silent") == 0) ) {
             option_silent = 1;
         }
@@ -754,7 +752,7 @@ int main(int argc, char **argv) {
             if (mp[j] > 0 && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
                 if (mv_pos[j] > mv0_pos[j]) {
 
-                    herrs = headcmp(1, rs_hdr[j].header, rs_hdr[j].hLen, mv_pos[j], mv[j]<0, option_dc, rs_hdr[j].spb);
+                    herrs = headcmp(1, rs_hdr[j].header, rs_hdr[j].hLen, mv_pos[j], mv[j]<0, 0, rs_hdr[j].spb);
                     if (herrs < 2) {  // max 1 bitfehler in header
 
                         if ( strncmp(rs_hdr[j].type, "IMET", 4) == 0 )

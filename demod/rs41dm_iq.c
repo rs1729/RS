@@ -1334,11 +1334,11 @@ int main(int argc, char *argv[]) {
                     ft_len = frmlen;
 
                     while ( byte_count < frmlen ) {
-                        if (option_iq) {
-                            bitQ = read_IDsbit(fp, symlen, &bit, option_inv, bitofs, bit_count==0, 0); // symlen=1, return: zeroX/bit
+                        if (option_iq >= 2) {
+                            bitQ = read_IDsbit(fp, symlen, &bit, option_inv, bitofs, bit_count==0, 0); // symlen=1
                         }
                         else {
-                            bitQ = read_sbit(fp, symlen, &bit, option_inv, bitofs, bit_count==0, 0); // symlen=1, return: zeroX/bit
+                            bitQ = read_sbit(fp, symlen, &bit, option_inv, bitofs, bit_count==0, 0); // symlen=1
                         }
                         if ( bitQ == EOF) break;
                         bit_count += 1;
