@@ -495,32 +495,38 @@ int headcmp(int symlen, char *hdr, int len, unsigned int mvp, int inv, int optio
 int get_fqofs(int hdrlen, unsigned int mvp, float *freq, float *snr) {
     int j;
     int buf_start;
-    int presamples = 256*samples_per_bit;
+    int presamples;
 
-    if (presamples > M_DFT) presamples = M_DFT;
+    if (option_iq)
+    {
+        presamples = 256*samples_per_bit;
 
-    buf_start = mvp - hdrlen*samples_per_bit - presamples;
+        if (presamples > M_DFT) presamples = M_DFT;
 
-    while (buf_start < 0) buf_start += N_IQBUF;
+        buf_start = mvp - hdrlen*samples_per_bit - presamples;
 
-    for (j = 0; j < M_DFT; j++) {
-        Z[j] = Hann[j]*raw_iqbuf[(buf_start+j) % N_IQBUF];
+        while (buf_start < 0) buf_start += N_IQBUF;
+
+        for (j = 0; j < M_DFT; j++) {
+            Z[j] = Hann[j]*raw_iqbuf[(buf_start+j) % N_IQBUF];
+        }
+        while (j < N_DFT) Z[j++] = 0;
+
+        cdft(Z);
+        df = bin2freq(max_bin(Z));
+
+        // if |df|<eps, +-2400Hz dominant (rs41)
+        if (fabs(df) > 1000.0) df = 0.0;
+
+
+        sample_posframe = sample_in;  //mvp - hdrlen*samples_per_bit;
+        sample_posnoise = mvp + sample_rate*7/8.0;
+
+
+        *freq = df;
+        *snr = SNRdB;
     }
-    while (j < N_DFT) Z[j++] = 0;
-
-    cdft(Z);
-    df = bin2freq(max_bin(Z));
-
-    // if |df|<eps, +-2400Hz dominant (rs41)
-    if (fabs(df) > 1000.0) df = 0.0;
-
-
-    sample_posframe = sample_in;  //mvp - hdrlen*samples_per_bit;
-    sample_posnoise = mvp + sample_rate*7/8.0;
-
-
-    *freq = df;
-    *snr = SNRdB;
+    else return -1;
 
     return 0;
 }
