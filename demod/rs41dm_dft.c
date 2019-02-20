@@ -47,6 +47,7 @@ rscfg_t cfg_rs41 = { 41, (320-56)/2, 56, 8, 8, 320};
 typedef struct {
     int frnr;
     char id[9];
+    ui8_t numSV;
     int week; int gpssec;
     int jahr; int monat; int tag;
     int wday;
@@ -362,7 +363,7 @@ int get_SatData() {
     int i, n;
     int sv;
     ui32_t minPR;
-    int Nfix;
+    int numSV;
     double pDOP, sAcc;
 
     fprintf(stdout, "[%d]\n", u2(frame+pos_FrameNb));
@@ -394,10 +395,10 @@ int get_SatData() {
                      (i16_t)u2(frame+pos_GPSecefV+2),
                      (i16_t)u2(frame+pos_GPSecefV+4));
 
-    Nfix = frame[pos_numSats];
-    sAcc = frame[pos_sAcc]/10.0;
-    pDOP = frame[pos_pDOP]/10.0;
-    fprintf(stdout, "numSatsFix: %2d  sAcc: %.1f  pDOP: %.1f\n", Nfix, sAcc, pDOP);
+    numSV = frame[pos_numSats];
+    sAcc = frame[pos_sAcc]/10.0; if (frame[pos_sAcc] == 0xFF) sAcc = -1.0;
+    pDOP = frame[pos_pDOP]/10.0; if (frame[pos_pDOP] == 0xFF) pDOP = -1.0;
+    fprintf(stdout, "numSatsFix: %2d  sAcc: %.1f  pDOP: %.1f\n", numSV, sAcc, pDOP);
 
 
     fprintf(stdout, "CRC: ");
@@ -766,6 +767,8 @@ int get_GPSkoord() {
     if (dir < 0) dir += 360;
     gpx.vD = dir;
 
+    gpx.numSV = frame[pos_numSats];
+
     return 0;
 }
 
@@ -1053,6 +1056,7 @@ int print_position(int ec) {
             {
                 //fprintf(stdout, "  (%.1f %.1f %.1f) ", gpx.vN, gpx.vE, gpx.vU);
                 fprintf(stdout,"  vH: %4.1f  D: %5.1f°  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
+                if (option_verbose == 3) fprintf(stdout," numSV: %02d ", gpx.numSV);
             }
         }
         if (option_ptu && !err0) {
@@ -1100,11 +1104,11 @@ int print_position(int ec) {
 
         if (option_json) {
             // Print JSON output required by auto_rx.
-            if (!err && !err1 && !err3) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
+            if (!err && !err1 && !err3 && gpx.numSV >= 4) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                 if (option_ptu && !err0 && gpx.T > -273.0) {
-                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"temp\":%.1f }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.T );
+                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"temp\":%.1f }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV, gpx.T );
                 } else {
-                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU );
+                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV );
                 }
                 printf("\n");
             }
