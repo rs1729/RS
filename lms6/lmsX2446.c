@@ -28,7 +28,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_res = 0,      // genauere Bitmessung
     wavloaded = 0;
 
-int option_nmea = 0;
+//int option_nmea = 0;
 
 /* -------------------------------------------------------------------------- */
 
@@ -213,19 +213,21 @@ char header[] = "0000001101011101""0100100111000010""0100111111110010""011010000
 ui8_t rs_sync[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
 // 0x58f33fb8 little-endian <-> 0x1ACFFC1D big-endian bytes
 
+#define FRAME_LEN  (300)  // 4800baud, 16bits/byte
 #define SYNC_LEN 5
 #define FRM_LEN    (223)
 #define PAR_LEN    (32)
 #define FRMBUF_LEN (3*FRM_LEN)
 #define BLOCKSTART (SYNC_LEN*BITS*2)
 #define BLOCK_LEN  (FRM_LEN+PAR_LEN+SYNC_LEN)  // 255+5 = 260
-#define RAWBITBLOCK_LEN ((BLOCK_LEN+1)*BITS*2) // (+1 tail)
+//#define RAWBITBLOCK_LEN ((BLOCK_LEN+1)*BITS*2) // (+1 tail)
+#define RAWBITBLOCK_LEN ((300)*BITS*2)
 
 //                                                      (00)               58                f3                3f                b8
 char  blk_rawbits[RAWBITBLOCK_LEN+SYNC_LEN*BITS*2 +8] = "0000000000000000""0000001101011101""0100100111000010""0100111111110010""0110100001101011";
 //char  *block_rawbits = blk_rawbits+SYNC_LEN*BITS*2;
 
-ui8_t block_bytes[BLOCK_LEN+8];
+ui8_t block_bytes[FRAME_LEN+8];  // BLOCK_LEN + 40
 
 
 //ui8_t frm_sync[] = { 0x24, 0x54, 0x00, 0x00};
@@ -234,8 +236,6 @@ ui8_t frame[FRM_LEN] = { 0x24, 0x54, 0x00, 0x00}; // dataheader
 
 ui8_t *p_frame = frame;
 
-
-#define FRAME_LEN       (300)  // 4800baud, 16bits/byte
 #define BITFRAME_LEN    (FRAME_LEN*BITS)
 #define RAWBITFRAME_LEN (BITFRAME_LEN*2)
 #define OVERLAP 64
@@ -667,7 +667,7 @@ int get_GPSlat() {
     lat = gpslat / 1e7; //  / B60B60;
     gpx.lat = lat;
 
-    if (option_nmea) gpx.lat = NMEAll(gpslat); // test
+    //if (option_nmea) gpx.lat = NMEAll(gpslat); // probably not, more data
 
     return 0;
 }
@@ -692,7 +692,7 @@ int get_GPSlon() {
     lon = gpslon / 1e7; // / B60B60;
     gpx.lon = lon;
 
-    if (option_nmea) gpx.lon =  NMEAll(gpslon); // test
+    //if (option_nmea) gpx.lon =  NMEAll(gpslon); // probably not, more data
 
     return 0;
 }
@@ -902,11 +902,15 @@ void proc_frame(int len) {
     blen = bits2bytes(frame_bits, block_bytes);
     for (j = blen; j < flen; j++) block_bytes[j] = 0;
 
+    sf = 0;
+    blk_pos = SYNC_LEN;
+    for (j = 0; j < 4; j++) sf += (block_bytes[blk_pos+40+j] == frm_sync[j]);
+    if (sf == 4)  blk_pos += 40; // 300-260
 
-    if (blen < 100 && option_ecc) {
-        for (j = 0; j < rs_N; j++) rs_cw[rs_N-1-j] = block_bytes[SYNC_LEN+j];
+    if (blen > 100 && option_ecc) {
+        for (j = 0; j < rs_N; j++) rs_cw[rs_N-1-j] = block_bytes[blk_pos+j];
         errs = lms6_ecc(rs_cw);
-        for (j = 0; j < rs_N; j++) block_bytes[SYNC_LEN+j] = rs_cw[rs_N-1-j];
+        for (j = 0; j < rs_N; j++) block_bytes[blk_pos+j] = rs_cw[rs_N-1-j];
     }
 
     if (option_raw == 2) {
@@ -915,7 +919,7 @@ void proc_frame(int len) {
         printf("\n");
     }
     else if (option_raw == 4  &&  option_ecc && blen > 100) {
-        for (i = 0; i < rs_N; i++) printf("%02x", block_bytes[SYNC_LEN+i]);
+        for (i = 0; i < rs_N; i++) printf("%02x", block_bytes[blk_pos+i]);
         printf(" (%d)", errs);
         printf("\n");
     }
@@ -928,50 +932,20 @@ void proc_frame(int len) {
         }
     }
 
-    blk_pos = SYNC_LEN;
+    for (j = 0; j < rs_K; j++) frame[j] = block_bytes[blk_pos+j];
 
-    while ( blk_pos-SYNC_LEN < FRM_LEN ) {
+    crc_err = check_CRC(p_frame);
 
-        if (sf == 0) {
-            while ( blk_pos-SYNC_LEN < FRM_LEN ) {
-                sf = 0;
-                for (j = 0; j < 4; j++) sf += (block_bytes[blk_pos+j] == frm_sync[j]);
-                if (sf == 4)  {
-                    frm_pos = 0;
-                    break;
-                }
-                blk_pos++;
-            }
-        }
-
-        if ( sf  &&  frm_pos < FRM_LEN ) {
-            frame[frm_pos] = block_bytes[blk_pos];
-            frm_pos++;
-            blk_pos++;
-        }
-
-        if (frm_pos == FRM_LEN) {
-
-            crc_err = check_CRC(p_frame);
-
-            if (option_raw == 1) {
-                for (i = 0; i < FRM_LEN; i++) printf("%02x ", p_frame[i]);
-                if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
-                printf("\n");
-            }
-
-            if (option_raw == 0) print_frame(crc_err, len);
-
-            frm_pos = 0;
-            sf = 0;
-        }
-
+    if (option_raw == 1) {
+        for (i = 0; i < FRM_LEN; i++) printf("%02x ", p_frame[i]);
+        if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
+        printf("\n");
     }
+
+    if (option_raw == 0) print_frame(crc_err, len);
 
 }
 
-unsigned long hdr_pos, hdr_pos0, rb_len;
-int hf, nhdr;
 
 int main(int argc, char **argv) {
 
@@ -1013,12 +987,12 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // RS-ECC
         else if   (strcmp(*argv, "--vit" ) == 0) { option_vit = 1; } // viterbi-hard
-        else if   (strcmp(*argv, "--nmea") == 0) { option_nmea = 1; } // test
+        //else if   (strcmp(*argv, "--nmea") == 0) { option_nmea = 1; } // test
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
         }
         else if   (strcmp(*argv, "--res") == 0) { option_res = 1; }
-        else if   (strcmp(*argv, "-b") == 0) { /*option_b = 1;*/ }
+        else if   (strcmp(*argv, "-b") == 0) { option_b = 1; }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -1066,33 +1040,26 @@ int main(int argc, char **argv) {
             bc++;
             buf[bufpos] = 0x30 + bit;
 
-            hf = compare2();
-            if (hf) {
-                if (hf < 0) bc++;
-                hdr_pos0 = hdr_pos;
-                hdr_pos = sample_count;
-                rb_len = hdr_pos-hdr_pos0;
-                nhdr = 1;
+            if (!header_found) {
+                header_found = compare2();
+                if (header_found < 0) bc++;
+            }
+            else {
+                if (pos < RAWBITBLOCK_LEN) {
+                    blk_rawbits[pos] = 0x30 + bit;
+                    pos++;
+                }
             }
 
-
-            if (pos < RAWBITBLOCK_LEN) {
-                blk_rawbits[pos] = 0x30 + bit;
-                pos++;
-            }
-
-
-            //if (pos >= RAWBITBLOCK_LEN) {
-            if (nhdr) {
+            if (pos >= RAWBITBLOCK_LEN) {
                     blk_rawbits[pos] = '\0';
                     proc_frame(pos);
                     pos = BLOCKSTART;
                     header_found = 0;
-                    if (nhdr) nhdr = 0;
             }
 
         }
-        if (0 && header_found && option_b) {
+        if (header_found && option_b) {
             bitstart = 1;
 
             while ( pos < RAWBITBLOCK_LEN ) {
