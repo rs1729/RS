@@ -28,6 +28,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_res = 0,      // genauere Bitmessung
     wavloaded = 0;
 
+int option_nmea = 0;
 
 /* -------------------------------------------------------------------------- */
 
@@ -636,6 +637,14 @@ int get_GPStime() {
     return 0;
 }
 
+double NMEAll(int ll) {  // NMEA GGA,GLL: ll/1e5=(D)DDMM.mmmm
+    double scale1 = 1e5;
+    int scale = 10000000; //scale1*100;
+    int deg = ll / scale;
+    double min = (ll - deg*scale)/scale1;
+    return deg+min/60.0;
+}
+
 double B60B60 = 0xB60B60;  // 2^32/360 = 0xB60B60.xxx
 
 int get_GPSlat() {
@@ -657,6 +666,8 @@ int get_GPSlat() {
     }
     lat = gpslat / 1e7; //  / B60B60;
     gpx.lat = lat;
+
+    if (option_nmea) gpx.lat = NMEAll(gpslat); // test
 
     return 0;
 }
@@ -680,6 +691,8 @@ int get_GPSlon() {
     }
     lon = gpslon / 1e7; // / B60B60;
     gpx.lon = lon;
+
+    if (option_nmea) gpx.lon =  NMEAll(gpslon); // test
 
     return 0;
 }
@@ -800,6 +813,7 @@ int get_GPSvel16() {
 
     return 0;
 }
+
 
 // RS(255,223)-CCSDS
 #define rs_N 255
@@ -999,6 +1013,7 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // RS-ECC
         else if   (strcmp(*argv, "--vit" ) == 0) { option_vit = 1; } // viterbi-hard
+        else if   (strcmp(*argv, "--nmea") == 0) { option_nmea = 1; } // test
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
         }
