@@ -1494,10 +1494,11 @@ int main(int argc, char *argv[]) {
     if (option_bin)
     {
         while ( (bit = fgetc(fp)) != EOF ) {
+            bit &= 1;
             if (option_inv) bit ^= 1;
 
             inc_bufpos();
-            buf[bufpos] = 0x30 + bit;  // Ascii
+            buf[bufpos] = 0x30 | bit;  // Ascii
 
             if (!header_found) {
                 if (compare() >= HEADLEN) header_found = 1;
