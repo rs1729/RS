@@ -28,11 +28,12 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_res = 0,      // genauere Bitmessung
     wavloaded = 0;
 
+int option_baud = 0;
 //int option_nmea = 0;
 
 /* -------------------------------------------------------------------------- */
 
-#define BAUD_RATE   4800
+#define BAUD_RATE   (4800)   // 4797.7 = 4800 / (48023/48000) ?
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
 float samples_per_bit = 0;
@@ -987,6 +988,7 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // RS-ECC
         else if   (strcmp(*argv, "--vit" ) == 0) { option_vit = 1; } // viterbi-hard
+        else if   (strcmp(*argv, "--baud") == 0) { option_baud = 1; } // test
         //else if   (strcmp(*argv, "--nmea") == 0) { option_nmea = 1; } // test
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
@@ -1009,6 +1011,10 @@ int main(int argc, char **argv) {
     if (i) {
         fclose(fp);
         return -1;
+    }
+    if (option_baud) {
+        samples_per_bit *= 48023/48000.0;
+        fprintf(stderr, "sps corr: %.4f\n", samples_per_bit);
     }
 
 
