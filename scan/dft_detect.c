@@ -238,7 +238,11 @@ static int getCorrDFT(int abs, int K, unsigned int pos, float *maxv, unsigned in
 
     dc = 0.0;
 
+#ifdef ZEROPAD
     if (rshd.N + K > N_DFT/2 - 2) return -1;
+#else
+    if (rshd.N + K > N_DFT) return -1;
+#endif
     if (sample_in < delay+rshd.N+K) return -2;
 
     if (pos == 0) pos = sample_out;
@@ -510,6 +514,7 @@ static int init_buffers() {
     double b0, b1, b2, b;
     float normMatch;
 
+    int p2 = 1;
     int K, NN;
     int n, k;
     float *match = NULL;
@@ -532,21 +537,25 @@ static int init_buffers() {
 
     NN = hLen * sample_rate/2500.0 + 0.5; // max(hLen*spb)
 
-    M = 3*NN;
+    M = 2*NN;
     //if (samples_per_bit < 6) M = 6*N;
 
-    delay = NN/16;
+    delay = 0; // NN/16;
     sample_in = 0;
 
+    p2 = 1;
+    while (p2 < M) p2 <<= 1;
+    while (p2 < 0x8000) p2 <<= 1; // or 0x8000
+    M = p2;
+    N_DFT = p2;
+#ifdef ZEROPAD
+    M -= 1;
+    N_DFT <<= 1;
+#endif
+    LOG2N = log(N_DFT)/log(2);
+    //while ((1 << LOG2N) < N_DFT) LOGN++;
+
     K = M-NN - delay; // N+K < M
-
-    LOG2N = 2 + (int)(log(NN+K)/log(2));
-    N_DFT = 1 << LOG2N;
-
-    while (NN + K > N_DFT/2 - 2) {
-        LOG2N  += 1;
-        N_DFT <<= 1;
-    }
 
     Nvar = NN; // wenn Nvar fuer xnorm, dann Nvar=rshd.N
 
@@ -744,6 +753,9 @@ int main(int argc, char **argv) {
 
         if (k >= K-4) {
             for (j = 0; j < Nrs-2; j++) {
+#ifdef NOC34C50
+                if ( strncmp(rs_hdr[j].type, "C34C50", 6) == 0 ) continue;
+#endif
                 mv0_pos[j] = mv_pos[j];
                 mp[j] = getCorrDFT(-1, K, 0, mv+j, mv_pos+j, rs_hdr[j]);
             }
