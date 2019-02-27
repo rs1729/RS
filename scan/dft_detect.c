@@ -540,12 +540,12 @@ static int init_buffers() {
     M = 2*NN;
     //if (samples_per_bit < 6) M = 6*N;
 
-    delay = 0; // NN/16;
+    delay = NN/16;
     sample_in = 0;
 
     p2 = 1;
     while (p2 < M) p2 <<= 1;
-    while (p2 < 0x8000) p2 <<= 1; // or 0x8000
+    while (p2 < 0x2000) p2 <<= 1;
     M = p2;
     N_DFT = p2;
 #ifdef ZEROPAD
