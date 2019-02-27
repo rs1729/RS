@@ -243,7 +243,7 @@ static int getCorrDFT(int abs, int K, unsigned int pos, float *maxv, unsigned in
 #else
     if (rshd.N + K > N_DFT) return -1;
 #endif
-    if (sample_in < delay+rshd.N+K) return -2;
+//    if (sample_in < delay+rshd.N+K) return -2;
 
     if (pos == 0) pos = sample_out;
 
@@ -383,7 +383,7 @@ static int f32read_sample(FILE *fp, float *s) {
 }
 
 
-static int f32buf_sample(FILE *fp, int inv, int cm) {
+static int f32buf_sample(FILE *fp, int inv) {
     float s = 0.0;
     float xneu, xalt;
 
@@ -401,11 +401,6 @@ static int f32buf_sample(FILE *fp, int inv, int cm) {
     qsum += (xneu - xalt)*(xneu + xalt);  // + xneu*xneu - xalt*xalt
     qs[sample_in % M] = qsum;
 */
-
-    if (0 && cm) {
-        // direct correlation
-    }
-
 
     sample_out = sample_in - delay;
 
@@ -545,7 +540,7 @@ static int init_buffers() {
 
     p2 = 1;
     while (p2 < M) p2 <<= 1;
-    while (p2 < 0x2000) p2 <<= 1;
+    while (p2 < 0x2000) p2 <<= 1;  // or 0x4000, if sample not too short
     M = p2;
     N_DFT = p2;
 #ifdef ZEROPAD
@@ -745,7 +740,7 @@ int main(int argc, char **argv) {
 
     k = 0;
 
-    while ( f32buf_sample(fp, option_inv, 1) != EOF ) {
+    while ( f32buf_sample(fp, option_inv) != EOF ) {
 
         if (tl > 0 && sample_in > (tl+1)*sample_rate) break;  // (int)sample_out < 0
 
@@ -791,7 +786,7 @@ int main(int argc, char **argv) {
                             n = 0;
                             while (n < sample_rate) { // 1 sec
 
-                                if (f32buf_sample(fp, option_inv, 1) == EOF) break;//goto ende;
+                                if (f32buf_sample(fp, option_inv) == EOF) break;//goto ende;
 
                                 xn[n % D] = bufs[sample_out % M];
                                 n++;
@@ -833,7 +828,7 @@ int main(int argc, char **argv) {
 
                                 // detect header/polarity
                                 k = 0;
-                                while ( n < 4*sample_rate && f32buf_sample(fp, option_inv, 1) != EOF ) {
+                                while ( n < 4*sample_rate && f32buf_sample(fp, option_inv) != EOF ) {
 
                                     n += 1;
                                     k += 1;
