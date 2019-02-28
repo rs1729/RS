@@ -8,6 +8,7 @@
 */
 
 #include <stdio.h>
+#include <stdlib.h> // atof()
 #include <string.h>
 #include <math.h>
 
@@ -28,12 +29,11 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_res = 0,      // genauere Bitmessung
     wavloaded = 0;
 
-int option_baud = 0;
-//int option_nmea = 0;
+float baudrate = -1;
 
 /* -------------------------------------------------------------------------- */
 
-#define BAUD_RATE   (4800)   // 4797.7 = 4800 / (48023/48000) ?
+#define BAUD_RATE   (4797.7)   // 4797.7 = 4800 / (48023/48000) ?
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
 float samples_per_bit = 0;
@@ -905,8 +905,17 @@ void proc_frame(int len) {
 
     sf = 0;
     blk_pos = SYNC_LEN;
-    for (j = 0; j < 4; j++) sf += (block_bytes[blk_pos+40+j] == frm_sync[j]);
-    if (sf == 4)  blk_pos += 40; // 300-260
+    for (j = 0; j < 4; j++) sf += (block_bytes[SYNC_LEN+j] == frm_sync[j]);
+    if (sf < 4) { // scan 1..40 ?
+        sf = 0;
+        for (j = 0; j < 4; j++) sf += (block_bytes[SYNC_LEN+35+j] == frm_sync[j]);
+        if (sf == 4)  blk_pos = SYNC_LEN+35;
+        else {
+            sf = 0;
+            for (j = 0; j < 4; j++) sf += (block_bytes[SYNC_LEN+40+j] == frm_sync[j]);
+            if (sf == 4)  blk_pos = SYNC_LEN+40; // 300-260
+        }
+    }
 
     if (blen > 100 && option_ecc) {
         for (j = 0; j < rs_N; j++) rs_cw[rs_N-1-j] = block_bytes[blk_pos+j];
@@ -988,7 +997,14 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // RS-ECC
         else if   (strcmp(*argv, "--vit" ) == 0) { option_vit = 1; } // viterbi-hard
-        else if   (strcmp(*argv, "--baud") == 0) { option_baud = 1; } // test
+        else if ( (strcmp(*argv, "--br") == 0) ) {
+            ++argv;
+            if (*argv) {
+                baudrate = atof(*argv);
+                if (baudrate < 4000 || baudrate > 6000) baudrate = 4800; // default: 4797.7
+            }
+            else return -1;
+        }
         //else if   (strcmp(*argv, "--nmea") == 0) { option_nmea = 1; } // test
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
@@ -1012,8 +1028,8 @@ int main(int argc, char **argv) {
         fclose(fp);
         return -1;
     }
-    if (option_baud) {
-        samples_per_bit *= 48023/48000.0;
+    if (baudrate > 0) {
+        samples_per_bit = sample_rate/baudrate; // default baudrate: 4800 * 48000/48023.0
         fprintf(stderr, "sps corr: %.4f\n", samples_per_bit);
     }
 

@@ -1,15 +1,15 @@
 
 /*
- *  LMS6
+ *  LMSx
  *  (403 MHz)
  *
  *  sync header: correlation/matched filter
- *  files: lms6dm_dft.c demod_dft.h demod_dft.c bch_ecc.c
+ *  files: lmsXdm_dft.c demod_dft.h demod_dft.c bch_ecc.c
  *  compile:
  *      gcc -c demod_dft.c
- *      gcc lms6dm_dft.c demod_dft.o -lm -o lms6dm_dft
+ *      gcc lmsXdm_dft.c demod_dft.o -lm -o lmsXdm_dft
  *  usage:
- *      ./lms6dm_dft -v --vit --ecc <audio.wav>
+ *      ./lmsXdm_dft -v --vit --ecc <audio.wav>
  *
  *  author: zilog80
  */
@@ -819,8 +819,17 @@ void proc_frame(int len) {
 
     sf = 0;
     blk_pos = SYNC_LEN;
-    for (j = 0; j < 4; j++) sf += (block_bytes[blk_pos+40+j] == frm_sync[j]);
-    if (sf == 4)  blk_pos += 40; // 300-260
+    for (j = 0; j < 4; j++) sf += (block_bytes[SYNC_LEN+j] == frm_sync[j]);
+    if (sf < 4) { // scan 1..40 ?
+        sf = 0;
+        for (j = 0; j < 4; j++) sf += (block_bytes[SYNC_LEN+35+j] == frm_sync[j]);
+        if (sf == 4)  blk_pos = SYNC_LEN+35;
+        else {
+            sf = 0;
+            for (j = 0; j < 4; j++) sf += (block_bytes[SYNC_LEN+40+j] == frm_sync[j]);
+            if (sf == 4)  blk_pos = SYNC_LEN+40; // 300-260
+        }
+    }
 
     if (blen > 100 && option_ecc) {
         for (j = 0; j < rs_N; j++) rs_cw[rs_N-1-j] = block_bytes[blk_pos+j];
