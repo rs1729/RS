@@ -1,216 +1,60 @@
 
 /*
-   LMSx
-   (403 MHz)
-
-    gcc lmsX2446.c -lm -o lmsX
-    ./lmsX  -v --vit --ecc <audio.wav>
-*/
+ *  LMSx
+ *  (403 MHz)
+ *
+ *  sync header: correlation/matched filter
+ *  files: lmsXdm_dft.c demod_dft.h demod_dft.c bch_ecc.c
+ *  compile:
+ *      gcc -c demod_dft.c
+ *      gcc lmsXdm_dft.c demod_dft.o -lm -o lmsXdm_dft
+ *  usage:
+ *      ./lmsXdm_dft -v --vit --ecc <audio.wav>
+ *
+ *  author: zilog80
+ */
 
 #include <stdio.h>
-#include <stdlib.h> // atof()
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
+#ifdef CYGWIN
+  #include <fcntl.h>  // cygwin: _setmode()
+  #include <io.h>
+#endif
 
 
 typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
 typedef unsigned int   ui32_t;
 
+#include "demod_dft.h"
+
 #include "bch_ecc.c"  // RS/ecc/
 
 
 int option_verbose = 0,  // ausfuehrliche Anzeige
-    option_b   = 0,
     option_raw = 0,      // rohe Frames
     option_ecc = 0,
     option_vit = 0,
     option_inv = 0,      // invertiert Signal
-    option_res = 0,      // genauere Bitmessung
+    option_dc = 0,
     wavloaded = 0;
+int wav_channel = 0;     // audio channel: left
 
-float baudrate = -1;
 
 /* -------------------------------------------------------------------------- */
 
-#define BAUD_RATE   (4797.7)   // 4797.7 = 4800 / (48023/48000) ?
-
-int sample_rate = 0, bits_sample = 0, channels = 0;
-float samples_per_bit = 0;
-
-int findstr(char *buf, char *str, int pos) {
-    int i;
-    for (i = 0; i < 4; i++) {
-        if (buf[(pos+i)%4] != str[i]) break;
-    }
-    return i;
-}
-
-int read_wav_header(FILE *fp) {
-    char txt[4+1] = "\0\0\0\0";
-    unsigned char dat[4];
-    int byte, p=0;
-
-    if (fread(txt, 1, 4, fp) < 4) return -1;
-    if (strncmp(txt, "RIFF", 4)) return -1;
-    if (fread(txt, 1, 4, fp) < 4) return -1;
-    // pos_WAVE = 8L
-    if (fread(txt, 1, 4, fp) < 4) return -1;
-    if (strncmp(txt, "WAVE", 4)) return -1;
-    // pos_fmt = 12L
-    for ( ; ; ) {
-        if ( (byte=fgetc(fp)) == EOF ) return -1;
-        txt[p % 4] = byte;
-        p++; if (p==4) p=0;
-        if (findstr(txt, "fmt ", p) == 4) break;
-    }
-    if (fread(dat, 1, 4, fp) < 4) return -1;
-    if (fread(dat, 1, 2, fp) < 2) return -1;
-
-    if (fread(dat, 1, 2, fp) < 2) return -1;
-    channels = dat[0] + (dat[1] << 8);
-
-    if (fread(dat, 1, 4, fp) < 4) return -1;
-    memcpy(&sample_rate, dat, 4); //sample_rate = dat[0]|(dat[1]<<8)|(dat[2]<<16)|(dat[3]<<24);
-
-    if (fread(dat, 1, 4, fp) < 4) return -1;
-    if (fread(dat, 1, 2, fp) < 2) return -1;
-    //byte = dat[0] + (dat[1] << 8);
-
-    if (fread(dat, 1, 2, fp) < 2) return -1;
-    bits_sample = dat[0] + (dat[1] << 8);
-
-    // pos_dat = 36L + info
-    for ( ; ; ) {
-        if ( (byte=fgetc(fp)) == EOF ) return -1;
-        txt[p % 4] = byte;
-        p++; if (p==4) p=0;
-        if (findstr(txt, "data", p) == 4) break;
-    }
-    if (fread(dat, 1, 4, fp) < 4) return -1;
-
-
-    fprintf(stderr, "sample_rate: %d\n", sample_rate);
-    fprintf(stderr, "bits       : %d\n", bits_sample);
-    fprintf(stderr, "channels   : %d\n", channels);
-
-    if ((bits_sample != 8) && (bits_sample != 16)) return -1;
-
-    samples_per_bit = sample_rate/(float)BAUD_RATE;
-
-    fprintf(stderr, "samples/bit: %.2f\n", samples_per_bit);
-
-    return 0;
-}
-
-
-#define EOF_INT  0x1000000
-
-unsigned long sample_count = 0;
-
-int read_signed_sample(FILE *fp) {  // int = i32_t
-    int byte, i, ret;         //  EOF -> 0x1000000
-
-    for (i = 0; i < channels; i++) {
-                           // i = 0: links bzw. mono
-        byte = fgetc(fp);
-        if (byte == EOF) return EOF_INT;
-        if (i == 0) ret = byte;
-
-        if (bits_sample == 16) {
-            byte = fgetc(fp);
-            if (byte == EOF) return EOF_INT;
-            if (i == 0) ret +=  byte << 8;
-        }
-
-    }
-
-    sample_count++;
-
-    if (bits_sample ==  8) return ret-128;   // 8bit: 00..FF, centerpoint 0x80=128
-    if (bits_sample == 16) return (short)ret;
-
-    return ret;
-}
-
-int par=1, par_alt=1;
-
-int read_bits_fsk(FILE *fp, int *bit, int *len) {
-    static int sample;
-    int n, y0;
-    float l, x1;
-    static float x0;
-
-    n = 0;
-    do{
-        y0 = sample;
-        sample = read_signed_sample(fp);
-        if (sample == EOF_INT) return EOF;
-        //sample_count++;
-        par_alt = par;
-        par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
-        n++;
-    } while (par*par_alt > 0);
-
-    if (!option_res) l = (float)n / samples_per_bit;
-    else {                                 // genauere Bitlaengen-Messung
-        x1 = sample/(float)(sample-y0);    // hilft bei niedriger sample rate
-        l = (n+x0-x1) / samples_per_bit;   // meist mehr frames (nicht immer)
-        x0 = x1;
-    }
-
-    *len = (int)(l+0.5);
-
-    if (!option_inv) *bit = (1+par_alt)/2;  // oben 1, unten -1
-    else             *bit = (1-par_alt)/2;  // sdr#<rev1381?, invers: unten 1, oben -1
-// *bit = (1+inv*par_alt)/2; // ausser inv=0
-
-    return 0;
-}
-
-double bitgrenze = 0;
-
-int bitstart = 0;
-int read_rawbit(FILE *fp, int *bit) {
-    int sample;
-    int n, sum;
-
-    sum = 0;
-    n = 0;
-
-    if (bitstart) {
-        n = 1;    // d.h. bitgrenze = sample_count-1 (?)
-        bitgrenze = sample_count-1;
-        bitstart = 0;
-    }
-    bitgrenze += samples_per_bit;
-
-    do {
-        sample = read_signed_sample(fp);
-        if (sample == EOF_INT) return EOF;
-        //sample_count++; // in read_signed_sample()
-        //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
-        sum += sample;
-        n++;
-    } while (sample_count < bitgrenze);  // n < samples_per_bit
-
-    if (sum >= 0) *bit = 1;
-    else          *bit = 0;
-
-    if (option_inv) *bit ^= 1;
-
-    return 0;
-}
-
-/* -------------------------------------------------------------------------- */
-
+#define BAUD_RATE   (4797.7)  // = 4800 / (48023/48000) ?
 
 #define BITS 8
-#define HEADOFS  16
+#define HEADOFS  0 //16
 #define HEADLEN ((4*16)-HEADOFS)
-// RS-SYNC
-//       (00)    58                f3                3f                b8
-char header[] = "0000001101011101""0100100111000010""0100111111110010""0110100001101011";
+
+char rawheader[] = "0101011000001000""0001110010010111""0001101010100111""0011110100111110"; // (c0,inv(c1))
+//         (00)     58                f3                3f                b8
+//char header[]  = "0000001101011101""0100100111000010""0100111111110010""0110100001101011"; // (c0,c1)
 ui8_t rs_sync[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
 // 0x58f33fb8 little-endian <-> 0x1ACFFC1D big-endian bytes
 
@@ -228,6 +72,13 @@ ui8_t rs_sync[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
 char  blk_rawbits[RAWBITBLOCK_LEN+SYNC_LEN*BITS*2 +8] = "0000000000000000""0000001101011101""0100100111000010""0100111111110010""0110100001101011";
 //char  *block_rawbits = blk_rawbits+SYNC_LEN*BITS*2;
 
+float  soft_rawbits[RAWBITBLOCK_LEN+SYNC_LEN*BITS*2 +8] =
+ { -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,
+   -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,  1.0,  1.0, -1.0,  1.0, -1.0,  1.0,  1.0,  1.0, -1.0,  1.0,
+   -1.0,  1.0, -1.0, -1.0,  1.0, -1.0, -1.0,  1.0,  1.0,  1.0, -1.0, -1.0, -1.0, -1.0,  1.0, -1.0,
+   -1.0,  1.0, -1.0, -1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0, -1.0, -1.0,  1.0, -1.0,
+   -1.0,  1.0,  1.0, -1.0,  1.0, -1.0, -1.0, -1.0, -1.0,  1.0,  1.0, -1.0,  1.0, -1.0,  1.0,  1.0 };
+
 ui8_t block_bytes[FRAME_LEN+8];  // BLOCK_LEN + 40
 
 
@@ -237,20 +88,16 @@ ui8_t frame[FRM_LEN] = { 0x24, 0x54, 0x00, 0x00}; // dataheader
 
 ui8_t *p_frame = frame;
 
+
 #define BITFRAME_LEN    (FRAME_LEN*BITS)
 #define RAWBITFRAME_LEN (BITFRAME_LEN*2)
 #define OVERLAP 64
 #define OFS 4
 
 
-char  frame_bits[BITFRAME_LEN+OVERLAP*BITS +8];  // init K-1 bits mit 0
+char  frame_bits[BITFRAME_LEN+OVERLAP*BITS +8];  // init L-1 bits mit 0
 
-
-char buf[HEADLEN];
-int bufpos = -1;
-
-
-#define K 7  // d_f=10
+#define L 7  // d_f=10
     char polyA[] = "1001111"; // 0x4f: x^6+x^3+x^2+x+1
     char polyB[] = "1101101"; // 0x6d: x^6+x^5+x^3+x^2+1
 /*
@@ -264,15 +111,18 @@ polyB = qA + qB
 */
 
 char vit_rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2 +8];
+char vits_rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2 +8];
+char vits_bits[BITFRAME_LEN+OVERLAP*BITS +8];
 
-#define N (1 << K)
-#define M (1 << (K-1))
+#define N (1 << L)
+#define M (1 << (L-1))
 
 typedef struct {
     ui8_t bIn;
     ui8_t codeIn;
     int w;
     int prevState;
+    float sw;
 } states_t;
 
 states_t vit_state[RAWBITFRAME_LEN+OVERLAP +8][M];
@@ -289,9 +139,9 @@ int vit_initCodes() {
     for (bits = 0; bits < N; bits++) {
         cA = 0;
         cB = 0;
-        for (i = 0; i < K; i++) {
-            cA ^= (polyA[K-1-i]&1) & ((bits >> i)&1);
-            cB ^= (polyB[K-1-i]&1) & ((bits >> i)&1);
+        for (i = 0; i < L; i++) {
+            cA ^= (polyA[L-1-i]&1) & ((bits >> i)&1);
+            cB ^= (polyB[L-1-i]&1) & ((bits >> i)&1);
         }
         vit_code[bits] = (cA<<1) | cB;
     }
@@ -306,9 +156,9 @@ int vit_dist(int c, char *rc) {
 int vit_start(char *rc) {
     int t, m, j, c, d;
 
-    t = K-1;
+    t = L-1;
     m = M;
-    while ( t > 0 ) {  // t=0..K-2: nextState<M
+    while ( t > 0 ) {  // t=0..L-2: nextState<M
         for (j = 0; j < m; j++) {
             vit_state[t][j].prevState = j/2;
         }
@@ -317,7 +167,7 @@ int vit_start(char *rc) {
     }
 
     m = 2;
-    for (t = 1; t < K; t++) {
+    for (t = 1; t < L; t++) {
         for (j = 0; j < m; j++) {
             c = vit_code[j];
             vit_state[t][j].bIn = j % 2;
@@ -378,7 +228,7 @@ int viterbi(char *rc) {
 
     tmax = strlen(rc)/2;
 
-    for (t = K-1; t < tmax; t++)
+    for (t = L-1; t < tmax; t++)
     {
         vit_next(t, rc+2*t);
     }
@@ -399,6 +249,115 @@ int viterbi(char *rc) {
     return 0;
 }
 
+
+float vits_dist(int c, float *rc) {
+    int bit0 = ((c>>1)&1) * 2 - 1;
+    int bit1 = (c&1) * 2 - 1;
+    return sqrt( (bit0-rc[0])*(bit0-rc[0]) + (bit1-rc[1])*(bit1-rc[1]) );
+}
+
+int vits_start(float *rc) {
+    int t, m, j, c;
+    float d;
+
+    t = L-1;
+    m = M;
+    while ( t > 0 ) {  // t=0..L-2: nextState<M
+        for (j = 0; j < m; j++) {
+            vit_state[t][j].prevState = j/2;
+        }
+        t--;
+        m /= 2;
+    }
+
+    m = 2;
+    for (t = 1; t < L; t++) {
+        for (j = 0; j < m; j++) {
+            c = vit_code[j];
+            vit_state[t][j].bIn = j % 2;
+            vit_state[t][j].codeIn = c;
+            d = vits_dist( c, rc+2*(t-1) );
+            vit_state[t][j].sw = vit_state[t-1][vit_state[t][j].prevState].sw + d;
+        }
+        m *= 2;
+    }
+
+    return t;
+}
+
+int vits_next(int t, float *rc) {
+    int b, nstate;
+    int j, index;
+
+    for (j = 0; j < M; j++) {
+        for (b = 0; b < 2; b++) {
+            nstate = j*2 + b;
+            vit_d[nstate].bIn = b;
+            vit_d[nstate].codeIn = vit_code[nstate];
+            vit_d[nstate].prevState = j;
+            vit_d[nstate].sw = vit_state[t][j].sw + vits_dist( vit_d[nstate].codeIn, rc );
+        }
+     }
+
+    for (j = 0; j < M; j++) {
+
+        if ( vit_d[j].sw <= vit_d[j+M].sw ) index = j; else index = j+M;
+
+        vit_state[t+1][j] = vit_d[index];
+    }
+
+    return 0;
+}
+
+int vits_path(int j, int t) {
+    int c;
+    int dec;
+
+    vits_rawbits[2*t] = '\0';
+    vits_bits[t] = '\0';
+    while (t > 0) {
+        dec = vit_state[t][j].bIn;
+        vits_bits[t-1] = 0x30 + dec;
+        c = vit_state[t][j].codeIn;
+        vits_rawbits[2*t -2] = 0x30 + ((c>>1) & 1);
+        vits_rawbits[2*t -1] = 0x30 + (c & 1);
+        j = vit_state[t][j].prevState;
+        t--;
+    }
+
+    return 0;
+}
+
+int viterbi_soft(float *rc, int len) {
+    int t, tmax;
+    int j, j_min;
+    float sw_min;
+
+    vits_start(rc);
+
+    tmax = len/2;
+
+    for (t = L-1; t < tmax; t++)
+    {
+        vits_next(t, rc+2*t);
+    }
+
+    sw_min = -1.0;
+    for (j = 0; j < M; j++) {
+        if (sw_min < 0.0) {
+            sw_min = vit_state[tmax][j].sw;
+            j_min = j;
+        }
+        if (vit_state[tmax][j].sw < sw_min) {
+            sw_min = vit_state[tmax][j].sw;
+            j_min = j;
+        }
+    }
+    vits_path(j_min, tmax);
+
+    return 0;
+}
+
 // ------------------------------------------------------------------------
 
 int deconv(char* rawbits, char *bits) {
@@ -407,7 +366,7 @@ int deconv(char* rawbits, char *bits) {
     char *p;
     int len;
     int errors = 0;
-    int m = K-1;
+    int m = L-1;
 
     len = strlen(rawbits);
     for (j = 0; j < m; j++) bits[j] = '0';
@@ -471,44 +430,6 @@ int check_CRC(ui8_t frame[]) {
 
 // ------------------------------------------------------------------------
 
-
-void inc_bufpos() {
-  bufpos = (bufpos+1) % HEADLEN;
-}
-
-char cb_inv(char c) {
-    if (c == '0') return '1';
-    if (c == '1') return '0';
-    return c;
-}
-
-int compare2() {
-    int i, j;
-
-    i = 0;
-    j = bufpos;
-    while (i < HEADLEN) {
-        if (j < 0) j = HEADLEN-1;
-        if (buf[j] != header[HEADOFS+HEADLEN-1-i]) break;
-        j--;
-        i++;
-    }
-    if (i == HEADLEN) return 1;
-
-    i = 0;
-    j = bufpos;
-    while (i < HEADLEN) {
-        if (j < 0) j = HEADLEN-1;
-        if (buf[j] != cb_inv(header[HEADOFS+HEADLEN-1-i])) break;
-        j--;
-        i++;
-    }
-    if (i == HEADLEN) return -1;
-
-    return 0;
-
-}
-
 int bits2bytes(char *bitstr, ui8_t *bytes) {
     int i, bit, d, byteval;
     int len = strlen(bitstr)/8;
@@ -538,6 +459,7 @@ int bits2bytes(char *bitstr, ui8_t *bytes) {
 }
 
 /* -------------------------------------------------------------------------- */
+
 
 typedef struct {
     int frnr;
@@ -638,14 +560,6 @@ int get_GPStime() {
     return 0;
 }
 
-double NMEAll(int ll) {  // NMEA GGA,GLL: ll/1e5=(D)DDMM.mmmm
-    double scale1 = 1e5;
-    int scale = 10000000; //scale1*100;
-    int deg = ll / scale;
-    double min = (ll - deg*scale)/scale1;
-    return deg+min/60.0;
-}
-
 double B60B60 = 0xB60B60;  // 2^32/360 = 0xB60B60.xxx
 
 int get_GPSlat() {
@@ -668,8 +582,6 @@ int get_GPSlat() {
     lat = gpslat / 1e7; //  / B60B60;
     gpx.lat = lat;
 
-    //if (option_nmea) gpx.lat = NMEAll(gpslat); // probably not, more data
-
     return 0;
 }
 
@@ -690,10 +602,8 @@ int get_GPSlon() {
     for (i = 0; i < 4; i++) {
         gpslon |= gpslon_bytes[i] << (8*(3-i));
     }
-    lon = gpslon / 1e7; // / B60B60;
+    lon = gpslon / 1e7; //   B60B60;
     gpx.lon = lon;
-
-    //if (option_nmea) gpx.lon =  NMEAll(gpslon); // probably not, more data
 
     return 0;
 }
@@ -889,9 +799,13 @@ void proc_frame(int len) {
 
     flen = len / (2*BITS);
 
-    if (option_vit) {
+    if (option_vit == 1) {
         viterbi(blk_rawbits);
         rawbits = vit_rawbits;
+    }
+    else if (option_vit == 2) {
+        viterbi_soft(soft_rawbits, len);
+        rawbits = vits_rawbits;
     }
     else rawbits = blk_rawbits;
 
@@ -959,13 +873,38 @@ void proc_frame(int len) {
 
 int main(int argc, char **argv) {
 
-    FILE *fp;
-    char *fpname;
-    int i, bit, len, rbit;
-    int pos;
+    FILE *fp = NULL;
+    char *fpname = NULL;
+    float spb = 0.0;
     int header_found = 0;
+
+    int bit, rbit;
+    int bitpos = 0;
+    int bitQ;
+    int pos;
+    int herrs, herr1;
+    int headerlen = 0;
+
+    int k,K;
+    float mv;
+    unsigned int mv_pos, mv0_pos;
+    int mp = 0;
+
+    float thres = 0.76;
+
+    int bitofs = 0;
+    int symlen = 1;
     unsigned int bc = 0;
 
+    float sb = 0.0;
+    float sbit = 0.0;
+    float level = -1.0, ll = -1.0;
+
+
+#ifdef CYGWIN
+    _setmode(fileno(stdin), _O_BINARY);  // _setmode(_fileno(stdin), _O_BINARY);
+#endif
+    setbuf(stdout, NULL);
 
     fpname = argv[0];
     ++argv;
@@ -975,14 +914,13 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  options:\n");
             fprintf(stderr, "       -v, --verbose\n");
             fprintf(stderr, "       -r, --raw\n");
-            fprintf(stderr, "       --vit        (Viterbi)\n");
+            fprintf(stderr, "       --vit,--vit2 (Viterbi/soft)\n");
             fprintf(stderr, "       --ecc        (Reed-Solomon)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
             option_verbose = 1;
         }
-        //else if ( (strcmp(*argv, "-vv") == 0) ) option_verbose = 2;
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
             option_raw = 1; // bytes - rs_ecc_codewords
         }
@@ -997,20 +935,28 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; } // RS-ECC
         else if   (strcmp(*argv, "--vit" ) == 0) { option_vit = 1; } // viterbi-hard
-        else if ( (strcmp(*argv, "--br") == 0) ) {
-            ++argv;
-            if (*argv) {
-                baudrate = atof(*argv);
-                if (baudrate < 4000 || baudrate > 6000) baudrate = 4800; // default: 4797.7
-            }
-            else return -1;
-        }
-        //else if   (strcmp(*argv, "--nmea") == 0) { option_nmea = 1; } // test
+        else if   (strcmp(*argv, "--vit2") == 0) { option_vit = 2; } // viterbi-soft
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
         }
-        else if   (strcmp(*argv, "--res") == 0) { option_res = 1; }
-        else if   (strcmp(*argv, "-b") == 0) { option_b = 1; }
+        else if ( (strcmp(*argv, "--dc") == 0) ) {
+            option_dc = 1;
+        }
+        else if ( (strcmp(*argv, "--ch2") == 0) ) { wav_channel = 1; }  // right channel (default: 0=left)
+        else if ( (strcmp(*argv, "--ths") == 0) ) {
+            ++argv;
+            if (*argv) {
+                thres = atof(*argv);
+            }
+            else return -1;
+        }
+        else if ( (strcmp(*argv, "--level") == 0) ) {
+            ++argv;
+            if (*argv) {
+                ll = atof(*argv);
+            }
+            else return -1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -1023,14 +969,15 @@ int main(int argc, char **argv) {
     }
     if (!wavloaded) fp = stdin;
 
-    i = read_wav_header(fp);
-    if (i) {
+
+    spb = read_wav_header(fp, (float)BAUD_RATE, wav_channel);
+    if ( spb < 0 ) {
         fclose(fp);
+        fprintf(stderr, "error: wav header\n");
         return -1;
     }
-    if (baudrate > 0) {
-        samples_per_bit = sample_rate/baudrate; // default baudrate: 4800 * 48000/48023.0
-        fprintf(stderr, "sps corr: %.4f\n", samples_per_bit);
+    if ( spb < 8 ) {
+        fprintf(stderr, "note: sample rate low\n");
     }
 
 
@@ -1044,62 +991,91 @@ int main(int argc, char **argv) {
     }
 
 
-    pos = BLOCKSTART;
+    symlen = 1;
+    headerlen = strlen(rawheader);
+    bitofs = 1; // +1 .. +2
+    K = init_buffers(rawheader, headerlen, 2); // shape=2 (alt. shape=1)
+    if ( K < 0 ) {
+        fprintf(stderr, "error: init buffers\n");
+        return -1;
+    };
 
-    while (!read_bits_fsk(fp, &rbit, &len)) {
+    level = ll;
+    k = 0;
+    mv = -1; mv_pos = 0;
 
-        if (len == 0) { // reset_frame();
-            //inc_bufpos();
-            //buf[bufpos] = 'x';
-            //fprintf(stderr, "len==0\n");
-            continue;   // ...
+    while ( f32buf_sample(fp, option_inv, 1) != EOF ) {
+
+        k += 1;
+        if (k >= K-4) {
+            mv0_pos = mv_pos;
+            mp = getCorrDFT(-1, K, 0, &mv, &mv_pos);
+            k = 0;
+        }
+        else {
+            mv = 0.0;
+            continue;
         }
 
-        for (i = 0; i < len; i++) {
+        if (mp > 0 && (mv > thres || mv < -thres)) {
+            if (mv_pos > mv0_pos) {
 
-            inc_bufpos();
-            bit = rbit ^ (bc%2);  // (c0,inv(c1))
-            bc++;
-            buf[bufpos] = 0x30 + bit;
+                header_found = 0;
+                herrs = headcmp(symlen, rawheader, headerlen, mv_pos, mv<0, option_dc); // (symlen=1)
+                herr1 = 0;
 
-            if (!header_found) {
-                header_found = compare2();
-                if (header_found < 0) bc++;
-            }
-            else {
-                if (pos < RAWBITBLOCK_LEN) {
-                    blk_rawbits[pos] = 0x30 + bit;
-                    pos++;
+                if (herrs <= 3 && herrs > 0) {
+                    herr1 = headcmp(symlen, rawheader, headerlen, mv_pos+1, mv<0, option_dc);
+                    if (herr1 < herrs) {
+                        herrs = herr1;
+                        herr1 = 1;
+                    }
                 }
-            }
+                if (herrs <= 3) header_found = 1; // herrs <= 3 bitfehler in header
 
-            if (pos >= RAWBITBLOCK_LEN) {
+                if (header_found) {
+
+                    if (ll <= 0) level = header_level(rawheader, headerlen, mv_pos, mv<0) * 0.6;
+
+                    bitpos = 0;
+                    pos = BLOCKSTART;
+
+                    if (mv > 0) bc = 0; else bc = 1;
+
+                    while ( pos < RAWBITBLOCK_LEN ) {
+                        header_found = !(pos>=RAWBITBLOCK_LEN-10);
+                        //bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
+                        bitQ = read_softbit(fp, symlen, &rbit, &sb, level, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
+                        if (bitQ == EOF) { break; }
+
+                        bit = rbit ^ (bc%2);  // (c0,inv(c1))
+                        blk_rawbits[pos] = 0x30 + bit;
+
+                        sbit = sb * (-(int)(bc%2)*2+1);
+                        soft_rawbits[pos] = sbit;
+
+                        bc++;
+                        pos++;
+                        bitpos += 1;
+                    }
+
                     blk_rawbits[pos] = '\0';
+                    soft_rawbits[pos] = 0;
+
                     proc_frame(pos);
+
+                    if (pos < RAWBITBLOCK_LEN) break;
+
                     pos = BLOCKSTART;
                     header_found = 0;
+                }
             }
-
-        }
-        if (header_found && option_b) {
-            bitstart = 1;
-
-            while ( pos < RAWBITBLOCK_LEN ) {
-                if (read_rawbit(fp, &rbit) == EOF) break;
-                bit = rbit ^ (bc%2);  // (c0,inv(c1))
-                bc++;
-                blk_rawbits[pos] = 0x30 + bit;
-                pos++;
-            }
-            blk_rawbits[pos] = '\0';
-            proc_frame(pos);
-            pos = BLOCKSTART;
-            header_found = 0;
         }
 
     }
 
-    printf("\n");
+
+    free_buffers();
 
     fclose(fp);
 
