@@ -892,8 +892,10 @@ int main(int argc, char **argv) {
 
     float thres = 0.76;
 
-    int bitofs = 0;
     int symlen = 1;
+    int bitofs = 1; // +1 .. +2
+    int shift = 0;
+
     unsigned int bc = 0;
 
     float sb = 0.0;
@@ -950,6 +952,15 @@ int main(int argc, char **argv) {
             }
             else return -1;
         }
+        else if ( (strcmp(*argv, "-d") == 0) ) {
+            ++argv;
+            if (*argv) {
+                shift = atoi(*argv);
+                if (shift >  4) shift =  4;
+                if (shift < -4) shift = -4;
+            }
+            else return -1;
+        }
         else if ( (strcmp(*argv, "--level") == 0) ) {
             ++argv;
             if (*argv) {
@@ -992,8 +1003,9 @@ int main(int argc, char **argv) {
 
 
     symlen = 1;
+    bitofs += shift;
+
     headerlen = strlen(rawheader);
-    bitofs = 1; // +1 .. +2
     K = init_buffers(rawheader, headerlen, 2); // shape=2 (alt. shape=1)
     if ( K < 0 ) {
         fprintf(stderr, "error: init buffers\n");
@@ -1002,14 +1014,15 @@ int main(int argc, char **argv) {
 
     level = ll;
     k = 0;
-    mv = -1; mv_pos = 0;
+    mv = 0;
+    mv_pos = 0;
 
-    while ( f32buf_sample(fp, option_inv, 1) != EOF ) {
+    while ( f32buf_sample(fp, option_inv) != EOF ) {
 
         k += 1;
         if (k >= K-4) {
             mv0_pos = mv_pos;
-            mp = getCorrDFT(-1, K, 0, &mv, &mv_pos);
+            mp = getCorrDFT(K, 0, &mv, &mv_pos);
             k = 0;
         }
         else {
@@ -1044,8 +1057,8 @@ int main(int argc, char **argv) {
 
                     while ( pos < RAWBITBLOCK_LEN ) {
                         header_found = !(pos>=RAWBITBLOCK_LEN-10);
-                        //bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
-                        bitQ = read_softbit(fp, symlen, &rbit, &sb, level, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
+                        //bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0); // symlen=1
+                        bitQ = read_softbit(fp, symlen, &rbit, &sb, level, option_inv, bitofs, bitpos==0); // symlen=1
                         if (bitQ == EOF) { break; }
 
                         bit = rbit ^ (bc%2);  // (c0,inv(c1))

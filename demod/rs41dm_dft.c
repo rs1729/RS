@@ -1209,6 +1209,7 @@ int main(int argc, char *argv[]) {
 
     int symlen = 1;
     int bitofs = 2;
+    int shift = 0;
 
 
 #ifdef CYGWIN
@@ -1261,6 +1262,15 @@ int main(int argc, char *argv[]) {
             }
             else return -1;
         }
+        else if ( (strcmp(*argv, "-d") == 0) ) {
+            ++argv;
+            if (*argv) {
+                shift = atoi(*argv);
+                if (shift >  4) shift =  4;
+                if (shift < -4) shift = -4;
+            }
+            else return -1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -1291,8 +1301,9 @@ int main(int argc, char *argv[]) {
 
 
     symlen = 1;
+    bitofs += shift;
+
     headerlen = strlen(header);
-    bitofs = 2; // +1 .. +2
     K = init_buffers(header, headerlen, 2); // shape=2
     if ( K < 0 ) {
         fprintf(stderr, "error: init buffers\n");
@@ -1301,14 +1312,15 @@ int main(int argc, char *argv[]) {
 
 
     k = 0;
-    mv = -1; mv_pos = 0;
+    mv = 0;
+    mv_pos = 0;
 
-    while ( f32buf_sample(fp, option_inv, 1) != EOF ) {
+    while ( f32buf_sample(fp, option_inv) != EOF ) {
 
         k += 1;
         if (k >= K-4) {
             mv0_pos = mv_pos;
-            mp = getCorrDFT(0, K, 0, &mv, &mv_pos);
+            mp = getCorrDFT(K, 0, &mv, &mv_pos);
             k = 0;
         }
         else {
@@ -1341,7 +1353,7 @@ int main(int argc, char *argv[]) {
                     ft_len = frmlen;
 
                     while ( byte_count < frmlen ) {
-                        bitQ = read_sbit(fp, symlen, &bit, option_inv, bitofs, bit_count==0, 0); // symlen=1, return: zeroX/bit
+                        bitQ = read_sbit(fp, symlen, &bit, option_inv, bitofs, bit_count==0); // symlen=1
                         if ( bitQ == EOF) break;
                         bit_count += 1;
                         bitbuf[bitpos] = bit;
@@ -1371,7 +1383,7 @@ int main(int argc, char *argv[]) {
                     header_found = 0;
 
                     while ( bit_count < BITS*(FRAME_LEN-8+24) ) {
-                        bitQ = read_sbit(fp, symlen, &bit, option_inv, bitofs, bit_count==0, 0); // symlen=1, return: zeroX/bit
+                        bitQ = read_sbit(fp, symlen, &bit, option_inv, bitofs, bit_count==0); // symlen=1
                         if ( bitQ == EOF) break;
                         bit_count++;
                     }
