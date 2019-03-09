@@ -5,8 +5,8 @@ GPS Chip:
 Navman/Telit
 
 Modulation: FSK
-raw: 2500 bit/s.
-Manchester codiert -> 1250 baud
+raw: 2500 baud
+Manchester codiert -> 1250 bit/s
 
 Frame: 280 bit, davon 16 bit Header 0x45CF, dann
        3 Bloecke (CFG,DAT1,DAT2) mit (56,104,104) bits
