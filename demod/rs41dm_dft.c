@@ -889,6 +889,11 @@ int get_Calconf(int out) {
             if ( bt != 0x0000 ) fprintf(stdout, ": bt 0x%04x = %dsec = %.1fmin ", bt, bt, bt/60.0);
         }
 
+        if (calfr == 0x32  &&  option_verbose) {
+            ui16_t cd = frame[pos_CalData+1] + (frame[pos_CalData+2] << 8); // countdown (bt or kt) (short?)
+            if ( cd != 0xFFFF ) fprintf(stdout, ": cd %.1fmin ", cd/60.0);
+        }
+
         if (calfr == 0x21  &&  option_verbose /*== 2*/) {  // eventuell noch zwei bytes in 0x22
             for (i = 0; i < 9; i++) sondetyp[i] = 0;
             for (i = 0; i < 8; i++) {
