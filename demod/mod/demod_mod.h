@@ -43,6 +43,7 @@ typedef struct {
     ui32_t sample_in;
     ui32_t sample_out;
     ui32_t delay;
+    ui32_t sc;
     int buffered;
     int L;
     int M;

@@ -363,7 +363,8 @@ int f32buf_sample(dsp_t *dsp, int inv) {
 
     float complex z, w, z0;
     //static float complex z0; //= 1.0;
-    double gain = 1.0;
+    double gain = 0.8;
+    int n;
 
     double t = dsp->sample_in / (double)dsp->sr;
 
@@ -379,8 +380,12 @@ int f32buf_sample(dsp_t *dsp, int inv) {
         //z0 = z;
         dsp->rot_iqbuf[dsp->sample_in % dsp->N_IQBUF] = z;
 
-        get_SNR(dsp);
-
+        /*  //if (rs_type==rs41) get_SNR(dsp);
+            // rs41, constant amplitude, avg/filter
+            s = 0.0;
+            for (n = 0; n < dsp->sps; n++) s += cabs(dsp->rot_iqbuf[(dsp->sample_in - n + dsp->N_IQBUF) % dsp->N_IQBUF]);
+            s /= (float)n;
+        */
 
         if (dsp->opt_iq >= 2)
         {
@@ -392,7 +397,7 @@ int f32buf_sample(dsp_t *dsp, int inv) {
             float complex X1 = 0;
             float complex X2 = 0;
 
-            int n = dsp->sps;
+            n = dsp->sps;
             while (n > 0) {
                 n--;
                 t = -n / (double)dsp->sr;
@@ -431,7 +436,7 @@ int f32buf_sample(dsp_t *dsp, int inv) {
 static int read_bufbit(dsp_t *dsp, int symlen, char *bits, ui32_t mvp, int pos) {
 // symlen==2: manchester2 0->10,1->01->1: 2.bit
 
-    float rbitgrenze = pos*symlen*dsp->sps;
+    double rbitgrenze = pos*symlen*dsp->sps;
     ui32_t rcount = ceil(rbitgrenze);//+0.99; // dfm?
 
     double sum = 0.0;
@@ -538,22 +543,25 @@ int get_fqofs_rs41(dsp_t *dsp, ui32_t mvp, float *freq, float *snr) {
 int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spike) {
 // symlen==2: manchester2 10->0,01->1: 2.bit
 
-    float bitgrenze = pos*dsp->symlen*dsp->sps;
-    ui32_t scount = ceil(bitgrenze);//+0.99; // dfm?
-
     float sample;
     float avg;
     float ths = 0.5, scale = 0.27;
 
     double sum = 0.0;
     double mid;
-    //double l = 0.5 .. 1.0 .. sps/2;
+    //double l = 1.0;
 
-    if (pos == 0) scount = 0;
+    double bg = pos*dsp->symlen*dsp->sps;
+
+    if (pos == 0) {
+        bg = 0;
+        dsp->sc = 0;
+    }
+
 
     if (dsp->symlen == 2) {
-        mid = bitgrenze + (dsp->sps-1)/2.0;
-        bitgrenze += dsp->sps;
+        mid = bg + (dsp->sps-1)/2.0;
+        bg += dsp->sps;
         do {
             if (dsp->buffered > 0) dsp->buffered -= 1;
             else if (f32buf_sample(dsp, inv) == EOF) return EOF;
@@ -565,14 +573,14 @@ int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spi
                 sample = avg + scale*(sample - avg); // spikes
             }
 
-            if ( l < 0 || (mid-l < scount && scount < mid+l) ) sum -= sample;
+            if ( l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) sum -= sample;
 
-            scount++;
-        } while (scount < bitgrenze);  // n < dsp->sps
+            dsp->sc++;
+        } while (dsp->sc < bg);  // n < dsp->sps
     }
 
-    mid = bitgrenze + (dsp->sps-1)/2.0;
-    bitgrenze += dsp->sps;
+    mid = bg + (dsp->sps-1)/2.0;
+    bg += dsp->sps;
     do {
         if (dsp->buffered > 0) dsp->buffered -= 1;
         else if (f32buf_sample(dsp, inv) == EOF) return EOF;
@@ -584,10 +592,10 @@ int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spi
             sample = avg + scale*(sample - avg); // spikes
         }
 
-        if ( l < 0 || (mid-l < scount && scount < mid+l) ) sum += sample;
+        if ( l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) sum += sample;
 
-        scount++;
-    } while (scount < bitgrenze);  // n < dsp->sps
+        dsp->sc++;
+    } while (dsp->sc < bg);  // n < dsp->sps
 
 
     if (sum >= 0) *bit = 1;
@@ -595,7 +603,6 @@ int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spi
 
     return 0;
 }
-
 
 /* -------------------------------------------------------------------------- */
 
