@@ -2,10 +2,15 @@
 /*
  *  rs41
  *  sync header: correlation/matched filter
- *  files: rs41dm_iq.c bch_ecc.c demod_iq.c demod_iq.h
- *  compile:
- *      gcc -c demod_iq.c
- *      gcc rs41dm_iq.c demod_iq.o -lm -o rs41dm_iq
+ *  files: rs41mod.c bch_ecc_mod.c demod_mod.c demod_mod.h
+ *  compile, either (a) or (b):
+ *  (a)
+ *      gcc -c demod_mod.c
+ *      gcc -DINCLUDESTATIC rs41mod.c demod_mod.o -lm -o rs41mod
+ *  (b)
+ *      gcc -c demod_mod.c
+ *      gcc -c bch_ecc_mod.c
+ *      gcc rs41mod.c demod_mod.o bch_ecc_mod.o -lm -o rs41mod
  *
  *  author: zilog80
  */
@@ -20,10 +25,20 @@
   #include <io.h>
 #endif
 
+//typedef unsigned char  ui8_t;
+//typedef unsigned short ui16_t;
+//typedef unsigned int   ui32_t;
+//typedef short i16_t;
+//typedef int   i32_t;
 
-#include "demod_iq.h"
+#include "demod_mod.h"
 
-#include "bch_ecc.c"  // RS/ecc/
+//#define  INCLUDESTATIC 1
+#ifdef INCLUDESTATIC
+    #include "bch_ecc_mod.c"
+#else
+    #include "bch_ecc_mod.h"
+#endif
 
 
 typedef struct {
@@ -33,6 +48,8 @@ typedef struct {
     i8_t ecc;  // Reed-Solomon ECC
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature
+    i8_t inv;
+    i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
 } option_t;
 
@@ -79,6 +96,7 @@ typedef struct {
     float ptu_co2[3];   // { -243.911 , 0.187654 , 8.2e-06 }
     float ptu_calT2[3]; // calibration T2-Hum
     ui16_t conf_fw; // firmware
+    ui8_t  conf_cd; // kill countdown (sec) (kt or bt)
     ui16_t conf_kt; // kill timer (sec)
     ui16_t conf_bt; // burst timer (sec)
     ui8_t  conf_bk; // burst kill
@@ -87,6 +105,7 @@ typedef struct {
     int  aux;
     char xdata[XDATA_LEN+16]; // xdata: aux_str1#aux_str2 ...
     option_t option;
+    RS_t RS;
 } gpx_t;
 
 
@@ -94,10 +113,10 @@ typedef struct {
 #define HEADLEN 64
 #define FRAMESTART ((HEADLEN)/BITS)
 
-/*                      10      B6      CA      11      22      96      12      F8      */
-static char header[] = "0000100001101101010100111000100001000100011010010100100000011111";
+/*                           10      B6      CA      11      22      96      12      F8      */
+static char rs41_header[] = "0000100001101101010100111000100001000100011010010100100000011111";
 
-static ui8_t header_bytes[8] = { 0x86, 0x35, 0xf4, 0x40, 0x93, 0xdf, 0x1a, 0x60};
+static ui8_t rs41_header_bytes[8] = { 0x86, 0x35, 0xf4, 0x40, 0x93, 0xdf, 0x1a, 0x60};
 
 #define MASK_LEN 64
 static ui8_t mask[MASK_LEN] = { 0x96, 0x83, 0x3E, 0x51, 0xB1, 0x49, 0x08, 0x98,
@@ -425,6 +444,7 @@ static int get_SondeID(gpx_t *gpx, int crc) {
             gpx->id[8] = '\0';
             // conf data
             gpx->conf_fw = 0;
+            gpx->conf_cd = -1;
             gpx->conf_kt = -1;
             gpx->conf_bt = 0;
             gpx->conf_bk = 0;
@@ -845,21 +865,6 @@ static int get_Calconf(gpx_t *gpx, int out) {
 
     if (err == 0)
     {
-        if (calfr == 0x01) {
-            fw = gpx->frame[pos_CalData+6] | (gpx->frame[pos_CalData+7]<<8);
-            if (out && gpx->option.vbs) fprintf(stdout, ": fw 0x%04x ", fw);
-            gpx->conf_fw = fw;
-        }
-
-        if (calfr == 0x02) {
-            ui8_t  bk = gpx->frame[pos_Calburst];  // fw >= 0x4ef5, burst-killtimer in 0x31 relevant
-            ui16_t kt = gpx->frame[0x5A] + (gpx->frame[0x5B] << 8); // killtimer (short?)
-            if (out && gpx->option.vbs) fprintf(stdout, ": BK %02X ", bk);
-            if (out && gpx->option.vbs && kt != 0xFFFF ) fprintf(stdout, ": kt %.1fmin ", kt/60.0);
-            gpx->conf_bk = bk;
-            gpx->conf_kt = kt;
-        }
-
         if (calfr == 0x00) {
             byte = gpx->frame[pos_Calfreq] & 0xC0;  // erstmal nur oberste beiden bits
             f0 = (byte * 10) / 64;  // 0x80 -> 1/2, 0x40 -> 1/4 ; dann mal 40
@@ -870,11 +875,32 @@ static int get_Calconf(gpx_t *gpx, int out) {
             gpx->freq = freq;
         }
 
-        if (calfr == 0x31) {
-            ui16_t bt = gpx->frame[0x59] + (gpx->frame[0x5A] << 8); // burst timer (short?)
+        if (calfr == 0x01) {
+            fw = gpx->frame[pos_CalData+6] | (gpx->frame[pos_CalData+7]<<8);
+            if (out && gpx->option.vbs) fprintf(stdout, ": fw 0x%04x ", fw);
+            gpx->conf_fw = fw;
+        }
+
+        if (calfr == 0x02) {    // 0x5E, 0x5A..0x5B
+            ui8_t  bk = gpx->frame[pos_Calburst];  // fw >= 0x4ef5, burst-killtimer in 0x31 relevant
+            ui16_t kt = gpx->frame[pos_CalData+8] + (gpx->frame[pos_CalData+9] << 8); // killtimer (short?)
+            if (out && gpx->option.vbs) fprintf(stdout, ": BK %02X ", bk);
+            if (out && gpx->option.vbs && kt != 0xFFFF ) fprintf(stdout, ": kt %.1fmin ", kt/60.0);
+            gpx->conf_bk = bk;
+            gpx->conf_kt = kt;
+        }
+
+        if (calfr == 0x31) {    // 0x59..0x5A
+            ui16_t bt = gpx->frame[pos_CalData+7] + (gpx->frame[pos_CalData+8] << 8); // burst timer (short?)
             // fw >= 0x4ef5: default=[88 77]=0x7788sec=510min
             if (out && gpx->option.vbs && bt != 0x0000 && gpx->conf_bk) fprintf(stdout, ": bt %.1fmin ", bt/60.0);
             gpx->conf_bt = bt;
+        }
+
+        if (calfr == 0x32) {
+            ui16_t cd = gpx->frame[pos_CalData+1] + (gpx->frame[pos_CalData+2] << 8); // countdown (bt or kt) (short?)
+            if (out && gpx->option.vbs && cd != 0xFFFF) fprintf(stdout, ": cd %.1fmin ", cd/60.0);
+            gpx->conf_cd = cd;
         }
 
         if (calfr == 0x21) {  // ... eventuell noch 2 bytes in 0x22
@@ -923,8 +949,8 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
     for (i = 0; i < rs_K; i++) cw1[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i  ];
     for (i = 0; i < rs_K; i++) cw2[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i+1];
 
-    errors1 = rs_decode(cw1, err_pos1, err_val1);
-    errors2 = rs_decode(cw2, err_pos2, err_val2);
+    errors1 = rs_decode(&gpx->RS, cw1, err_pos1, err_val1);
+    errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
 
 
     if (gpx->option.ecc == 2 && (errors1 < 0 || errors2 < 0))
@@ -949,8 +975,8 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
         }
         for (i = 0; i < rs_K; i++) cw1[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i  ];
         for (i = 0; i < rs_K; i++) cw2[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i+1];
-        errors1 = rs_decode(cw1, err_pos1, err_val1);
-        errors2 = rs_decode(cw2, err_pos2, err_val2);
+        errors1 = rs_decode(&gpx->RS, cw1, err_pos1, err_val1);
+        errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
     }
 
 
@@ -1012,6 +1038,8 @@ static int print_position(gpx_t *gpx, int ec) {
     if (output) {
 
         gpx->out = 1; // cf. gpx->crc
+
+        if (!err && gpx->option.aut && gpx->option.vbs == 3) fprintf(stdout, "<%c> ", gpx->option.inv?'-':'+');
 
         if (!err) {
             fprintf(stdout, "[%5d] ", gpx->frnr);
@@ -1120,6 +1148,7 @@ static void print_frame(gpx_t *gpx, int len) {
     if (ft >= 0) len = NDATA_LEN;  // ft >= 0: NDATA_LEN (default)
     else         len = FRAME_LEN;  // ft <  0: FRAME_LEN (aux)
 
+
     if (gpx->option.ecc) {
         ec = rs41_ecc(gpx, len);
     }
@@ -1150,52 +1179,115 @@ static void print_frame(gpx_t *gpx, int len) {
     }
 }
 
+/* -------------------------------------------------------------------------- */
+
+
+// header bit buffer
+typedef struct {
+    char *hdr;
+    char *buf;
+    char len;
+    int bufpos;
+    float ths;
+} hdb_t;
+
+static float cmp_hdb(hdb_t *hdb) { // bit-errors?
+    int i, j;
+    int headlen = hdb->len;
+    int berrs1 = 0, berrs2 = 0;
+
+    i = 0;
+    j = hdb->bufpos;
+    while (i < headlen) {
+        if (j < 0) j = headlen-1;
+        if (hdb->buf[j] != hdb->hdr[headlen-1-i]) berrs1 += 1;
+        j--;
+        i++;
+    }
+
+    i = 0;
+    j = hdb->bufpos;
+    while (i < headlen) {
+        if (j < 0) j = headlen-1;
+        if ((hdb->buf[j]^0x01) != hdb->hdr[headlen-1-i]) berrs2 += 1;
+        j--;
+        i++;
+    }
+
+    if (berrs2 < berrs1) return (-headlen+berrs2)/(float)headlen;
+    else                 return ( headlen-berrs1)/(float)headlen;
+
+    return 0;
+}
+
+static int find_binhead(FILE *fp, hdb_t *hdb, float *score) {
+    int bit;
+    int headlen = hdb->len;
+    float mv;
+
+    //*score = 0.0;
+
+    while ( (bit = fgetc(fp)) != EOF )
+    {
+        bit &= 1;
+
+        hdb->bufpos = (hdb->bufpos+1) % headlen;
+        hdb->buf[hdb->bufpos] = 0x30 | bit;  // Ascii
+
+        mv = cmp_hdb(hdb);
+        if ( fabs(mv) > hdb->ths ) {
+            *score = mv;
+            return 1;
+        }
+    }
+
+    return EOF;
+}
+
 
 int main(int argc, char *argv[]) {
 
-    int option_inv = 0;    // invertiert Signal
+    //int option_inv = 0;    // invertiert Signal
     int option_iq = 0;
     int option_ofs = 0;
+    int option_bin = 0;
     int wavloaded = 0;
     int sel_wavch = 0;     // audio channel: left
     int rawhex = 0, xorhex = 0;
 
     FILE *fp;
     char *fpname = NULL;
+
+    int k;
+
     char bitbuf[8];
-    int bit_count = 0,
-        bitpos = 0,
-        byte_count = FRAMESTART,
-        header_found = 0;
+    int bitpos = 0,
+        b8pos = 0,
+        byte_count = FRAMESTART;
     int bit, byte;
-    int herrs;
     int bitQ;
 
-    int k, K;
-    float mv;
-    ui32_t mv_pos, mv0_pos;
-    int mp = 0;
+    int header_found = 0;
 
-    float thres = 0.7;
+    float thres = 0.7; // dsp.mv threshold
+    float _mv = 0.0;
 
     int symlen = 1;
-    int bitofs = 2;
+    int bitofs = 2; // +0 .. +3
     int shift = 0;
 
     pcm_t pcm = {0};
-    dsp_t dsp = {0};
+    dsp_t dsp = {0};  //memset(&dsp, 0, sizeof(dsp));
 
     gpx_t gpx = {0};
+
+    hdb_t hdb = {0};
 
 
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _fileno(stdin)
 #endif
     setbuf(stdout, NULL);
-
-
-    // init gpx
-    memcpy(gpx.frame, header_bytes, sizeof(header_bytes)); // 8 header bytes
 
 
     fpname = argv[0];
@@ -1224,7 +1316,7 @@ int main(int argc, char *argv[]) {
             gpx.option.raw = 1;
         }
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
-            option_inv = 1;
+            gpx.option.inv = 1;
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { gpx.option.ecc = 1; }
         else if   (strcmp(*argv, "--ecc2") == 0) { gpx.option.ecc = 2; }
@@ -1236,6 +1328,8 @@ int main(int argc, char *argv[]) {
             gpx.option.crc = 1;
         }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
+        else if ( (strcmp(*argv, "--auto") == 0) ) { gpx.option.aut = 1; }
+        else if   (strcmp(*argv, "--bin") == 0) { option_bin = 1; }   // bit/byte binary input
         else if   (strcmp(*argv, "--ths") == 0) {
             ++argv;
             if (*argv) {
@@ -1271,127 +1365,142 @@ int main(int argc, char *argv[]) {
     if (!wavloaded) fp = stdin;
 
 
-    if (gpx.option.ecc < 2) gpx.option.ecc = 1;
+    if (gpx.option.ecc < 2) gpx.option.ecc = 1;  // turn off for ber-measurement
 
     if (gpx.option.ecc) {
-        rs_init_RS255(); // ... rs_init_RS255(&RS);
+        rs_init_RS255(&gpx.RS);  // RS, GF
     }
 
+    // init gpx
+    memcpy(gpx.frame, rs41_header_bytes, sizeof(rs41_header_bytes)); // 8 header bytes
 
 
     if (!rawhex) {
 
-        if (option_iq) sel_wavch = 0;
+        if (!option_bin) {
 
-        pcm.sel_ch = sel_wavch;
-        k = read_wav_header(&pcm, fp);
+            if (option_iq) sel_wavch = 0;
+
+            pcm.sel_ch = sel_wavch;
+            k = read_wav_header(&pcm, fp);
+            if ( k < 0 ) {
+                fclose(fp);
+                fprintf(stderr, "error: wav header\n");
+                return -1;
+            }
+
+            // rs41: BT=0.5, h=0.8,1.0 ?
+            symlen = 1;
+
+            // init dsp
+            //
+            dsp.fp = fp;
+            dsp.sr = pcm.sr;
+            dsp.bps = pcm.bps;
+            dsp.nch = pcm.nch;
+            dsp.ch = pcm.sel_ch;
+            dsp.br = (float)BAUD_RATE;
+            dsp.sps = (float)dsp.sr/dsp.br;
+            dsp.symlen = symlen;
+            dsp.symhd  = symlen;
+            dsp._spb = dsp.sps*symlen;
+            dsp.hdr = rs41_header;
+            dsp.hdrlen = strlen(rs41_header);
+            dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
+            dsp.h = 0.8; //0.7;  // 0.7..0.8? modulation index abzgl. BT
+            dsp.opt_iq = option_iq;
+
+            if ( dsp.sps < 8 ) {
+                fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
+            }
+        }
+        else {
+            // init circular header bit buffer
+            hdb.hdr = rs41_header;
+            hdb.len = strlen(rs41_header);
+            hdb.ths = 1.0 - 3.1/(float)hdb.len; // 1.0-max_bit_errors/hdrlen
+            hdb.bufpos = -1;
+            hdb.buf = calloc(hdb.len, sizeof(char));
+            if (hdb.buf == NULL) {
+                fprintf(stderr, "error: malloc\n");
+                return -1;
+            }
+        }
+
+
+        k = init_buffers(&dsp); // BT=0.5  (IQ-Int: BT > 0.5 ?)
         if ( k < 0 ) {
-            fclose(fp);
-            fprintf(stderr, "error: wav header\n");
-            return -1;
-        }
-
-        // rs41: BT=0.5, h=0.8,1.0 ?
-        symlen = 1;
-
-        // init dsp
-        //
-        //memset(&dsp, 0, sizeof(dsp));
-        dsp.fp = fp;
-        dsp.sr = pcm.sr;
-        dsp.bps = pcm.bps;
-        dsp.nch = pcm.nch;
-        dsp.ch = pcm.sel_ch;
-        dsp.br = (float)BAUD_RATE;
-        dsp.sps = (float)dsp.sr/dsp.br;
-        dsp.symlen = symlen;
-        dsp._spb = dsp.sps*symlen;
-        dsp.hdr = header;
-        dsp.hdrlen = strlen(header);
-        dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
-        dsp.h = 1.0;  // 0.8..0.9? modulation index
-        dsp.opt_iq = option_iq;
-
-        if ( dsp.sps < 8 ) {
-            fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
-        }
-
-
-        K = init_buffers(&dsp); // BT=0.5  (IQ-Int: BT > 0.5 ?)
-        if ( K < 0 ) {
             fprintf(stderr, "error: init buffers\n");
             return -1;
         };
 
-        //if (option_iq >= 2) bitofs += 1;
-        bitofs += shift; // +0 .. +3    // FM: +1 , IQ: +2
+        //if (option_iq >= 2) bitofs += 1; // FM: +1 , IQ: +2
+        bitofs += shift;
 
-        k = 0;
-        mv = 0.0;
-        mv_pos = 0;
-
-        while ( f32buf_sample(&dsp, option_inv) != EOF ) {
-
-            k += 1;
-            if (k >= dsp.K-4) {
-                mv0_pos = mv_pos;
-                mp = getCorrDFT(&dsp, 0, &mv, &mv_pos);
-                k = 0;
+        while ( 1 )
+        {
+            if (option_bin) {
+                header_found = find_binhead(fp, &hdb, &_mv);
             }
             else {
-                mv = 0.0;
-                continue;
+                header_found = find_header(&dsp, thres, 3, bitofs, 0);
+                _mv = dsp.mv;
+            }
+            if (header_found == EOF) break;
+
+            // mv == correlation score
+            if (_mv *(0.5-gpx.option.inv) < 0) {
+                if (gpx.option.aut == 0) header_found = 0;
+                else gpx.option.inv ^= 0x1;
             }
 
-            if (mv > thres && mp > 0) {
-                if (mv_pos > mv0_pos) {
+            if (header_found)
+            {
+                byte_count = FRAMESTART;
+                bitpos = 0; // byte_count*8-HEADLEN
+                b8pos = 0;
 
-                    header_found = 0;
-                    herrs = headcmp(&dsp, symlen, mv_pos, mv<0, 0); // symlen=1
-                    if (herrs <= 3) header_found = 1; // herrs <= 3 bitfehler in header
-
-                    if (header_found) {
-
-                        if (/*preamble &&*/ option_ofs /*option_iq*/)
-                        {
-                            float freq = 0.0;
-                            float snr = 0.0;
-                            int er = get_fqofs_rs41(&dsp, mv_pos, &freq, &snr);
+                while ( byte_count < FRAME_LEN )
+                {
+                    if (option_bin) {
+                        bitQ = fgetc(fp);
+                        if (bitQ != EOF) bit = bitQ & 0x1;
+                    }
+                    else {
+                        if (option_iq >= 2) {
+                            float bl = -1;
+                            if (option_iq > 2) bl = 1.0;
+                            bitQ = read_slbit(&dsp, &bit, 0/*gpx.option.inv*/, bitofs, bitpos, bl, 0);
                         }
-
-                        byte_count = FRAMESTART;
-                        bit_count = 0; // byte_count*8-HEADLEN
-                        bitpos = 0;
-
-                        while ( byte_count < FRAME_LEN ) {
-                            if (option_iq >= 2) {
-                                bitQ = read_slbit(&dsp, symlen, &bit, option_inv, bitofs, bit_count, 1.0, 0);
-                            }
-                            else {
-                                bitQ = read_slbit(&dsp, symlen, &bit, option_inv, bitofs, bit_count, -1, 0);
-                            }
-                            if ( bitQ == EOF) break;
-                            bit_count += 1;
-                            bitbuf[bitpos] = bit;
-                            bitpos++;
-                            if (bitpos == BITS) {
-                                bitpos = 0;
-                                byte = bits2byte(bitbuf);
-                                gpx.frame[byte_count] = byte ^ mask[byte_count % MASK_LEN];
-                                byte_count++;
-                            }
+                        else {
+                            bitQ = read_slbit(&dsp, &bit, 0/*gpx.option.inv*/, bitofs, bitpos, -1, 0);
                         }
+                    }
+                    if ( bitQ == EOF ) break; // liest 2x EOF
 
-                        print_frame(&gpx, byte_count);
-                        byte_count = FRAMESTART;
-                        header_found = 0;
+                    if (gpx.option.inv) bit ^= 1;
+
+                    bitpos += 1;
+                    bitbuf[b8pos] = bit;
+                    b8pos++;
+                    if (b8pos == BITS) {
+                        b8pos = 0;
+                        byte = bits2byte(bitbuf);
+                        gpx.frame[byte_count] = byte ^ mask[byte_count % MASK_LEN];
+                        byte_count++;
                     }
                 }
-            }
 
+                print_frame(&gpx, byte_count);
+                byte_count = FRAMESTART;
+                header_found = 0;
+            }
         }
 
-        free_buffers(&dsp);
+        if (!option_bin) free_buffers(&dsp);
+        else {
+            if (hdb.buf) { free(hdb.buf); hdb.buf = NULL; }
+        }
     }
     else //if (rawhex)
     {

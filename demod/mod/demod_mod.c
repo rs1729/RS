@@ -2,7 +2,7 @@
 /*
  *  sync header: correlation/matched filter
  *  compile:
- *      gcc -c demod_iq.c
+ *      gcc -c demod_mod.c
  *
  *  author: zilog80
  */
@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "demod_iq.h"
+#include "demod_mod.h"
 
 /* ------------------------------------------------------------------------------------ */
 
@@ -137,7 +137,7 @@ static int dft_window(dft_t *dft, int w) {
 
 /* ------------------------------------------------------------------------------------ */
 
-int getCorrDFT(dsp_t *dsp, ui32_t pos, float *maxv, ui32_t *maxvpos) {
+static int getCorrDFT(dsp_t *dsp) {
     int i;
     int mp = -1;
     float mx = 0.0;
@@ -146,13 +146,14 @@ int getCorrDFT(dsp_t *dsp, ui32_t pos, float *maxv, ui32_t *maxvpos) {
     float xnorm = 1;
     ui32_t mpos = 0;
 
+    ui32_t pos = dsp->sample_out;
 
+    dsp->mv = 0.0;
     dsp->dc = 0.0;
 
     if (dsp->K + dsp->L > dsp->DFT.N) return -1;
     if (dsp->sample_out < dsp->L) return -2;
 
-    if (pos == 0) pos = dsp->sample_out;
 
     dsp->dc = get_bufmu(dsp, pos - dsp->sample_out); //oder unten: dft_dc = creal(X[0])/(K+L);
     // wenn richtige Stelle (Varianz pruefen, kein M10-carrier?), dann von bufs[] subtrahieren
@@ -196,8 +197,8 @@ int getCorrDFT(dsp_t *dsp, ui32_t pos, float *maxv, ui32_t *maxvpos) {
 
     mx /= xnorm*(dsp->DFT).N;
 
-    *maxv = mx;
-    *maxvpos = mpos;
+    dsp->mv = mx;
+    dsp->mv_pos = mpos;
 
     if (pos == dsp->sample_out) dsp->buffered = dsp->sample_out - mpos;
 
@@ -431,7 +432,7 @@ static int read_bufbit(dsp_t *dsp, int symlen, char *bits, ui32_t mvp, int pos) 
 // symlen==2: manchester2 0->10,1->01->1: 2.bit
 
     float rbitgrenze = pos*symlen*dsp->sps;
-    ui32_t rcount = rbitgrenze+0.99; // ceil
+    ui32_t rcount = ceil(rbitgrenze);//+0.99; // dfm?
 
     double sum = 0.0;
 
@@ -463,19 +464,20 @@ static int read_bufbit(dsp_t *dsp, int symlen, char *bits, ui32_t mvp, int pos) 
     return 0;
 }
 
-int headcmp(dsp_t *dsp, int symlen, ui32_t mvp, int inv, int option_dc) {
+static int headcmp(dsp_t *dsp, int opt_dc) {
     int errs = 0;
     int pos;
     int step = 1;
     char sign = 0;
-    int len = dsp->hdrlen/symlen;
+    int len = dsp->hdrlen/dsp->symhd;
+    int inv = dsp->mv < 0;
 
-    if (symlen != 1) step = 2;
+    if (dsp->symhd != 1) step = 2;
     if (inv) sign=1;
 
-    for (pos = 0; pos < len; pos++) {              // L = dsp->hdrlen * dsp->sps + 0.5;
-        //read_bufbit(dsp, symlen, dsp->rawbits+pos*step, mvp+1-(int)(len*dsp->sps), pos);
-        read_bufbit(dsp, symlen, dsp->rawbits+pos*step, mvp+1-dsp->L, pos);
+    for (pos = 0; pos < len; pos++) {                  // L = dsp->hdrlen * dsp->sps + 0.5;
+        //read_bufbit(dsp, dsp->symhd, dsp->rawbits+pos*step, mvp+1-(int)(len*dsp->sps), pos);
+        read_bufbit(dsp, dsp->symhd, dsp->rawbits+pos*step, dsp->mv_pos+1-dsp->L, pos);
     }
     dsp->rawbits[pos] = '\0';
 
@@ -484,7 +486,7 @@ int headcmp(dsp_t *dsp, int symlen, ui32_t mvp, int inv, int option_dc) {
         len--;
     }
 
-    if (option_dc && errs < 3) {
+    if (opt_dc && errs < 3) {
         dsp->dc_ofs += dsp->dc;
     }
 
@@ -533,10 +535,10 @@ int get_fqofs_rs41(dsp_t *dsp, ui32_t mvp, float *freq, float *snr) {
 
 /* -------------------------------------------------------------------------- */
 
-int read_slbit(dsp_t *dsp, int symlen, int *bit, int inv, int ofs, int pos, float l, int spike) {
+int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spike) {
 // symlen==2: manchester2 10->0,01->1: 2.bit
 
-    float bitgrenze = pos*symlen*dsp->sps;
+    float bitgrenze = pos*dsp->symlen*dsp->sps;
     ui32_t scount = ceil(bitgrenze);//+0.99; // dfm?
 
     float sample;
@@ -549,7 +551,7 @@ int read_slbit(dsp_t *dsp, int symlen, int *bit, int inv, int ofs, int pos, floa
 
     if (pos == 0) scount = 0;
 
-    if (symlen == 2) {
+    if (dsp->symlen == 2) {
         mid = bitgrenze + (dsp->sps-1)/2.0;
         bitgrenze += dsp->sps;
         do {
@@ -557,11 +559,13 @@ int read_slbit(dsp_t *dsp, int symlen, int *bit, int inv, int ofs, int pos, floa
             else if (f32buf_sample(dsp, inv) == EOF) return EOF;
 
             sample = dsp->bufs[(dsp->sample_out-dsp->buffered + ofs + dsp->M) % dsp->M];
-            avg = 0.5*(dsp->bufs[(dsp->sample_out-dsp->buffered-1 + ofs + dsp->M) % dsp->M]
-                      +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
-            if (spike && fabs(sample - avg) > ths) sample = avg + scale*(sample - avg); // spikes
+            if (spike && fabs(sample - avg) > ths) {
+                avg = 0.5*(dsp->bufs[(dsp->sample_out-dsp->buffered-1 + ofs + dsp->M) % dsp->M]
+                          +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
+                sample = avg + scale*(sample - avg); // spikes
+            }
 
-            if ( l < 0 || (mid-l < scount && scount < mid+l)) sum -= sample;
+            if ( l < 0 || (mid-l < scount && scount < mid+l) ) sum -= sample;
 
             scount++;
         } while (scount < bitgrenze);  // n < dsp->sps
@@ -574,11 +578,13 @@ int read_slbit(dsp_t *dsp, int symlen, int *bit, int inv, int ofs, int pos, floa
         else if (f32buf_sample(dsp, inv) == EOF) return EOF;
 
         sample = dsp->bufs[(dsp->sample_out-dsp->buffered + ofs + dsp->M) % dsp->M];
-        avg = 0.5*(dsp->bufs[(dsp->sample_out-dsp->buffered-1 + ofs + dsp->M) % dsp->M]
-                  +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
-        if (spike && fabs(sample - avg) > ths) sample = avg + scale*(sample - avg); // spikes
+        if (spike && fabs(sample - avg) > ths) {
+            avg = 0.5*(dsp->bufs[(dsp->sample_out-dsp->buffered-1 + ofs + dsp->M) % dsp->M]
+                      +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
+            sample = avg + scale*(sample - avg); // spikes
+        }
 
-        if ( l < 0 || (mid-l < scount && scount < mid+l)) sum += sample;
+        if ( l < 0 || (mid-l < scount && scount < mid+l) ) sum += sample;
 
         scount++;
     } while (scount < bitgrenze);  // n < dsp->sps
@@ -769,5 +775,46 @@ int free_buffers(dsp_t *dsp) {
 
 ui32_t get_sample(dsp_t *dsp) {
     return dsp->sample_out;
+}
+
+/* ------------------------------------------------------------------------------------ */
+
+
+int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
+    ui32_t k = 0;
+    ui32_t mvpos0 = 0;
+    int mp;
+    int header_found = 0;
+    int herrs;
+
+    while ( f32buf_sample(dsp, 0) != EOF ) {
+
+        k += 1;
+        if (k >= dsp->K-4) {
+            mvpos0 = dsp->mv_pos;
+            mp = getCorrDFT(dsp); // correlation score -> dsp->mv
+            //if (option_auto == 0 && dsp->mv < 0) mv = 0;
+            k = 0;
+        }
+        else {
+            dsp->mv = 0.0;
+            continue;
+        }
+
+        if (dsp->mv > thres || dsp->mv < -thres) {
+
+            if (dsp->mv_pos > mvpos0) {
+
+                header_found = 0;
+                herrs = headcmp(dsp, opt_dc);
+                if (herrs <= hdmax) header_found = 1; // max bitfehler in header
+
+                if (header_found) return 1;
+            }
+        }
+
+    }
+
+    return EOF;
 }
 
