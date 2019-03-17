@@ -101,7 +101,7 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
         byte = fgetc(fp);
         if (byte == EOF) return EOF_INT;
         if (i == 0) ret = byte;
-    
+
         if (bits_sample == 16) {
             byte = fgetc(fp);
             if (byte == EOF) return EOF_INT;
@@ -347,14 +347,14 @@ packet size = 18 bytes
 #define pos_GPStim  0x0D  // 3 byte
 #define pos_GPScrc  0x10  // 2 byte
 
-void print_GPS(int pos) {
+int print_GPS(int pos) {
     float lat, lon;
     int alt;
     int std, min, sek;
-    int crc1, crc2;
+    int crc_val, crc;
 
-    crc1 = ((byteframe+pos)[pos_GPScrc] << 8) | (byteframe+pos)[pos_GPScrc+1];
-    crc2 = crc16(byteframe+pos, pos_GPScrc); // len=pos
+    crc_val = ((byteframe+pos)[pos_GPScrc] << 8) | (byteframe+pos)[pos_GPScrc+1];
+    crc = crc16(byteframe+pos, pos_GPScrc); // len=pos
 
     lat = *(float*)(byteframe+pos+pos_GPSlat);
     lon = *(float*)(byteframe+pos+pos_GPSlon);
@@ -369,9 +369,11 @@ void print_GPS(int pos) {
     fprintf(stdout, " alt: %dm ", alt);
 
     fprintf(stdout, " # ");
-    fprintf(stdout, " CRC: %04X ", crc1);
-    fprintf(stdout, "- %04X ", crc2);
-    if (crc1 == crc2) fprintf(stdout, "[OK]"); else fprintf(stdout, "[NO]");
+    fprintf(stdout, " CRC: %04X ", crc_val);
+    fprintf(stdout, "- %04X ", crc);
+    if (crc_val == crc) fprintf(stdout, "[OK]"); else fprintf(stdout, "[NO]");
+
+    return (crc_val != crc);
 }
 
 
@@ -398,14 +400,14 @@ packet size = 20 bytes
 #define pos_PTUbat  0x0B  // 1 byte
 #define pos_PTUcrc  0x12  // 2 byte
 
-void print_ePTU(int pos) {
+int print_ePTU(int pos) {
     int P, U;
     short T;
     int bat, pcknum;
-    int crc1, crc2;
+    int crc_val, crc;
 
-    crc1 = ((byteframe+pos)[pos_PTUcrc] << 8) | (byteframe+pos)[pos_PTUcrc+1];
-    crc2 = crc16(byteframe+pos, pos_PTUcrc); // len=pos
+    crc_val = ((byteframe+pos)[pos_PTUcrc] << 8) | (byteframe+pos)[pos_PTUcrc+1];
+    crc = crc16(byteframe+pos, pos_PTUcrc); // len=pos
 
     P   = (byteframe+pos)[pos_PTUprs] | ((byteframe+pos)[pos_PTUprs+1]<<8) | ((byteframe+pos)[pos_PTUprs+2]<<16);
     T   = (byteframe+pos)[pos_PTUtem] | ((byteframe+pos)[pos_PTUtem+1]<<8);
@@ -421,10 +423,11 @@ void print_ePTU(int pos) {
     fprintf(stdout, " bat:%.1fV ", bat/10.0);
 
     fprintf(stdout, " # ");
-    fprintf(stdout, " CRC: %04X ", crc1);
-    fprintf(stdout, "- %04X ", crc2);
-    if (crc1 == crc2) fprintf(stdout, "[OK]"); else fprintf(stdout, "[NO]");
+    fprintf(stdout, " CRC: %04X ", crc_val);
+    fprintf(stdout, "- %04X ", crc);
+    if (crc_val == crc) fprintf(stdout, "[OK]"); else fprintf(stdout, "[NO]");
 
+    return (crc_val != crc);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -432,6 +435,8 @@ void print_ePTU(int pos) {
 int print_frame(int len) {
     int i;
     int framelen;
+    int crc_err1 = 0,
+        crc_err2 = 0;
 
     if ( len < 2 || len > LEN_BYTEFRAME) return -1;
     for (i = len; i < LEN_BYTEFRAME; i++) byteframe[i] = 0;
@@ -453,11 +458,11 @@ int print_frame(int len) {
         //else
         {
             if ((byteframe[0] == 0x01) && (byteframe[1] == 0x02)) { // GPS Data Packet
-                print_GPS(0x00);  // packet offset in byteframe
+                crc_err1 = print_GPS(0x00);  // packet offset in byteframe
                 fprintf(stdout, "\n");
             }
             if ((byteframe[pos_GPScrc+2+0] == 0x01) && (byteframe[pos_GPScrc+2+1] == 0x04)) { // PTU Data Packet
-                print_ePTU(pos_GPScrc+2);  // packet offset in byteframe
+                crc_err2 = print_ePTU(pos_GPScrc+2);  // packet offset in byteframe
                 fprintf(stdout, "\n");
             }
 /*
@@ -466,6 +471,7 @@ int print_frame(int len) {
                 fprintf(stdout, "\n");
             }
 */
+//          // if (crc_err1==0 && crc_err2==0) { }
             fprintf(stdout, "\n");
         }
     }
@@ -549,7 +555,7 @@ int main(int argc, char *argv[]) {
     ptr = -1; sample_count = -1;
     while ((sample=read_signed_sample(fp)) < EOF_INT) {
 
-        ptr++; 
+        ptr++;
         sample_count++;
         if (ptr == N) ptr = 0;
         buffer[ptr] = sample / (double)(1<<bits_sample);
