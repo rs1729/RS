@@ -15,8 +15,8 @@
  *      gcc lms6mod.c demod_mod.o bch_ecc_mod.o -lm -o lms6mod
  *
  *  usage:
- *      ./lms6mod --ecc <audio.wav>
- *
+ *      ./lms6mod --vit --ecc <audio.wav>
+ *      ( --vit recommended)
  *  author: zilog80
  */
 
@@ -53,8 +53,8 @@ typedef struct {
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature
     i8_t inv;
-    i8_t aut;
     i8_t vit;
+    i8_t jsn;  // JSON output (auto_rx)
 } option_t;
 
 
@@ -82,7 +82,7 @@ typedef struct {
 
 
 static char  rawheader[] = "0101011000001000""0001110010010111""0001101010100111""0011110100111110"; // (c0,inv(c1))
-//                 (00)     58                f3                3f                b8
+//                   (00)   58                f3                3f                b8
 //     char  header[]    = "0000001101011101""0100100111000010""0100111111110010""0110100001101011"; // (c0,c1)
 static ui8_t rs_sync[] = { 0x00, 0x58, 0xf3, 0x3f, 0xb8};
 // 0x58f33fb8 little-endian <-> 0x1ACFFC1D big-endian bytes
@@ -112,9 +112,9 @@ polyB = qA + qB
 typedef struct {
     ui8_t bIn;
     ui8_t codeIn;
-    int w;
-    int prevState;
-    float sw;
+    ui8_t prevState;  // 0..M=64
+    int w;  // > 255 : if (w>250): w=250 ?
+    //float sw;
 } states_t;
 
 typedef struct {
@@ -139,26 +139,34 @@ typedef struct {
     int sf;
     option_t option;
     RS_t RS;
-    VIT_t vit;
+    VIT_t *vit;
 } gpx_t;
 
 
 // ------------------------------------------------------------------------
 
 static ui8_t vit_code[N];
+static vitCodes_init = 0;
 
-static int vit_initCodes() {
+static int vit_initCodes(gpx_t *gpx) {
     int cA, cB;
     int i, bits;
 
-    for (bits = 0; bits < N; bits++) {
-        cA = 0;
-        cB = 0;
-        for (i = 0; i < L; i++) {
-            cA ^= (polyA[L-1-i]&1) & ((bits >> i)&1);
-            cB ^= (polyB[L-1-i]&1) & ((bits >> i)&1);
+    VIT_t *pv = calloc(1, sizeof(VIT_t));
+    if (pv == NULL) return -1;
+    gpx->vit = pv;
+
+    if ( vitCodes_init == 0 ) {
+        for (bits = 0; bits < N; bits++) {
+            cA = 0;
+            cB = 0;
+            for (i = 0; i < L; i++) {
+                cA ^= (polyA[L-1-i]&1) & ((bits >> i)&1);
+                cB ^= (polyB[L-1-i]&1) & ((bits >> i)&1);
+            }
+            vit_code[bits] = (cA<<1) | cB;
         }
-        vit_code[bits] = (cA<<1) | cB;
+        vitCodes_init = 1;
     }
 
     return 0;
@@ -168,7 +176,7 @@ static int vit_dist(int c, char *rc) {
     return (((c>>1)^rc[0])&1) + ((c^rc[1])&1);
 }
 
-static int vit_start(VIT_t * vit, char *rc) {
+static int vit_start(VIT_t *vit, char *rc) {
     int t, m, j, c, d;
 
     t = L-1;
@@ -196,7 +204,7 @@ static int vit_start(VIT_t * vit, char *rc) {
     return t;
 }
 
-static int vit_next(VIT_t * vit, int t, char *rc) {
+static int vit_next(VIT_t *vit, int t, char *rc) {
     int b, nstate;
     int j, index;
 
@@ -220,7 +228,7 @@ static int vit_next(VIT_t * vit, int t, char *rc) {
     return 0;
 }
 
-static int vit_path(VIT_t * vit, int j, int t) {
+static int vit_path(VIT_t *vit, int j, int t) {
     int c;
 
     vit->rawbits[2*t] = '\0';
@@ -235,7 +243,7 @@ static int vit_path(VIT_t * vit, int j, int t) {
     return 0;
 }
 
-static int viterbi(VIT_t * vit, char *rc) {
+static int viterbi(VIT_t *vit, char *rc) {
     int t, tmax;
     int j, j_min, w_min;
 
@@ -614,6 +622,17 @@ static void print_frame(gpx_t *gpx, int crc_err, int len) {
             if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
 
             printf("\n");
+
+
+            if (gpx->option.jsn) {
+                // Print JSON output required by auto_rx.
+                if (crc_err==0) { // CRC-OK
+                    printf("{ \"frame\": %d, \"id\": \"%d\", \"time\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f }\n",
+                           gpx->frnr, gpx->sn, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV );
+                    printf("\n");
+                }
+            }
+
         }
     }
 }
@@ -640,8 +659,8 @@ static void proc_frame(gpx_t *gpx, int len) {
     flen = len / (2*BITS);
 
     if (gpx->option.vit == 1) {
-        viterbi(&gpx->vit, gpx->blk_rawbits);
-        rawbits = gpx->vit.rawbits;
+        viterbi(gpx->vit, gpx->blk_rawbits);
+        rawbits = gpx->vit->rawbits;
     }
     else rawbits = gpx->blk_rawbits;
 
@@ -672,7 +691,7 @@ static void proc_frame(gpx_t *gpx, int len) {
     }
     else if (gpx->option.raw == 8) {
         if (gpx->option.vit == 1) {
-            for (i = 0; i < len; i++) printf("%c", gpx->vit.rawbits[i]); printf("\n");
+            for (i = 0; i < len; i++) printf("%c", gpx->vit->rawbits[i]); printf("\n");
         }
         else {
             for (i = 0; i < len; i++) printf("%c", gpx->blk_rawbits[i]); printf("\n");
@@ -754,12 +773,13 @@ int main(int argc, char **argv) {
 
     pcm_t pcm = {0};
     dsp_t dsp = {0};  //memset(&dsp, 0, sizeof(dsp));
-
+/*
     // gpx_t _gpx = {0}; gpx_t *gpx = &_gpx;  // stack size ...
-
     gpx_t *gpx = NULL;
     gpx = calloc(1, sizeof(gpx_t));
     //memset(gpx, 0, sizeof(gpx_t));
+*/
+    gpx_t _gpx = {0}; gpx_t *gpx = &_gpx;
 
 
 #ifdef CYGWIN
@@ -767,8 +787,6 @@ int main(int argc, char **argv) {
 #endif
     setbuf(stdout, NULL);
 
-
-    gpx->option.vit = 1;  // viterbi
 
     fpname = argv[0];
     ++argv;
@@ -778,6 +796,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  options:\n");
             fprintf(stderr, "       -v, --verbose\n");
             fprintf(stderr, "       -r, --raw\n");
+            fprintf(stderr, "       --vit        (Viterbi)\n");
             fprintf(stderr, "       --ecc        (Reed-Solomon)\n");
             return 0;
         }
@@ -797,7 +816,7 @@ int main(int argc, char **argv) {
             gpx->option.raw = 8; // rawbits
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { gpx->option.ecc = 1; } // RS-ECC
-        else if   (strcmp(*argv, "--novit" ) == 0) { gpx->option.vit = 0; } // no viterbi
+        else if   (strcmp(*argv, "--vit" ) == 0) { gpx->option.vit = 1; } // viterbi
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;  // nicht noetig
         }
@@ -824,6 +843,11 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--iq0") == 0) { option_iq = 1; }  // differential/FM-demod
         else if   (strcmp(*argv, "--iq2") == 0) { option_iq = 2; }
         else if   (strcmp(*argv, "--iq3") == 0) { option_iq = 3; }  // iq2==iq3
+        else if   (strcmp(*argv, "--json") == 0) {
+            gpx->option.jsn = 1;
+            gpx->option.ecc = 1;
+            gpx->option.vit = 1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -839,12 +863,6 @@ int main(int argc, char **argv) {
 
     if (gpx->option.raw == 4) gpx->option.ecc = 1;
 
-    if (gpx->option.vit) {
-        vit_initCodes();
-    }
-    if (gpx->option.ecc) {
-        rs_init_RS255ccsds(&gpx->RS); // bch_ecc.c
-    }
 
     memcpy(gpx->blk_rawbits, blk_syncbits, sizeof(blk_syncbits));
     memcpy(gpx->frame, frm_sync, sizeof(frm_sync));
@@ -860,7 +878,6 @@ int main(int argc, char **argv) {
     if ( k < 0 ) {
         fclose(fp);
         fprintf(stderr, "error: wav header\n");
-        if (gpx) { free(gpx); gpx = NULL; }
         return -1;
     }
 
@@ -893,9 +910,17 @@ int main(int argc, char **argv) {
     k = init_buffers(&dsp);
     if ( k < 0 ) {
         fprintf(stderr, "error: init buffers\n");
-        if (gpx) { free(gpx); gpx = NULL; }
         return -1;
     };
+
+
+    if (gpx->option.vit) {
+        k = vit_initCodes(gpx);
+        if (k < 0) return -1;
+    }
+    if (gpx->option.ecc) {
+        rs_init_RS255ccsds(&gpx->RS); // bch_ecc.c
+    }
 
 
     bitofs += shift;
@@ -949,7 +974,7 @@ int main(int argc, char **argv) {
 
 
     free_buffers(&dsp);
-    if (gpx) { free(gpx); gpx = NULL; }
+    if (gpx->vit) { free(gpx->vit); gpx->vit = NULL; }
 
     fclose(fp);
 
