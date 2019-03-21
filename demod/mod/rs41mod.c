@@ -1113,6 +1113,7 @@ static int print_position(gpx_t *gpx, int ec) {
         if (gpx->option.jsn) {
             // Print JSON output required by auto_rx.
             if (!err && !err1 && !err3) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
+                // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
                 printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",  gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vU, gpx->numSV );
                 if (gpx->option.ptu && !err0 && gpx->T > -273.0) {
                     printf(", \"temp\":%.1f",  gpx->T );
