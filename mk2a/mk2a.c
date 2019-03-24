@@ -19,12 +19,13 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_inv = 0,      // invertiert Signal
     option_crc = 0,      // check CRC
     option_res = 0,      // genauere Bitmessung
+    option_b = 0,
     wavloaded = 0;
 
 
 /* -------------------------------------------------------------------------- */
 
-#define BAUD_RATE   9600
+#define BAUD_RATE   9616  // 9616..9618
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
 float samples_per_bit = 0;
@@ -96,6 +97,7 @@ int read_wav_header(FILE *fp) {
 
 
 #define EOF_INT  0x1000000
+unsigned long sample_count = 0;
 
 int read_signed_sample(FILE *fp) {  // int = i32_t
     int byte, i, ret;         //  EOF -> 0x1000000
@@ -114,6 +116,8 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
 
     }
 
+    sample_count++;
+
     if (bits_sample ==  8) return ret-128;   // 8bit: 00..FF, centerpoint 0x80=128
     if (bits_sample == 16) return (short)ret;
 
@@ -121,7 +125,6 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
 }
 
 int par=1, par_alt=1;
-unsigned long sample_count = 0;
 
 int read_bits_fsk(FILE *fp, int *bit, int *len) {
     static int sample;
@@ -134,7 +137,7 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
         y0 = sample;
         sample = read_signed_sample(fp);
         if (sample == EOF_INT) return EOF;
-        sample_count++;
+        //sample_count++;
         par_alt = par;
         par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
         n++;
@@ -154,6 +157,39 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
 // *bit = (1+inv*par_alt)/2; // ausser inv=0
 
     /* Y-offset ? */
+
+    return 0;
+}
+
+int bitstart = 0;
+double bitgrenze = 0;
+unsigned long scount = 0;
+int read_rawbit(FILE *fp, int *bit) {
+    int sample;
+    int sum;
+
+    sum = 0;
+
+    if (bitstart) {
+        scount = 1;    // eigentlich scount = 1
+        bitgrenze = 0; //   oder bitgrenze = -1
+        bitstart = 0;
+    }
+    bitgrenze += samples_per_bit;
+
+    do {
+        sample = read_signed_sample(fp);
+        if (sample == EOF_INT) return EOF;
+        //sample_count++; // in read_signed_sample()
+        //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
+        sum += sample;
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
+
+    if (sum >= 0) *bit = 1;
+    else          *bit = 0;
+
+    if (option_inv) *bit ^= 1;
 
     return 0;
 }
@@ -353,8 +389,8 @@ int get_FrameNb() {
 }
 
 
-char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
-//char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+//char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 int get_GPStime() {
     int i;
@@ -560,8 +596,8 @@ void print_frame(int len) {
 
             printf("%s ", weekday[gpx.wday]);
             printf("(%02d:%02d:%06.3f) ", gpx.std, gpx.min, gpx.sek); // falls Rundung auf 60s: Ueberlauf
-            printf(" lat: %.6f° ", gpx.lat);
-            printf(" lon: %.6f° ", gpx.lon);
+            printf(" lat: %.5f° ", gpx.lat);
+            printf(" lon: %.5f° ", gpx.lon);
             printf(" alt: %.2fm ", gpx.h);
 
             get_GPSvel24();
@@ -609,6 +645,7 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
         }
+        else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "--crc") == 0) { option_crc = 1; }
         else if   (strcmp(*argv, "--res") == 0) { option_res = 1; }
         else {
@@ -663,6 +700,23 @@ int main(int argc, char **argv) {
                 }
             }
         }
+        if (header_found && option_b==1) {
+            bitstart = 1;
+
+            while ( pos < BITFRAME_LEN && !findsync()) {
+                if (read_rawbit(fp, &bit) == EOF) break;
+                inc_bufpos();
+                buf[bufpos] = bit + 0x30;
+                frame_bits[pos] = bit + 0x30;
+                pos++;
+            }
+            frame_bits[pos] = '\0';
+            print_frame(pos);//FRAME_LEN
+
+            header_found = 0;
+            pos = FRAMESTART;
+        }
+
     }
 
     printf("\n");
