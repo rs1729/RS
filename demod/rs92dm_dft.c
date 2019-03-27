@@ -60,6 +60,7 @@ typedef struct {
     int sats[4];
     double dop;
     int freq;
+    ui32_t crc;
     unsigned short aux[4];
     double diter;
 } gpx_t;
@@ -78,7 +79,6 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_vel = 0,      // velocity
     option_aux = 0,      // Aux/Ozon
     option_der = 0,      // linErr
-    option_ths = 0,
     option_json = 0,     // JSON output (auto_rx)
     rawin = 0;
 int wav_channel = 0;     // audio channel: left
@@ -193,17 +193,23 @@ void Gps2Date(long GpsWeek, long GpsSeconds, int *Year, int *Month, int *Day) {
 
 /* ------------------------------------------------------------------------------------ */
 
+#define crc_FRAME    (1<<0)
 #define pos_FrameNb   0x08  // 2 byte
 #define pos_SondeID   0x0C  // 8 byte  // oder: 0x0A, 10 byte?
 #define pos_CalData   0x17  // 1 byte, counter 0x00..0x1f
 #define pos_Calfreq   0x1A  // 2 byte, calfr 0x00
 
+#define crc_GPS      (1<<2)
 #define posGPS_TOW    0x48  // 4 byte
 #define posGPS_PRN    0x4E  // 12*5 bit in 8 byte
 #define posGPS_STATUS 0x56  // 12 byte
 #define posGPS_DATA   0x62  // 12*8 byte
 
+#define crc_PTU      (1<<1)
 #define pos_PTU       0x2C  // 24 byte
+
+#define crc_AUX      (1<<3)
+#define pos_AUX       0xC6  // 10 byte
 #define pos_AuxData   0xC8  // 8 byte
 
 
@@ -215,6 +221,7 @@ void Gps2Date(long GpsWeek, long GpsSeconds, int *Year, int *Month, int *Day) {
 #define LEN_CFG (2*(BLOCK_CFG & 0xFF))
 #define LEN_GPS (2*(BLOCK_GPS & 0xFF))
 #define LEN_PTU (2*(BLOCK_PTU & 0xFF))
+#define LEN_AUX (2*(BLOCK_AUX & 0xFF))
 
 
 int crc16(int start, int len) {
@@ -266,6 +273,7 @@ int get_SondeID() {
     // BLOCK_CFG == frame[pos_FrameNb-2 .. pos_FrameNb-1] ?
     crc_frame = framebyte(pos_FrameNb+LEN_CFG) | (framebyte(pos_FrameNb+LEN_CFG+1) << 8);
     crc = crc16(pos_FrameNb, LEN_CFG);
+    if (crc_frame != crc) gpx.crc |= crc_FRAME;
 /*
     if (option_crc) {
       //fprintf(stdout, " (%04X:%02X%02X) ", BLOCK_CFG, frame[pos_FrameNb-2], frame[pos_FrameNb-1]);
@@ -291,20 +299,37 @@ int get_SondeID() {
     return ret;
 }
 
+int get_PTU() {
+    int ret=0;
+    int crc_frame, crc;
+
+    crc_frame = frame[pos_PTU+LEN_PTU] | (frame[pos_PTU+LEN_PTU+1] << 8);
+    crc = crc16(pos_PTU, LEN_PTU);
+    if (crc_frame != crc) gpx.crc |= crc_PTU;
+
+    ret = 0;
+    if (option_crc  &&  crc != crc_frame) {
+        ret = -2;
+    }
+
+    return ret;
+}
+
 char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
 
 int get_GPStime() {
     int i, ret=0;
     unsigned byte;
     ui8_t gpstime_bytes[4];
-    int gpstime = 0, // 32bit
-        day;
+    ui32_t gpstime = 0; // 32bit
+    int day;
     int ms;
     int crc_frame, crc;
 
     // BLOCK_GPS == frame[posGPS_TOW-2 .. posGPS_TOW-1] ?
     crc_frame = framebyte(posGPS_TOW+LEN_GPS) | (framebyte(posGPS_TOW+LEN_GPS+1) << 8);
     crc = crc16(posGPS_TOW, LEN_GPS);
+    if (crc_frame != crc) gpx.crc |= crc_GPS;
 /*
     if (option_crc) {
       //fprintf(stdout, " (%04X:%02X%02X) ", BLOCK_GPS, frame[posGPS_TOW-2], frame[posGPS_TOW-1]);
@@ -333,23 +358,33 @@ int get_GPStime() {
     gpstime %= (24*3600);
 
     gpx.wday = day;
-    gpx.std = gpstime / 3600;
+    gpx.std =  gpstime / 3600;
     gpx.min = (gpstime % 3600) / 60;
-    gpx.sek = gpstime % 60 + ms/1000.0;
+    gpx.sek =  gpstime % 60 + ms/1000.0;
 
     return ret;
 }
 
 int get_Aux() {
-    int i;
+    int i, ret=0;
     unsigned short byte;
+    int crc_frame, crc;
+
+    crc_frame = frame[pos_AUX+LEN_AUX] | (frame[pos_AUX+LEN_AUX+1] << 8);
+    crc = crc16(pos_AUX, LEN_AUX);
+    if (crc_frame != crc) gpx.crc |= crc_AUX;
+
+    ret = 0;
+    if (option_crc  &&  crc != crc_frame) {
+        ret = -2;
+    }
 
     for (i = 0; i < 4; i++) {
         byte = framebyte(pos_AuxData+2*i)+(framebyte(pos_AuxData+2*i+1)<<8);
         gpx.aux[i] = byte;
     }
 
-    return 0;
+    return ret;
 }
 
 int get_Cal() {
@@ -368,25 +403,19 @@ int get_Cal() {
         fprintf(stdout, "\n");
         fprintf(stdout, "[%5d] ", gpx.frnr);
         fprintf(stdout, "  0x%02x:", calfr);
-    }
-    for (i = 0; i < 16; i++) {
-        byte = framebyte(pos_CalData+1+i);
-        if (option_verbose == 4) {
+        for (i = 0; i < 16; i++) {
+            byte = framebyte(pos_CalData+1+i);
             fprintf(stdout, " %02x", byte);
         }
+        if ((gpx.crc & crc_FRAME)==0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
     }
+
     if (option_aux) {
-        get_Aux();
         if (option_verbose == 4) {
             fprintf(stdout, "  #  ");
             for (i = 0; i < 8; i++) {
                 byte = framebyte(pos_AuxData+i);
                 fprintf(stdout, "%02x ", byte);
-            }
-        }
-        else {
-            if (gpx.aux[0] != 0 || gpx.aux[1] != 0 || gpx.aux[2] != 0 || gpx.aux[3] != 0) {
-                fprintf(stdout, " # %04x %04x %04x %04x", gpx.aux[0], gpx.aux[1], gpx.aux[2], gpx.aux[3]);
             }
         }
     }
@@ -399,13 +428,13 @@ int get_Cal() {
         //fprintf(stdout, ":%04x ", byte);
         freq = 400000 + 10*byte; // kHz;
         gpx.freq = freq;
-        fprintf(stdout, " : fq %d kHz", freq);
+        fprintf(stdout, ": fq %d", freq);
         for (i = 0; i < 2; i++) {
             bytes[i] = framebyte(pos_Calfreq + 2 + i);
         }
         killtime = bytes[0] + (bytes[1] << 8);
         if (killtime < 0xFFFF && option_verbose == 4) {
-            fprintf(stdout, " ; KT:%ds", killtime);
+            fprintf(stdout, "; KT:%ds", killtime);
         }
     }
 
@@ -1083,20 +1112,20 @@ int rs92_ecc(int msglen) {
 
 /* ------------------------------------------------------------------------------------ */
 
-int print_position() {  // GPS-Hoehe ueber Ellipsoid
+int print_position(int ec) {  // GPS-Hoehe ueber Ellipsoid
     int j, k, n = 0;
-    int err1, err2;
+    int err1, err2, err3, err4;
 
     err1 = 0;
-    if (!option_verbose) err1 = err_gps;
     err1 |= get_FrameNb();
     err1 |= get_SondeID();
+    err2  = get_PTU();
+    err3  = 0;
+  //err3 |= get_GPSweek();
+    err3 |= get_GPStime();
+    err4  = get_Aux();
 
-    err2  = err1 | err_gps;
-  //err2 |= get_GPSweek();
-    err2 |= get_GPStime();
-
-    if (!err2 && (almanac || ephem)) {
+    if (!err3 && (almanac || ephem)) {
         k = get_pseudorange();
         if (k >= 4) {
             n = get_GPSkoord(k);
@@ -1106,87 +1135,107 @@ int print_position() {  // GPS-Hoehe ueber Ellipsoid
     if (!err1) {
         fprintf(stdout, "[%5d] ", gpx.frnr);
         fprintf(stdout, "(%s) ", gpx.id);
-    }
 
-    if (!err2) {
-        //if (option_verbose)
-        {
-            Gps2Date(gpx.week, gpx.gpssec, &gpx.jahr, &gpx.monat, &gpx.tag);
-            //fprintf(stdout, "(W %d) ", gpx.week);
-            fprintf(stdout, "(%04d-%02d-%02d) ", gpx.jahr, gpx.monat, gpx.tag);
-        }
-        fprintf(stdout, "%s ", weekday[gpx.wday]);  // %04.1f: wenn sek >= 59.950, wird auf 60.0 gerundet
-        fprintf(stdout, "%02d:%02d:%06.3f", gpx.std, gpx.min, gpx.sek);
-
-        if (n > 0) {
-            fprintf(stdout, " ");
-
-            if (almanac) fprintf(stdout, " lat: %.4f  lon: %.4f  alt: %.1f ", gpx.lat, gpx.lon, gpx.alt);
-            else         fprintf(stdout, " lat: %.5f  lon: %.5f  alt: %.1f ", gpx.lat, gpx.lon, gpx.alt);
-
-            if (option_verbose  &&  option_vergps != 8) {
-                fprintf(stdout, " (d:%.1f)", gpx.diter);
+        if (!err3) {
+            if (almanac || ephem)
+            {
+                Gps2Date(gpx.week, gpx.gpssec, &gpx.jahr, &gpx.monat, &gpx.tag);
+                //fprintf(stdout, "(W %d) ", gpx.week);
+                fprintf(stdout, "(%04d-%02d-%02d) ", gpx.jahr, gpx.monat, gpx.tag);
             }
-            if (option_vel  /*&&  option_vergps >= 2*/) {
-                fprintf(stdout,"  vH: %4.1f  D: %5.1f°  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
-            }
-            if (option_verbose) {
-                if (option_vergps != 2) {
-                    fprintf(stdout, " DOP[%02d,%02d,%02d,%02d] %.1f",
-                                   gpx.sats[0], gpx.sats[1], gpx.sats[2], gpx.sats[3], gpx.dop);
+            fprintf(stdout, "%s ", weekday[gpx.wday]);  // %04.1f: wenn sek >= 59.950, wird auf 60.0 gerundet
+            fprintf(stdout, "%02d:%02d:%06.3f", gpx.std, gpx.min, gpx.sek);
+
+            if (n > 0) {
+                fprintf(stdout, " ");
+
+                if (almanac) fprintf(stdout, " lat: %.4f  lon: %.4f  alt: %.1f ", gpx.lat, gpx.lon, gpx.alt);
+                else         fprintf(stdout, " lat: %.5f  lon: %.5f  alt: %.1f ", gpx.lat, gpx.lon, gpx.alt);
+
+                if (option_verbose  &&  option_vergps != 8) {
+                    fprintf(stdout, " (d:%.1f)", gpx.diter);
                 }
-                else {  // wenn option_vergps=2, dann n=N=k(-1)
-                    fprintf(stdout, " DOP[");
-                    for (j = 0; j < n; j++) {
-                        fprintf(stdout, "%d", prn[j]);
-                        if (j < n-1) fprintf(stdout, ","); else fprintf(stdout, "] %.1f ", gpx.dop);
+                if (option_vel  /*&&  option_vergps >= 2*/) {
+                    fprintf(stdout,"  vH: %4.1f  D: %5.1f°  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
+                }
+                if (option_verbose) {
+                    if (option_vergps != 2) {
+                        fprintf(stdout, " DOP[%02d,%02d,%02d,%02d] %.1f",
+                                       gpx.sats[0], gpx.sats[1], gpx.sats[2], gpx.sats[3], gpx.dop);
+                    }
+                    else {  // wenn option_vergps=2, dann n=N=k(-1)
+                        fprintf(stdout, " DOP[");
+                        for (j = 0; j < n; j++) {
+                            fprintf(stdout, "%d", prn[j]);
+                            if (j < n-1) fprintf(stdout, ","); else fprintf(stdout, "] %.1f ", gpx.dop);
+                        }
                     }
                 }
             }
         }
 
-        if (option_json)
-        {
-            // Print out telemetry data as JSON, even if we don't have a valid GPS lock.
-            if (!err1 && !err2){
+        if (option_aux) {
+            if (option_verbose != 4 && (gpx.crc & crc_AUX)==0 || !option_crc) {
                 if (gpx.aux[0] != 0 || gpx.aux[1] != 0 || gpx.aux[2] != 0 || gpx.aux[3] != 0) {
-                    printf("\n{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"aux\": \"%04x%04x%04x%04x\"}\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU , gpx.aux[0], gpx.aux[1], gpx.aux[2], gpx.aux[3]);
-                } else {
-                    printf("\n{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU );
+                    fprintf(stdout, " # %04x %04x %04x %04x", gpx.aux[0], gpx.aux[1], gpx.aux[2], gpx.aux[3]);
                 }
             }
         }
 
-        get_Cal();
-
-        if (option_vergps == 8 /*||  option_vergps == 2*/)
-        {
-            fprintf(stdout, "\n");
-            for (j = 0; j < 60; j++) { fprintf(stdout, "%d", prn_le[j]); if (j % 5 == 4) fprintf(stdout, " "); }
-            fprintf(stdout, ": ");
-            for (j = 0; j < 12; j++) fprintf(stdout, "%2d ", prns[j]);
-            fprintf(stdout, "\n");
-            fprintf(stdout, "                                                                  status: ");
-            for (j = 0; j < 12; j++) fprintf(stdout, "%02X ", sat_status[j]); //range[prns[j]].status
-            fprintf(stdout, "\n");
+        fprintf(stdout, "  # ");
+        fprintf(stdout, "[");
+        for (j=0; j<4; j++) fprintf(stdout, "%d", (gpx.crc>>j)&1);
+        fprintf(stdout, "]");
+        if (option_ecc == 2) {
+            if (ec > 0) fprintf(stdout, " (%d)", ec);
+            if (ec < 0) fprintf(stdout, " (-)");
         }
 
-    }
+        get_Cal();
 
-    if (!err1) {
+        if (!err3) {
+            if (option_vergps == 8 /*||  option_vergps == 2*/)
+            {
+                fprintf(stdout, "\n");
+                for (j = 0; j < 60; j++) { fprintf(stdout, "%d", prn_le[j]); if (j % 5 == 4) fprintf(stdout, " "); }
+                fprintf(stdout, ": ");
+                for (j = 0; j < 12; j++) fprintf(stdout, "%2d ", prns[j]);
+                fprintf(stdout, "\n");
+                fprintf(stdout, "                                                                  status: ");
+                for (j = 0; j < 12; j++) fprintf(stdout, "%02X ", sat_status[j]); //range[prns[j]].status
+                fprintf(stdout, "\n");
+            }
+        }
+
+
+        if (option_json) {
+            // Print out telemetry data as JSON  //even if we don't have a valid GPS lock
+            if ((gpx.crc & (crc_FRAME | crc_GPS))==0 && (almanac || ephem)) //(!err1 && !err3)
+            {   // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
+                fprintf(stdout, "\n{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
+                               gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU);
+                if ((gpx.crc & crc_AUX)==0 && (gpx.aux[0] != 0 || gpx.aux[1] != 0 || gpx.aux[2] != 0 || gpx.aux[3] != 0)) {
+                    fprintf(stdout, ", \"aux\": \"%04x%04x%04x%04x\"", gpx.aux[0], gpx.aux[1], gpx.aux[2], gpx.aux[3]);
+                }
+                fprintf(stdout, " }\n");
+            }
+        }
+
         fprintf(stdout, "\n");
         //if (option_vergps == 8) fprintf(stdout, "\n");
     }
 
-    return err2;
+    return err3;
 }
 
 void print_frame(int len) {
-    int i, ret = 0;
+    int i, ec = 0;
     ui8_t byte;
 
+    gpx.crc = 0;
+
     if (option_ecc) {
-        ret = rs92_ecc(len);
+        ec = rs92_ecc(len);
     }
 
     for (i = len; i < FRAME_LEN; i++) {
@@ -1208,13 +1257,13 @@ void print_frame(int len) {
         }
         if (option_ecc && option_verbose) {
             fprintf(stdout, " ");
-            if (ret >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
-            fprintf(stdout, " errors: %d", ret);
+            if (ec >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
+            fprintf(stdout, " errors: %d", ec);
         }
         fprintf(stdout, "\n");
 //        fprintf(stdout, "\n");
     }
-    else print_position();
+    else print_position(ec);
 }
 
 
@@ -1343,7 +1392,13 @@ int main(int argc, char *argv[]) {
         else if (strcmp(*argv, "-g2") == 0) { option_vergps = 2; }  //  verbose2 GPS (bancroft)
         else if (strcmp(*argv, "-gg") == 0) { option_vergps = 8; }  // vverbose GPS
         else if (strcmp(*argv, "--ecc") == 0) { option_ecc = 1; }
-        else if (strcmp(*argv, "--json") == 0) {option_json = 1; option_ecc = 1; option_crc = 1; }
+        else if (strcmp(*argv, "--ecc2") == 0) { option_ecc = 2; }
+        else if (strcmp(*argv, "--json") == 0) {
+            option_json = 1;
+            option_ecc = 2;
+            option_crc = 1;
+            option_vel = 4;
+        }
         else if (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
         else if (strcmp(*argv, "--ths") == 0) {
             ++argv;

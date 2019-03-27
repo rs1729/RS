@@ -34,18 +34,9 @@ typedef struct {
     i8_t inv;
     i8_t aut;
     i8_t col;  // colors
+    i8_t jsn;  // JSON output (auto_rx)
 } option_t;
 
-/*
-int option_verbose = 0,  // ausfuehrliche Anzeige
-    option_raw = 0,      // rohe Frames
-    option_inv = 0,      // invertiert Signal
-    option_res = 0,      // genauere Bitmessung
-    option_color = 0,
-    option_ptu = 0,
-    option_dc = 0,
-    wavloaded = 0;
-*/
 
 /*
    9600 baud -> 9616 baud ?
@@ -80,13 +71,15 @@ static char rawheader[] = "10011001100110010100110010011001";
 
 
 typedef struct {
-    int week; int gpssec;
+    int week; int tow_ms; int gpssec;
     int jahr; int monat; int tag;
     int wday;
-    int std; int min; int sek;
+    int std; int min; float sek;
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vx; double vy; double vD2;
+    ui8_t numSV;
+    ui8_t utc_ofs;
     char SN[12];
     ui8_t frame_bytes[FRAME_LEN+AUX_LEN+4];
     char frame_bits[BITFRAME_LEN+BITAUX_LEN+8];
@@ -153,11 +146,61 @@ static int bits2bytes(char *bitstr, ui8_t *bytes) {
 
 /* -------------------------------------------------------------------------- */
 
+/*
+M10 w/ trimble GPS
+
+frame[0x0] = framelen
+frame[0x1] = 0x9F (type M10)
+
+init/noGPS: frame[0x2]=0x23
+GPS: frame[0x2]=0x20 (GPS trimble pck 0x8F-20 sub-id)
+
+frame[0x02..0x21] = GPS trimble pck 0x8F-20 byte 0..31 (sub-id, vel, tow, lat, lon, alt, fix, NumSV, UTC-ofs, week)
+frame[0x22..0x2D] = GPS trimble pck 0x8F-20 byte 32..55:2 (PRN 1..12 only)
+
+Trimble Copernicus II
+GPS packet 0x8F-20 (p.138)
+byte
+0      sub-pck id (always 0x20)
+2-3    velE (i16) 0.005m/s
+4-5    velN (i16) 0.005m/s
+6-7    velU (i16) 0.005m/s
+8-11   TOW (ms)
+12-15  lat (scale 2^32/360) (i32) -90..90
+16-19  lon (scale 2^32/360) (ui32) 0..360 <-> (i32) -180..180
+20-23  alt (i32) mm above ellipsoid)
+24     bit0: vel-scale (0: 0.005m/s)
+26     datum (1: WGS-84)
+27     fix: bit0(0:valid fix, 1:invalid fix), bit2(0:3D, 1:2D)
+28     numSVs
+29     UTC offset = (GPS - UTC) sec
+30-31  GPS week
+32+2*n PRN_(n+1), bit0-5
+
+frame[0x32..0x5C] sensors (rel.hum., temp.)
+frame[0x5D..0x61] SN
+frame[0x62] counter
+frame[0x63..0x64] check  (AUX len=0x76: frame[0x63..0x74], frame[0x75..0x76])
+
+
+6449/10sec-frame:
+GPS trimble pck 0x47 (signal levels): numSats sat1 lev1 sat2 lev2 ..
+frame[0x0] = framelen
+frame[0x1] = 0x49
+frame[0x2] = numSats (max 12)
+frame[0x3+2*n] = PRN_(n+1)
+frame[0x4+2*n] = signal level (float32 -> i8-byte level)
+
+*/
+
+
 #define stdFLEN        0x64  // pos[0]=0x64
 #define pos_GPSTOW     0x0A  // 4 byte
 #define pos_GPSlat     0x0E  // 4 byte
 #define pos_GPSlon     0x12  // 4 byte
 #define pos_GPSalt     0x16  // 4 byte
+#define pos_GPSsats    0x1E  // 1 byte
+#define pos_GPSutc     0x1F  // 1 byte
 #define pos_GPSweek    0x20  // 2 byte
 //Velocity East-North-Up (ENU)
 #define pos_GPSvE      0x04  // 2 byte
@@ -203,6 +246,9 @@ static int get_GPSweek(gpx_t *gpx) {
     ui8_t gpsweek_bytes[2];
     int gpsweek;
 
+    gpx->numSV   = gpx->frame_bytes[pos_GPSsats];
+    gpx->utc_ofs = gpx->frame_bytes[pos_GPSutc];
+
     for (i = 0; i < 2; i++) {
         byte = gpx->frame_bytes[pos_GPSweek + i];
         gpsweek_bytes[i] = byte;
@@ -223,7 +269,8 @@ static int get_GPStime(gpx_t *gpx) {
     int i;
     unsigned byte;
     ui8_t gpstime_bytes[4];
-    int gpstime, day; // int ms;
+    int gpstime, day;
+    int ms;
 
     for (i = 0; i < 4; i++) {
         byte = gpx->frame_bytes[pos_GPSTOW + i];
@@ -235,18 +282,20 @@ static int get_GPStime(gpx_t *gpx) {
         gpstime |= gpstime_bytes[i] << (8*(3-i));
     }
 
-    //ms = gpstime % 1000;
+    gpx->tow_ms = gpstime;
+    ms = gpstime % 1000;
     gpstime /= 1000;
     gpx->gpssec = gpstime;
 
     day = gpstime / (24 * 3600);
+    if ((day < 0) || (day > 6)) return -1;
+
     gpstime %= (24*3600);
 
-    if ((day < 0) || (day > 6)) return -1;
     gpx->wday = day;
-    gpx->std = gpstime/3600;
+    gpx->std =  gpstime/3600;
     gpx->min = (gpstime%3600)/60;
-    gpx->sek = gpstime%60;
+    gpx->sek =  gpstime%60 + ms/1000.0;
 
     return 0;
 }
@@ -626,7 +675,7 @@ double get_RH(int csOK) {
 /* -------------------------------------------------------------------------- */
 
 static int print_pos(gpx_t *gpx, int csOK) {
-    int err;
+    int err, err2;
 
     err = 0;
     err |= get_GPSweek(gpx);
@@ -634,6 +683,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
     err |= get_GPSlat(gpx);
     err |= get_GPSlon(gpx);
     err |= get_GPSalt(gpx);
+    err2 = get_GPSvel(gpx);
 
     if (!err) {
 
@@ -641,28 +691,25 @@ static int print_pos(gpx_t *gpx, int csOK) {
 
         if (gpx->option.col) {
             fprintf(stdout, col_TXT);
-            fprintf(stdout, " (W "col_GPSweek"%d"col_TXT") ", gpx->week);
+            if (gpx->option.vbs >= 3) fprintf(stdout, " (W "col_GPSweek"%d"col_TXT") ", gpx->week);
             fprintf(stdout, col_GPSTOW"%s"col_TXT" ", weekday[gpx->wday]);
-            fprintf(stdout, col_GPSdate"%04d-%02d-%02d"col_TXT" ("col_GPSTOW"%02d:%02d:%02d"col_TXT") ",
+            fprintf(stdout, col_GPSdate"%04d-%02d-%02d"col_TXT" "col_GPSTOW"%02d:%02d:%06.3f"col_TXT" ",
                     gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
             fprintf(stdout, " lat: "col_GPSlat"%.5f"col_TXT" ", gpx->lat);
             fprintf(stdout, " lon: "col_GPSlon"%.5f"col_TXT" ", gpx->lon);
             fprintf(stdout, " alt: "col_GPSalt"%.2f"col_TXT" ", gpx->alt);
-            if (gpx->option.vbs) {
-                err |= get_GPSvel(gpx);
-                if (!err) {
-                    //if (gpx->option.vbs == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", gpx->vx, gpx->vy, gpx->vD2);
-                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"°  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
-                }
-                if (gpx->option.vbs >= 2) {
-                    get_SN(gpx);
-                    fprintf(stdout, "  SN: "col_SN"%s"col_TXT, gpx->SN);
-                }
-                if (gpx->option.vbs >= 2) {
-                    fprintf(stdout, "  # ");
-                    if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
-                    else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
-                }
+            if (!err2) {
+                //if (gpx->option.vbs == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", gpx->vx, gpx->vy, gpx->vD2);
+                fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"°  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
+            }
+            if (gpx->option.vbs >= 2) {
+                get_SN(gpx);
+                fprintf(stdout, "  SN: "col_SN"%s"col_TXT, gpx->SN);
+            }
+            if (gpx->option.vbs >= 2) {
+                fprintf(stdout, "  # ");
+                if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
+                else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
             if (gpx->option.ptu) {
                 float t = get_Temp(gpx, csOK);
@@ -676,27 +723,24 @@ static int print_pos(gpx_t *gpx, int csOK) {
             fprintf(stdout, ANSI_COLOR_RESET"");
         }
         else {
-            fprintf(stdout, " (W %d) ", gpx->week);
+            if (gpx->option.vbs >= 3) fprintf(stdout, " (W %d) ", gpx->week);
             fprintf(stdout, "%s ", weekday[gpx->wday]);
-            fprintf(stdout, "%04d-%02d-%02d (%02d:%02d:%02d) ",
+            fprintf(stdout, "%04d-%02d-%02d %02d:%02d:%06.3f ",
                     gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
             fprintf(stdout, " lat: %.5f ", gpx->lat);
             fprintf(stdout, " lon: %.5f ", gpx->lon);
             fprintf(stdout, " alt: %.2f ", gpx->alt);
-            if (gpx->option.vbs) {
-                err |= get_GPSvel(gpx);
-                if (!err) {
-                    //if (gpx->option.vbs == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f°) ", gpx->vx, gpx->vy, gpx->vD2);
-                    fprintf(stdout, "  vH: %.1f  D: %.1f°  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
-                }
-                if (gpx->option.vbs >= 2) {
-                    get_SN(gpx);
-                    fprintf(stdout, "  SN: %s", gpx->SN);
-                }
-                if (gpx->option.vbs >= 2) {
-                    fprintf(stdout, "  # ");
-                    if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
-                }
+            if (!err2) {
+                //if (gpx->option.vbs == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f°) ", gpx->vx, gpx->vy, gpx->vD2);
+                fprintf(stdout, "  vH: %.1f  D: %.1f°  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
+            }
+            if (gpx->option.vbs >= 2) {
+                get_SN(gpx);
+                fprintf(stdout, "  SN: %s", gpx->SN);
+            }
+            if (gpx->option.vbs >= 2) {
+                fprintf(stdout, "  # ");
+                if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
             if (gpx->option.ptu) {
                 float t = get_Temp(gpx, csOK);
@@ -709,6 +753,42 @@ static int print_pos(gpx_t *gpx, int csOK) {
             }
         }
         fprintf(stdout, "\n");
+
+
+        if (gpx->option.jsn) {
+            // Print out telemetry data as JSON
+            if (csOK) {
+                int j;
+                char sn_id[4+12] = "M10-";
+                // UTC = GPS - UTC_OFS  (ab 1.1.2017: UTC_OFS=18sec)
+                int utc_s = gpx->gpssec - gpx->utc_ofs;
+                int utc_week = gpx->week;
+                int utc_jahr; int utc_monat; int utc_tag;
+                int utc_std; int utc_min; float utc_sek;
+                if (utc_s < 0) {
+                    utc_week -= 1;
+                    utc_s += 604800; // 604800sec = 1week
+                }
+                Gps2Date(utc_week, utc_s, &utc_jahr, &utc_monat, &utc_tag);
+                utc_s  %= (24*3600); // 86400sec = 1day
+                utc_std =  utc_s/3600;
+                utc_min = (utc_s%3600)/60;
+                utc_sek =  utc_s%60 + (gpx->tow_ms % 1000)/1000.0;
+
+                strncpy(sn_id+4, gpx->SN, 12);
+                sn_id[15] = '\0';
+                for (j = 0; sn_id[j]; j++) { if (sn_id[j] == ' ') sn_id[j] = '-'; }
+
+                fprintf(stdout, "{ \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
+                               sn_id, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
+                if (gpx->option.ptu) {
+                    float t = get_Temp(gpx, 0);
+                    if (t > -273.0) fprintf(stdout, ", \"temp\": %.1f", t);
+                }
+                fprintf(stdout, " }\n");
+                fprintf(stdout, "\n");
+            }
+        }
 
     }
 
@@ -886,6 +966,7 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--iq0") == 0) { option_iq = 1; }  // differential/FM-demod
         else if   (strcmp(*argv, "--iq2") == 0) { option_iq = 2; }
         else if   (strcmp(*argv, "--iq3") == 0) { option_iq = 3; }  // iq2==iq3
+        else if   (strcmp(*argv, "--json") == 0) { gpx.option.jsn = 1; }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {

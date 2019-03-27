@@ -62,7 +62,7 @@ typedef struct {
     int frmlen;
 } rscfg_t;
 
-rscfg_t cfg_rs41 = { 41, (320-56)/2, 56, 8, 8, 320}; // const: msgpos, parpos
+static rscfg_t cfg_rs41 = { 41, (320-56)/2, 56, 8, 8, 320}; // const: msgpos, parpos
 
 
 #define NDATA_LEN 320                    // std framelen 320
@@ -77,7 +77,7 @@ typedef struct {
     int frnr;
     char id[9];
     ui8_t numSV;
-    int week; int gpssec;
+    int week; int tow_ms; int gpssec;
     int jahr; int monat; int tag;
     int wday;
     int std; int min; float sek;
@@ -633,9 +633,10 @@ static int get_GPStime(gpx_t *gpx) {
     }
 
     memcpy(&gpstime, gpstime_bytes, 4);
+
+    gpx->tow_ms = gpstime;
     ms = gpstime % 1000;
     gpstime /= 1000;
-
     gpx->gpssec = gpstime;
 
     day = (gpstime / (24 * 3600)) % 7;
@@ -644,9 +645,9 @@ static int get_GPStime(gpx_t *gpx) {
     gpstime %= (24*3600);
 
     gpx->wday = day;
-    gpx->std = gpstime / 3600;
+    gpx->std =  gpstime / 3600;
     gpx->min = (gpstime % 3600) / 60;
-    gpx->sek = gpstime % 60 + ms/1000.0;
+    gpx->sek =  gpstime % 60 + ms/1000.0;
 
     return 0;
 }
@@ -1111,18 +1112,19 @@ static int print_position(gpx_t *gpx, int ec) {
 
 
         if (gpx->option.jsn) {
-            // Print JSON output required by auto_rx.
+            // Print out telemetry data as JSON
             if (!err && !err1 && !err3) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                 // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
-                printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",  gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vU, gpx->numSV );
+                fprintf(stdout, "{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
+                               gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vU, gpx->numSV);
                 if (gpx->option.ptu && !err0 && gpx->T > -273.0) {
-                    printf(", \"temp\":%.1f",  gpx->T );
+                    fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
                 }
                 if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
-                    printf(", \"aux\":\"%s\"",  gpx->xdata );
+                    fprintf(stdout, ", \"aux\": \"%s\"",  gpx->xdata );
                 }
-                printf(" }\n");
-                printf("\n");
+                fprintf(stdout, " }\n");
+                fprintf(stdout, "\n");
             }
         }
 
