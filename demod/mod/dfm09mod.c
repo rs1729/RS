@@ -35,6 +35,7 @@ typedef struct {
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
     i8_t dst;  // continuous pcks 0..8
+    i8_t dbg;
 } option_t;
 
 typedef struct {
@@ -62,7 +63,7 @@ typedef struct {
     int std; int min; float sek;
     double lat; double lon; double alt;
     double dir; double horiV; double vertV;
-    float meas24[5];
+    float meas24[5+2];
     float status[2];
     float _frmcnt;
     char sonde_id[16]; // "ID__:xxxxxxxx\0\0"
@@ -312,15 +313,23 @@ static float get_Temp(gpx_t *gpx) { // meas[0..4]
 // meas0 = g*(R + Rs)
 // meas3 = g*Rs , Rs: dfm6:10k, dfm9:20k
 // meas4 = g*Rf , Rf=220k
-    float *meas = gpx->meas24;
+    float f  = gpx->meas24[0],
+          f1 = gpx->meas24[3],
+          f2 = gpx->meas24[4];
+    if (gpx->ptu_out >= 0xC) {
+        f  = gpx->meas24[0+1];
+        f1 = gpx->meas24[3+2];
+        f2 = gpx->meas24[4+2];
+    }
+    //float *meas = gpx->meas24;
     float B0 = 3260.0;       // B/Kelvin, fit -55C..+40C
     float T0 = 25 + 273.15;  // t0=25C
     float R0 = 5.0e3;        // R0=R25=5k
     float Rf = 220e3;        // Rf = 220k
-    float g = meas[4]/Rf;
-    float R = (meas[0]-meas[3]) / g; // meas[0,3,4] > 0 ?
+    float g = f2/Rf;
+    float R = (f-f1) / g; // meas[0,3,4] > 0 ?
     float T = 0;                     // T/Kelvin
-    if (meas[0]*meas[3]*meas[4] == 0) R = 0;
+    if (f*f1*f2 == 0) R = 0;
     if (R > 0)  T = 1/(1/T0 + 1/B0 * log(R/R0));
     return  T - 273.15; // Celsius
 //  DFM-06: meas20 * 16 = meas24
@@ -338,6 +347,11 @@ static float get_Temp2(gpx_t *gpx) { // meas[0..4]
     float f  = gpx->meas24[0],
           f1 = gpx->meas24[3],
           f2 = gpx->meas24[4];
+    if (gpx->ptu_out >= 0xC) {
+        f  = gpx->meas24[0+1];
+        f1 = gpx->meas24[3+2];
+        f2 = gpx->meas24[4+2];
+    }
     float B0 = 3260.0;      // B/Kelvin, fit -55C..+40C
     float T0 = 25 + 273.15; // t0=25C
     float R0 = 5.0e3;       // R0=R25=5k
@@ -350,6 +364,7 @@ static float get_Temp2(gpx_t *gpx) { // meas[0..4]
     float R = 0;            // thermistor
     float T = 0;            // T/Kelvin
 
+    // ptu_out=0xD: Rs_o=13.6, Rf2=?
     if       ( 8e3 < Rs_o && Rs_o < 12e3) Rf1 = 10e3;  // dfm6
     else if  (18e3 < Rs_o && Rs_o < 22e3) Rf1 = 20e3;  // dfm9
     g = (f2 - f1) / (Rf2 - Rf1);
@@ -358,7 +373,7 @@ static float get_Temp2(gpx_t *gpx) { // meas[0..4]
     R = (f-f1)/g;                    // meas[0,3,4] > 0 ?
     if (R > 0)  T = 1/(1/T0 + 1/B0 * log(R/R0));
 
-    if (gpx->option.ptu && gpx->ptu_out && gpx->option.vbs == 3) {
+    if (gpx->option.ptu && gpx->ptu_out && gpx->option.dbg) {
         printf("  (Rso: %.1f , Rb: %.1f)", Rs_o/1e3, Rb/1e3);
     }
 
@@ -394,10 +409,18 @@ static float get_Temp4(gpx_t *gpx) { // meas[0..4]
           p2 = 2.48821437e-06,
           p3 = 5.84354921e-08;
 // T/K = 1/( p0 + p1*ln(R) + p2*ln(R)^2 + p3*ln(R)^3 )
-    float *meas = gpx->meas24;
+    float f  = gpx->meas24[0],
+          f1 = gpx->meas24[3],
+          f2 = gpx->meas24[4];
+    if (gpx->ptu_out >= 0xC) {
+        f  = gpx->meas24[0+1];
+        f1 = gpx->meas24[3+2];
+        f2 = gpx->meas24[4+2];
+    }
+    //float *meas = gpx->meas24;
     float Rf = 220e3;    // Rf = 220k
-    float g = meas[4]/Rf;
-    float R = (meas[0]-meas[3]) / g; // meas[0,3,4] > 0 ?
+    float g = f2/Rf;
+    float R = (f-f1) / g; // f,f1,f2 > 0 ?
     float T = 0; // T/Kelvin
     if (R > 0)  T = 1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
     return  T - 273.15; // Celsius
@@ -465,9 +488,10 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
                         gpx->sonde_typ = SNbit | sn_ch;
                         gpx->SN = SN;
 
-                        if (sn_ch == 0xA /*&& (sn2_ch & 0xF) == 0xC*/) gpx->ptu_out = 9; else gpx->ptu_out = 0;
+                        if (sn_ch == 0xA /*&& (sn2_ch & 0xF) == 0xC*/) gpx->ptu_out = sn_ch; else gpx->ptu_out = 0;
+                        if (sn_ch == 0xC) gpx->ptu_out = sn_ch;// DFM-09P, DFM-17 ?
+                        if (sn_ch == 0xD && gpx->option.dbg) gpx->ptu_out = sn_ch;// DFM-17 (P?)? test 0xD ...?
                         // PS-15 ? (sn2_ch & 0xF) == 0x0 :  gpx->ptu_out = 0
-                        // DFM-17? (sn_ch == 0xC) gpx->ptu_out = 9 ? // test 0xD ...?
 
                         if ( (gpx->sonde_typ & 0xF) == 0xA) {
                             sprintf(gpx->sonde_id, "ID09:%6u", gpx->SN);
@@ -501,14 +525,22 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
         //       = fl24(exxxx0)/2^4
         //   meas20 * 16 = meas24
     }
+    if (gpx->ptu_out >= 0xC) { // DFM>=09(P)
+        if (conf_id >= 5 && conf_id <= 6) {
+            val = bits2val(conf_bits+4, 4*6);
+            gpx->meas24[conf_id] = fl24(val);
+        }
+    }
 
     // STM32-status: Bat, MCU-Temp
-    if ((gpx->sonde_typ & 0xF) == 0xA) { // DFM-09 (STM32)
-        if (conf_id == 0x5) { // voltage
+    if (gpx->ptu_out >= 0xA) { // DFM>=09(P) (STM32)
+        ui8_t ofs = 0;
+        if (gpx->ptu_out >= 0xC) ofs = 2;
+        if (conf_id == 0x5+ofs) { // voltage
             val = bits2val(conf_bits+8, 4*4);
             gpx->status[0] = val/1000.0;
         }
-        if (conf_id == 0x6) { // T-intern (STM32)
+        if (conf_id == 0x6+ofs) { // T-intern (STM32)
             val = bits2val(conf_bits+8, 4*4);
             gpx->status[1] = val/100.0;
         }
@@ -575,17 +607,24 @@ static void print_gpx(gpx_t *gpx) {
             if (gpx->option.ptu  &&  gpx->ptu_out) {
                 float t = get_Temp(gpx);
                 if (t > -270.0) printf("  T=%.1fC ", t);
-                if (gpx->option.vbs == 3) {
+                if (gpx->option.dbg) {
                     float t2 = get_Temp2(gpx);
                     float t4 = get_Temp4(gpx);
                     if (t2 > -270.0) printf("  T2=%.1fC ", t2);
                     if (t4 > -270.0) printf(" T4=%.1fC  ", t4);
                     printf(" f0: %.2f ", gpx->meas24[0]);
+                    printf(" f1: %.2f ", gpx->meas24[1]);
+                    printf(" f2: %.2f ", gpx->meas24[2]);
                     printf(" f3: %.2f ", gpx->meas24[3]);
                     printf(" f4: %.2f ", gpx->meas24[4]);
+                    if (gpx->ptu_out >= 0xC) {
+                        printf(" f5: %.2f ", gpx->meas24[5]);
+                        printf(" f6: %.2f ", gpx->meas24[6]);
+                    }
+
                 }
             }
-            if (gpx->option.vbs == 3  &&  (gpx->sonde_typ & 0xF) == 0xA) {
+            if (gpx->option.vbs == 3  &&  (gpx->ptu_out == 0xA || gpx->ptu_out >= 0xC)) {
                 printf("  U: %.2fV ", gpx->status[0]);
                 printf("  Ti: %.1fK ", gpx->status[1]);
             }
@@ -897,6 +936,7 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--iq0") == 0) { option_iq = 1; }  // differential/FM-demod
         else if   (strcmp(*argv, "--iq2") == 0) { option_iq = 2; }
         else if   (strcmp(*argv, "--iq3") == 0) { option_iq = 3; }  // iq2==iq3
+        else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
