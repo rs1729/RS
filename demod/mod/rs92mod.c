@@ -51,6 +51,7 @@ typedef struct {
     i8_t aut;
     i8_t aux;  // aux/ozone
     i8_t jsn;  // JSON output (auto_rx)
+    i8_t ngp;
 } option_t;
 
 typedef struct {
@@ -442,6 +443,7 @@ static int get_Cal(gpx_t *gpx) {
         byte = bytes[0] + (bytes[1] << 8);
         //fprintf(stdout, ":%04x ", byte);
         freq = 400000 + 10*byte; // kHz;
+        if (gpx->option.ngp) freq = 1600000 + 10*byte; // kHz
         gpx->freq = freq;
         fprintf(stdout, ": fq %d", freq);
         for (i = 0; i < 2; i++) {
@@ -1234,8 +1236,8 @@ int main(int argc, char *argv[]) {
     int fileloaded = 0;
 
     char bitbuf[BITS];
-    int bit_count = 0,
-        bitpos = 0,
+    int bitpos = 0,
+        b8pos = 0,
         byte_count = FRAMESTART;
     int bit, byte;
     int bitQ;
@@ -1385,7 +1387,7 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--iq0") == 0) { option_iq = 1; }  // differential/FM-demod
         else if   (strcmp(*argv, "--iq2") == 0) { option_iq = 2; }
         else if   (strcmp(*argv, "--iq3") == 0) { option_iq = 3; }  // iq2==iq3
-        else if   (strcmp(*argv, "--iqL") == 0) { option_iq = 4; }  // iq2==iq3
+        else if   (strcmp(*argv, "--ngp") == 0) { gpx.option.ngp = 1; }  // RS92-NGP, RS92-D: 1680 MHz
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -1456,7 +1458,7 @@ int main(int argc, char *argv[]) {
     dsp.hdrlen = strlen(rs92_rawheader);
     dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
     dsp.h = 0.8; // 1.0? modulation index abzgl. BT
-    if (option_iq == 4) dsp.h = 4.0; // L-band rs92-ngp
+    if (gpx.option.ngp) dsp.h *= 4.5; // L-band rs92-ngp
     dsp.opt_iq = option_iq;
 
     if ( dsp.sps < 8 ) {
@@ -1488,8 +1490,8 @@ int main(int argc, char *argv[]) {
         if (header_found) {
 
             byte_count = FRAMESTART;
-            bit_count = 0;
             bitpos = 0;
+            b8pos = 0;
 
             while ( byte_count < FRAME_LEN ) {
                 float bl = -1;
@@ -1499,11 +1501,11 @@ int main(int argc, char *argv[]) {
 
                 if (gpx.option.inv) bit ^= 1;
 
-                bit_count += 1;
-                bitbuf[bitpos] = bit;
-                bitpos++;
-                if (bitpos >= BITS) {
-                    bitpos = 0;
+                bitpos += 1;
+                bitbuf[b8pos] = bit;
+                b8pos++;
+                if (b8pos >= BITS) {
+                    b8pos = 0;
                     byte = bits2byte(bitbuf);
                     gpx.frame[byte_count] = byte;
                     byte_count++;
