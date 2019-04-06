@@ -466,7 +466,7 @@ typedef struct {
     int jahr; int monat; int tag;
     int wday;
     int std; int min; float sek;
-    double lat; double lon; double h;
+    double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vE; double vN; double vU;
     //int freq;
@@ -624,7 +624,7 @@ int get_GPSalt() {
         gpsheight |= gpsheight_bytes[i] << (8*(3-i));
     }
     height = gpsheight / 1000.0;
-    gpx.h = height;
+    gpx.alt = height;
 
     if (height < -100 || height > 60000) return -1;
     return 0;
@@ -722,14 +722,14 @@ void print_frame(int crc_err, int len) {
             get_GPSlon();
             err = get_GPSalt();
             if (!err) {
-                printf(" lat: %.6f° ", gpx.lat);
-                printf(" lon: %.6f° ", gpx.lon);
-                printf(" alt: %.2fm ", gpx.h);
+                printf(" lat: %.6f ", gpx.lat);
+                printf(" lon: %.6f ", gpx.lon);
+                printf(" alt: %.2fm ", gpx.alt);
                 //if (option_verbose)
                 {
                     get_GPSvel24();
                     //if (option_verbose == 2) printf("  (%.1f ,%.1f,%.1f) ", gpx.vE, gpx.vN, gpx.vU);
-                    printf("  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
+                    printf("  vH: %.1fm/s  D: %.1f  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
                 }
             }
             if (crc_err==0) printf(" [OK]"); else printf(" [NO]");

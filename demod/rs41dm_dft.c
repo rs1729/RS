@@ -55,7 +55,7 @@ typedef struct {
     double lat; double lon; double alt;
     double vN; double vE; double vU;
     double vH; double vD; double vD2;
-    float T;
+    float T; float RH;
     ui32_t crc;
 } gpx_t;
 
@@ -354,6 +354,7 @@ float Rf1,      // ref-resistor f1 (750 Ohm)
       calT1[3], // calibration T1
       co2[3],   // { -243.911 , 0.187654 , 8.2e-06 }
       calT2[3]; // calibration T2-Hum
+float calH[2];  // calibration Hum
 
 
 double c = 299.792458e6;
@@ -498,6 +499,9 @@ int get_CalData() {
     memcpy(calT1+1, calibytes+93, 4);  // 0x05*0x10+13
     memcpy(calT1+2, calibytes+97, 4);  // 0x06*0x10+ 1
 
+    memcpy(calH+0, calibytes+117, 4);  // 0x07*0x10+ 5
+    memcpy(calH+1, calibytes+121, 4);  // 0x07*0x10+ 9
+
     memcpy(co2+0, calibytes+293, 4);  // 0x12*0x10+ 5
     memcpy(co2+1, calibytes+297, 4);  // 0x12*0x10+ 9
     memcpy(co2+2, calibytes+301, 4);  // 0x12*0x10+13
@@ -509,6 +513,7 @@ int get_CalData() {
     return 0;
 }
 
+/*
 float get_Tc0(ui32_t f, ui32_t f1, ui32_t f2) {
     // y  = (f - f1) / (f2 - f1);
     // y1 = (f - f1) / f2; // = (1 - f1/f2)*y
@@ -526,6 +531,21 @@ float get_Tc0(ui32_t f, ui32_t f1, ui32_t f2) {
     // R/R0 = 1 + at + bt^2 + c(t-100)t^3 , R0 = 1000 Ohm, t/Celsius
     return t;
 }
+*/
+// T_RH-sensor
+float get_TH(ui32_t f, ui32_t f1, ui32_t f2) {
+    float *p = co2;
+    float *c  = calT2;
+    float  g = (float)(f2-f1)/(Rf2-Rf1),       // gain
+          Rb = (f1*Rf2-f2*Rf1)/(float)(f2-f1), // ofs
+          Rc = f/g - Rb,
+          //R = (Rc + c[1]) * c[0],
+          //T = p[0] + p[1]*R + p[2]*R*R;
+          R = Rc * c[0],
+          T = (p[0] + p[1]*R + p[2]*R*R + c[1])*(1.0 + c[2]);
+    return T;
+}
+// T-sensor, platinum resistor
 float get_Tc(ui32_t f, ui32_t f1, ui32_t f2) {
     float *p = co1;
     float *c  = calT1;
@@ -539,13 +559,32 @@ float get_Tc(ui32_t f, ui32_t f1, ui32_t f2) {
     return T;
 }
 
+// rel.hum., capacitor
+// (data:) ftp://ftp-cdc.dwd.de/pub/CDC/observations_germany/radiosondes/
+// (diffAlt: Ellipsoid-Geoid)
+float get_RH(ui32_t f, ui32_t f1, ui32_t f2, float T) {
+    float b0 = calH[0]/46.64; // empirical
+    float b1 = 0.1276;        // empirical
+    float fh = (f-f1)/(float)(f2-f1);
+    float rh = 100.0 * (fh-b0)/b1;
+    float T0 = 0.0, T1 = -30.0; // T/C
+    if (T < T0) rh += T0 - T/5.5;        // empir. temperature compensation
+    if (T < T1) rh *= 1.0 + (T1-T)/75.0; // empir. temperature compensation
+    if (rh < 0.0) rh = 0.0;
+    if (rh > 100.0) rh = 100.0;
+    if (T < -273.0) rh = -1.0;
+    return rh;
+}
+
 int get_PTU() {
     int err=0, i;
     int bR, bc1, bT1,
             bc2, bT2;
+    int bH;
     ui32_t meas[12];
     float Tc = -273.15;
-    float Tc0 = -273.15;
+    float TH = -273.15;
+    float RH = -1.0;
 
     get_CalData();
 
@@ -564,14 +603,25 @@ int get_PTU() {
         bT1 = calfrchk[0x05] && calfrchk[0x06];
         bc2 = calfrchk[0x12] && calfrchk[0x13];
         bT2 = calfrchk[0x13];
+        bH  = calfrchk[0x07];
 
         if (bR && bc1 && bT1) {
             Tc = get_Tc(meas[0], meas[1], meas[2]);
-            Tc0 = get_Tc0(meas[0], meas[1], meas[2]);
+            //Tc0 = get_Tc0(meas[0], meas[1], meas[2]);
         }
         gpx.T = Tc;
 
-        if (option_verbose == 4)
+        if (bR && bc2 && bT2) {
+            TH = get_TH(meas[6], meas[7], meas[8]);
+        }
+
+        if (bH) {
+            RH = get_RH(meas[3], meas[4], meas[5], Tc); // TH, TH-Tc (sensorT - T)
+        }
+        gpx.RH = RH;
+
+
+        if (option_verbose == 4 && (gpx.crc & (crc_PTU | crc_GPS3))==0)
         {
             printf("  h: %8.2f   # ", gpx.alt); // crc_GPS3 ?
 
@@ -581,17 +631,25 @@ int get_PTU() {
             printf("   #   ");
             printf("3: %8d %8d %8d", meas[6], meas[7], meas[8]);
             printf("   #   ");
-            if (Tc > -273.0) {
-                printf("  T: %8.4f , T0: %8.4f ", Tc, Tc0);
+
+            //if (Tc > -273.0 && RH > -0.5)
+            {
+                printf("  ");
+                printf(" Tc:%.2f ", Tc);
+                printf(" RH:%.1f ", RH);
+                printf(" TH:%.2f ", TH);
             }
             printf("\n");
 
-            if (gpx.alt > -100.0) {
+            //if (gpx.alt > -400.0)
+            {
                 printf("    %9.2f ; %6.1f ; %6.1f ", gpx.alt, Rf1, Rf2);
-                printf("; %10.6f ; %10.6f ; %10.6f ;", calT1[0], calT1[1], calT1[2]);
-                printf("  %8d ; %8d ; %8d ", meas[0], meas[1], meas[2]);
-                printf("; %10.6f ; %10.6f ; %10.6f ;", calT2[0], calT2[1], calT2[2]);
-                printf("  %8d ; %8d ; %8d" , meas[6], meas[7], meas[8]);
+                printf("; %10.6f ; %10.6f ; %10.6f ", calT1[0], calT1[1], calT1[2]);
+                //printf(";  %8d ; %8d ; %8d ", meas[0], meas[1], meas[2]);
+                printf("; %10.6f ; %10.6f ", calH[0], calH[1]);
+                //printf(";  %8d ; %8d ; %8d" , meas[3], meas[4], meas[5]);
+                printf("; %10.6f ; %10.6f ; %10.6f ", calT2[0], calT2[1], calT2[2]);
+                //printf(";  %8d ; %8d ; %8d" , meas[6], meas[7], meas[8]);
                 printf("\n");
             }
         }
@@ -1060,12 +1118,14 @@ int print_position(int ec) {
             //if (option_verbose)
             {
                 //fprintf(stdout, "  (%.1f %.1f %.1f) ", gpx.vN, gpx.vE, gpx.vU);
-                fprintf(stdout,"  vH: %4.1f  D: %5.1f°  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
+                fprintf(stdout,"  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
                 if (option_verbose == 3) fprintf(stdout," numSV: %02d ", gpx.numSV);
             }
         }
         if (option_ptu && !err0) {
-            if (gpx.T > -273.0) printf("  T=%.1fC ", gpx.T);
+            printf(" ");
+            if (gpx.T > -273.0) printf(" T=%.1fC ", gpx.T);
+            if (gpx.RH > -0.5)  printf(" RH=%.0f%% ", gpx.RH);
         }
 
 

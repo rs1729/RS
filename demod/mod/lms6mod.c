@@ -616,7 +616,7 @@ static void print_frame(gpx_t *gpx, int crc_err, int len) {
                 printf(" alt: %.2fm ", gpx->alt);
                 get_GPSvel24(gpx);
                 //if (gpx->option.vbs == 2) printf("  (%.1f ,%.1f,%.1f) ", gpx->vE, gpx->vN, gpx->vU);
-                printf("  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx->vH, gpx->vD, gpx->vV);
+                printf("  vH: %.1fm/s  D: %.1f  vV: %.1fm/s ", gpx->vH, gpx->vD, gpx->vV);
             }
 
             if (crc_err==0) printf(" [OK]"); else printf(" [NO]");

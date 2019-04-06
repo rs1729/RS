@@ -700,7 +700,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
             fprintf(stdout, " alt: "col_GPSalt"%.2f"col_TXT" ", gpx->alt);
             if (!err2) {
                 //if (gpx->option.vbs == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", gpx->vx, gpx->vy, gpx->vD2);
-                fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"°  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
+                fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
             }
             if (gpx->option.vbs >= 2) {
                 get_SN(gpx);
@@ -731,8 +731,8 @@ static int print_pos(gpx_t *gpx, int csOK) {
             fprintf(stdout, " lon: %.5f ", gpx->lon);
             fprintf(stdout, " alt: %.2f ", gpx->alt);
             if (!err2) {
-                //if (gpx->option.vbs == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f°) ", gpx->vx, gpx->vy, gpx->vD2);
-                fprintf(stdout, "  vH: %.1f  D: %.1f°  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
+                //if (gpx->option.vbs == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f) ", gpx->vx, gpx->vy, gpx->vD2);
+                fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
             }
             if (gpx->option.vbs >= 2) {
                 get_SN(gpx);

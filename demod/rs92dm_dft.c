@@ -920,7 +920,7 @@ int get_GPSkoord(int N) {
                         fprintf(stdout, "lat: %.5f , lon: %.5f , alt: %.1f ", lat, lon, alt);
                         fprintf(stdout, " (d:%.1f)", diter);
                         if ( option_vel == 4 ) {
-                            fprintf(stdout, "  vH: %4.1f  D: %5.1f°  vV: %3.1f ", vH, vD, vU);
+                            fprintf(stdout, "  vH: %4.1f  D: %5.1f  vV: %3.1f ", vH, vD, vU);
                         }
                         fprintf(stdout, "  sats: ");
                         fprintf(stdout, "%02d %02d %02d %02d  ", prn[i0], prn[i1], prn[i2], prn[i3]);
@@ -1030,7 +1030,7 @@ int get_GPSkoord(int N) {
             ecef2elli(pos1s_ecef[0], pos1s_ecef[1], pos1s_ecef[2], &lat1s, &lon1s, &alt1s);
             if (option_vergps == 8) {
                 fprintf(stdout, "\ndeltachips1s lat: %.6f , lon: %.6f , alt: %.2f ", lat1s, lon1s, alt1s);
-                fprintf(stdout, " vH: %4.1f  D: %5.1f°  vV: %3.1f ", vH, vD, vU);
+                fprintf(stdout, " vH: %4.1f  D: %5.1f  vV: %3.1f ", vH, vD, vU);
                 fprintf(stdout, "\n");
             }
         }
@@ -1054,7 +1054,7 @@ int get_GPSkoord(int N) {
             fprintf(stdout, "bancroft[%2d] lat: %.6f , lon: %.6f , alt: %.2f ", N, lat, lon, alt);
             fprintf(stdout, " (d:%.1f)", gpx.diter);
             if (option_vel) {
-                fprintf(stdout, "  vH: %4.1f  D: %5.1f°  vV: %3.1f ", vH, vD, vU);
+                fprintf(stdout, "  vH: %4.1f  D: %5.1f  vV: %3.1f ", vH, vD, vU);
             }
             fprintf(stdout, "  DOP[");
             for (j = 0; j < N; j++) {
@@ -1156,7 +1156,7 @@ int print_position(int ec) {  // GPS-Hoehe ueber Ellipsoid
                     fprintf(stdout, " (d:%.1f)", gpx.diter);
                 }
                 if (option_vel  /*&&  option_vergps >= 2*/) {
-                    fprintf(stdout,"  vH: %4.1f  D: %5.1f°  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
+                    fprintf(stdout,"  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
                 }
                 if (option_verbose) {
                     if (option_vergps != 2) {

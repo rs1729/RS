@@ -647,7 +647,7 @@ int print_pos(int csOK) {
                 err |= get_GPSvel();
                 if (!err) {
                     //if (option_verbose == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", datum.vx, datum.vy, datum.vD2);
-                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"°  vV: "col_GPSvel"%.1f"col_TXT" ", datum.vH, datum.vD, datum.vV);
+                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", datum.vH, datum.vD, datum.vV);
                 }
                 if (option_verbose >= 2) {
                     get_SN();
@@ -681,8 +681,8 @@ int print_pos(int csOK) {
             if (option_verbose) {
                 err |= get_GPSvel();
                 if (!err) {
-                    //if (option_verbose == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f°) ", datum.vx, datum.vy, datum.vD2);
-                    fprintf(stdout, "  vH: %.1f  D: %.1f°  vV: %.1f ", datum.vH, datum.vD, datum.vV);
+                    //if (option_verbose == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f) ", datum.vx, datum.vy, datum.vD2);
+                    fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", datum.vH, datum.vD, datum.vV);
                 }
                 if (option_verbose >= 2) {
                     get_SN();

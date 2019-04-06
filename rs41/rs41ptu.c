@@ -585,7 +585,7 @@ float Rf1,      // ref-resistor f1 (750 Ohm)
       calT1[3], // calibration T1
       co2[3],   // { -243.911 , 0.187654 , 8.2e-06 }
       calT2[3]; // calibration T2-Hum
-float calH[2];  // calibration Hum ?
+float calH[2];  // calibration Hum
 
 
 double c = 299.792458e6;
@@ -803,6 +803,7 @@ float get_RH(ui32_t f, ui32_t f1, ui32_t f2, float T) {
     if (T < T1) rh *= 1.0 + (T1-T)/75.0; // empir. temperature compensation
     if (rh < 0.0) rh = 0.0;
     if (rh > 100.0) rh = 100.0;
+    if (T < -273.0) rh = -1.0;
     return rh;
 }
 
@@ -1348,14 +1349,14 @@ int print_position(int ec) {
             //if (option_verbose)
             {
                 //fprintf(stdout, "  (%.1f %.1f %.1f) ", gpx.vN, gpx.vE, gpx.vU);
-                fprintf(stdout,"  vH: %4.1f  D: %5.1f°  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
+                fprintf(stdout,"  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx.vH, gpx.vD, gpx.vU);
                 if (option_verbose == 3) fprintf(stdout," sats: %02d ", gpx.numSV);
             }
         }
         if (option_ptu && !err0) {
             printf(" ");
             if (gpx.T > -273.0) printf(" T=%.1fC ", gpx.T);
-            if (gpx.RH > -0.5)  printf(" RH=%.1f%% ", gpx.RH);
+            if (gpx.RH > -0.5)  printf(" RH=%.0f%% ", gpx.RH);
         }
 
         if (option_crc) {

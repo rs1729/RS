@@ -84,7 +84,7 @@ typedef struct {
     double lat; double lon; double alt;
     double vN; double vE; double vU;
     double vH; double vD; double vD2;
-    float T;
+    float T; float RH;
     ui32_t crc;
     ui8_t frame[FRAME_LEN];
     ui8_t calibytes[51*16];
@@ -95,6 +95,7 @@ typedef struct {
     float ptu_calT1[3]; // calibration T1
     float ptu_co2[3];   // { -243.911 , 0.187654 , 8.2e-06 }
     float ptu_calT2[3]; // calibration T2-Hum
+    float ptu_calH[2];  // calibration Hum
     ui16_t conf_fw; // firmware
     ui8_t  conf_cd; // kill countdown (sec) (kt or bt)
     ui16_t conf_kt; // kill timer (sec)
@@ -495,6 +496,9 @@ static int get_CalData(gpx_t *gpx) {
     memcpy(gpx->ptu_calT1+1, gpx->calibytes+93, 4);  // 0x05*0x10+13
     memcpy(gpx->ptu_calT1+2, gpx->calibytes+97, 4);  // 0x06*0x10+ 1
 
+    memcpy(gpx->ptu_calH+0, gpx->calibytes+117, 4);  // 0x07*0x10+ 5
+    memcpy(gpx->ptu_calH+1, gpx->calibytes+121, 4);  // 0x07*0x10+ 9
+
     memcpy(gpx->ptu_co2+0, gpx->calibytes+293, 4);  // 0x12*0x10+ 5
     memcpy(gpx->ptu_co2+1, gpx->calibytes+297, 4);  // 0x12*0x10+ 9
     memcpy(gpx->ptu_co2+2, gpx->calibytes+301, 4);  // 0x12*0x10+13
@@ -506,6 +510,7 @@ static int get_CalData(gpx_t *gpx) {
     return 0;
 }
 
+/*
 static float get_Tc0(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
     // y  = (f - f1) / (f2 - f1);
     // y1 = (f - f1) / f2; // = (1 - f1/f2)*y
@@ -523,6 +528,21 @@ static float get_Tc0(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
     // R/R0 = 1 + at + bt^2 + c(t-100)t^3 , R0 = 1000 Ohm, t/Celsius
     return t;
 }
+*/
+// T_RH-sensor
+static float get_TH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
+    float *p = gpx->ptu_co2;
+    float *c  = gpx->ptu_calT2;
+    float  g = (float)(f2-f1)/(gpx->ptu_Rf2-gpx->ptu_Rf1),       // gain
+          Rb = (f1*gpx->ptu_Rf2-f2*gpx->ptu_Rf1)/(float)(f2-f1), // ofs
+          Rc = f/g - Rb,
+          //R = (Rc + c[1]) * c[0],
+          //T = p[0] + p[1]*R + p[2]*R*R;
+          R = Rc * c[0],
+          T = (p[0] + p[1]*R + p[2]*R*R + c[1])*(1.0 + c[2]);
+    return T;
+}
+// T-sensor, platinum resistor
 static float get_Tc(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
     float *p = gpx->ptu_co1;
     float *c  = gpx->ptu_calT1;
@@ -536,13 +556,32 @@ static float get_Tc(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
     return T;
 }
 
+// rel.hum., capacitor
+// (data:) ftp://ftp-cdc.dwd.de/pub/CDC/observations_germany/radiosondes/
+// (diffAlt: Ellipsoid-Geoid)
+static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
+    float b0 = gpx->ptu_calH[0]/46.64; // empirical
+    float b1 = 0.1276;                 // empirical
+    float fh = (f-f1)/(float)(f2-f1);
+    float rh = 100.0 * (fh-b0)/b1;
+    float T0 = 0.0, T1 = -30.0; // T/C
+    if (T < T0) rh += T0 - T/5.5;        // empir. temperature compensation
+    if (T < T1) rh *= 1.0 + (T1-T)/75.0; // empir. temperature compensation
+    if (rh < 0.0) rh = 0.0;
+    if (rh > 100.0) rh = 100.0;
+    if (T < -273.0) rh = -1.0;
+    return rh;
+}
+
 static int get_PTU(gpx_t *gpx) {
     int err=0, i;
     int bR, bc1, bT1,
             bc2, bT2;
+    int bH;
     ui32_t meas[12];
     float Tc = -273.15;
-    float Tc0 = -273.15;
+    float TH = -273.15;
+    float RH = -1.0;
 
     get_CalData(gpx);
 
@@ -561,14 +600,25 @@ static int get_PTU(gpx_t *gpx) {
         bT1 = gpx->calfrchk[0x05] && gpx->calfrchk[0x06];
         bc2 = gpx->calfrchk[0x12] && gpx->calfrchk[0x13];
         bT2 = gpx->calfrchk[0x13];
+        bH  = gpx->calfrchk[0x07];
 
         if (bR && bc1 && bT1) {
             Tc = get_Tc(gpx, meas[0], meas[1], meas[2]);
-            Tc0 = get_Tc0(gpx, meas[0], meas[1], meas[2]);
+            //Tc0 = get_Tc0(gpx, meas[0], meas[1], meas[2]);
         }
         gpx->T = Tc;
 
-        if (gpx->option.vbs == 4)
+        if (bR && bc2 && bT2) {
+            TH = get_TH(gpx, meas[6], meas[7], meas[8]);
+        }
+
+        if (bH) {
+            RH = get_RH(gpx, meas[3], meas[4], meas[5], Tc); // TH, TH-Tc (sensorT - T)
+        }
+        gpx->RH = RH;
+
+
+        if (gpx->option.vbs == 4 && (gpx->crc & (crc_PTU | crc_GPS3))==0)
         {
             printf("  h: %8.2f   # ", gpx->alt); // crc_GPS3 ?
 
@@ -578,17 +628,25 @@ static int get_PTU(gpx_t *gpx) {
             printf("   #   ");
             printf("3: %8d %8d %8d", meas[6], meas[7], meas[8]);
             printf("   #   ");
-            if (Tc > -273.0) {
-                printf("  T: %8.4f , T0: %8.4f ", Tc, Tc0);
-            }
+
+            //if (Tc > -273.0 && RH > -0.5)
+            {
+                printf("  ");
+                printf(" Tc:%.2f ", Tc);
+                printf(" RH:%.1f ", RH);
+                printf(" TH:%.2f ", TH);
+           }
             printf("\n");
 
-            if (gpx->alt > -100.0) {
+            if (gpx->alt > -400.0)
+            {
                 printf("    %9.2f ; %6.1f ; %6.1f ", gpx->alt, gpx->ptu_Rf1, gpx->ptu_Rf2);
-                printf("; %10.6f ; %10.6f ; %10.6f ;", gpx->ptu_calT1[0], gpx->ptu_calT1[1], gpx->ptu_calT1[2]);
-                printf("  %8d ; %8d ; %8d ", meas[0], meas[1], meas[2]);
-                printf("; %10.6f ; %10.6f ; %10.6f ;", gpx->ptu_calT2[0], gpx->ptu_calT2[1], gpx->ptu_calT2[2]);
-                printf("  %8d ; %8d ; %8d" , meas[6], meas[7], meas[8]);
+                printf("; %10.6f ; %10.6f ; %10.6f ", gpx->ptu_calT1[0], gpx->ptu_calT1[1], gpx->ptu_calT1[2]);
+                //printf(";  %8d ; %8d ; %8d ", meas[0], meas[1], meas[2]);
+                printf("; %10.6f ; %10.6f ", gpx->ptu_calH[0], gpx->ptu_calH[1]);
+                //printf(";  %8d ; %8d ; %8d ", meas[3], meas[4], meas[5]);
+                printf("; %10.6f ; %10.6f ; %10.6f ", gpx->ptu_calT2[0], gpx->ptu_calT2[1], gpx->ptu_calT2[2]);
+                //printf(";  %8d ; %8d ; %8d" , meas[6], meas[7], meas[8]);
                 printf("\n");
             }
         }
@@ -1061,12 +1119,14 @@ static int print_position(gpx_t *gpx, int ec) {
             //if (gpx->option.vbs)
             {
                 //fprintf(stdout, "  (%.1f %.1f %.1f) ", gpx->vN, gpx->vE, gpx->vU);
-                fprintf(stdout,"  vH: %4.1f  D: %5.1f°  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vU);
+                fprintf(stdout,"  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vU);
                 if (gpx->option.vbs == 3) fprintf(stdout," sats: %02d ", gpx->numSV);
             }
         }
         if (gpx->option.ptu && !err0) {
-            if (gpx->T > -273.0) printf("  T=%.1fC ", gpx->T);
+            printf(" ");
+            if (gpx->T > -273.0) printf(" T=%.1fC ", gpx->T);
+            if (gpx->RH > -0.5)  printf(" RH=%.0f%% ", gpx->RH);
         }
 
 
@@ -1119,6 +1179,9 @@ static int print_position(gpx_t *gpx, int ec) {
                                gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vU, gpx->numSV);
                 if (gpx->option.ptu && !err0 && gpx->T > -273.0) {
                     fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
+                }
+                if (gpx->option.ptu && !err0 && gpx->RH > -0.5) {
+                    fprintf(stdout, ", \"humidity\": %.1f",  gpx->RH );
                 }
                 if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
                     fprintf(stdout, ", \"aux\": \"%s\"",  gpx->xdata );

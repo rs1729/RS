@@ -983,7 +983,7 @@ float get_TLC555freq(float count) {
 float get_C_RH(float freq, float T) {  // TLC555 astable: R_A=3.65k, R_B=338k
     float R_B = 338e3;
     float R_A = 3.65e3;
-    float td = 1e-6;
+    float td = 0;
     float C_RH = (1/freq - 2*td) / (LN2 * (R_A + 2*R_B));
     // freq/T compensation ...
     return C_RH;
@@ -1054,7 +1054,7 @@ int print_pos(int csOK) {
                 err |= get_GPSvel();
                 if (!err) {
                     //if (option_verbose == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", datum.vx, datum.vy, datum.vD2);
-                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"°  vV: "col_GPSvel"%.1f"col_TXT" ", datum.vH, datum.vD, datum.vV);
+                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", datum.vH, datum.vD, datum.vV);
                 }
                 if (option_verbose >= 2) {
                     get_SN();
@@ -1092,8 +1092,8 @@ int print_pos(int csOK) {
             if (option_verbose) {
                 err |= get_GPSvel();
                 if (!err) {
-                    //if (option_verbose == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f°) ", datum.vx, datum.vy, datum.vD2);
-                    fprintf(stdout, "  vH: %.1f  D: %.1f°  vV: %.1f ", datum.vH, datum.vD, datum.vV);
+                    //if (option_verbose == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f) ", datum.vx, datum.vy, datum.vD2);
+                    fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", datum.vH, datum.vD, datum.vV);
                 }
                 if (option_verbose >= 2) {
                     get_SN();
