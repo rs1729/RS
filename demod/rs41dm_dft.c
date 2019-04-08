@@ -264,6 +264,8 @@ int check_CRC(ui32_t pos, ui32_t pck) {
 
 
 /*
+GPS chip: ublox UBX-G6010-ST
+
   Pos: SubHeader, 1+1 byte (ID+LEN)
 0x039: 7928   FrameNumber+SondeID
               +(0x050: 0732  CalFrames 0x00..0x32)
@@ -275,61 +277,62 @@ int check_CRC(ui32_t pos, ui32_t pck) {
 0x12B: 7Exx   AUX-xdata
 */
 
-#define crc_FRAME    (1<<0)
-#define xor_FRAME    0x1713  // ^0x6E3B=0x7928
-#define pck_FRAME    0x7928
-#define pos_FRAME     0x039
-#define pos_FrameNb   0x03B  // 2 byte
-#define pos_SondeID   0x03D  // 8 byte
-#define pos_CalData   0x052  // 1 byte, counter 0x00..0x32
-#define pos_Calfreq   0x055  // 2 byte, calfr 0x00
-#define pos_Calburst  0x05E  // 1 byte, calfr 0x02
+#define crc_FRAME      (1<<0)
+#define xor_FRAME      0x1713  // ^0x6E3B=0x7928
+#define pck_FRAME      0x7928
+#define pos_FRAME       0x039
+#define pos_FrameNb     0x03B  // 2 byte
+#define pos_SondeID     0x03D  // 8 byte
+#define pos_CalData     0x052  // 1 byte, counter 0x00..0x32
+#define pos_Calfreq     0x055  // 2 byte, calfr 0x00
+#define pos_Calburst    0x05E  // 1 byte, calfr 0x02
 // ? #define pos_Caltimer  0x05A  // 2 byte, calfr 0x02 ?
-#define pos_CalRSTyp  0x05B  // 8 byte, calfr 0x21 (+2 byte in 0x22?)
+#define pos_CalRSTyp    0x05B  // 8 byte, calfr 0x21 (+2 byte in 0x22?)
         // weitere chars in calfr 0x22/0x23; weitere ID
 
-#define crc_PTU      (1<<1)
-#define xor_PTU      0xE388  // ^0x99A2=0x0x7A2A
-#define pck_PTU      0x7A2A  // PTU
-#define pos_PTU       0x065
+#define crc_PTU        (1<<1)
+#define xor_PTU        0xE388  // ^0x99A2=0x0x7A2A
+#define pck_PTU        0x7A2A  // PTU
+#define pos_PTU         0x065
 
-#define crc_GPS1     (1<<2)
-#define xor_GPS1     0x9667  // ^0xEA79=0x7C1E
-#define pck_GPS1     0x7C1E  // RXM-RAW (0x02 0x10)
-#define pos_GPS1      0x093
-#define pos_GPSweek   0x095  // 2 byte
-#define pos_GPSiTOW   0x097  // 4 byte
-#define pos_satsN     0x09B  // 12x2 byte (1: SV, 1: quality,strength)
+#define crc_GPS1       (1<<2)
+#define xor_GPS1       0x9667  // ^0xEA79=0x7C1E
+#define pck_GPS1       0x7C1E  // RXM-RAW (0x02 0x10)
+#define pos_GPS1        0x093
+#define pos_GPSweek     0x095  // 2 byte
+#define pos_GPSiTOW     0x097  // 4 byte
+#define pos_satsN       0x09B  // 12x2 byte (1: SV, 1: quality,strength)
 
-#define crc_GPS2     (1<<3)
-#define xor_GPS2     0xD7AD  // ^0xAAF4=0x7D59
-#define pck_GPS2     0x7D59  // RXM-RAW (0x02 0x10)
-#define pos_GPS2      0x0B5
-#define pos_minPR     0x0B7  //        4 byte
-#define pos_FF        0x0BB  //        1 byte
-#define pos_dataSats  0x0BC  // 12x(4+3) byte (4: pseudorange, 3: doppler)
+#define crc_GPS2       (1<<3)
+#define xor_GPS2       0xD7AD  // ^0xAAF4=0x7D59
+#define pck_GPS2       0x7D59  // RXM-RAW (0x02 0x10)
+#define pos_GPS2        0x0B5
+#define pos_minPR       0x0B7  //        4 byte
+#define pos_FF          0x0BB  //        1 byte
+#define pos_dataSats    0x0BC  // 12x(4+3) byte (4: pseudorange, 3: doppler)
 
-#define crc_GPS3     (1<<4)
-#define xor_GPS3     0xB9FF  // ^0xC2EA=0x7B15
-#define pck_GPS3     0x7B15  // NAV-SOL (0x01 0x06)
-#define pos_GPS3      0x112
-#define pos_GPSecefX  0x114  //   4 byte
-#define pos_GPSecefY  0x118  //   4 byte
-#define pos_GPSecefZ  0x11C  //   4 byte
-#define pos_GPSecefV  0x120  // 3*2 byte
-#define pos_numSats   0x126  //   1 byte
-#define pos_sAcc      0x127  //   1 byte
-#define pos_pDOP      0x128  //   1 byte
+#define crc_GPS3       (1<<4)
+#define xor_GPS3       0xB9FF  // ^0xC2EA=0x7B15
+#define pck_GPS3       0x7B15  // NAV-SOL (0x01 0x06)
+#define pos_GPS3        0x112
+#define pos_GPSecefX    0x114  //   4 byte
+#define pos_GPSecefY    0x118  //   4 byte
+#define pos_GPSecefZ    0x11C  //   4 byte
+#define pos_GPSecefV    0x120  // 3*2 byte
+#define pos_numSats     0x126  //   1 byte
+#define pos_sAcc        0x127  //   1 byte
+#define pos_pDOP        0x128  //   1 byte
 
-#define crc_AUX      (1<<5)
-#define pck_AUX      0x7E00  // LEN variable
-#define pos_AUX       0x12B
+#define crc_AUX        (1<<5)
+#define pck_AUX        0x7E00  // LEN variable
+#define pos_AUX         0x12B
 
-#define crc_ZERO     (1<<6)  // LEN variable
-#define pck_ZERO     0x7600
-#define pck_ZEROstd  0x7611  // NDATA std-frm, no aux
-#define pos_ZEROstd   0x12B  // pos_AUX(0)
+#define crc_ZERO       (1<<6)  // LEN variable
+#define pck_ZERO       0x7600
+#define pck_ZEROstd    0x7611  // NDATA std-frm, no aux
+#define pos_ZEROstd     0x12B  // pos_AUX(0)
 
+#define pck_ENCRYPTED  0x8000  // Packet type for an Encrypted payload
 
 /*
   frame[pos_FRAME-1] == 0x0F: len == NDATA_LEN(320)
@@ -366,6 +369,10 @@ int get_SatData() {
     ui32_t minPR;
     int numSV;
     double pDOP, sAcc;
+
+    if ( ((frame[pos_GPS1]<<8) | frame[pos_GPS1+1]) != pck_GPS1 ) return -1;
+    if ( ((frame[pos_GPS2]<<8) | frame[pos_GPS2+1]) != pck_GPS2 ) return -2;
+    if ( ((frame[pos_GPS3]<<8) | frame[pos_GPS3+1]) != pck_GPS3 ) return -3;
 
     fprintf(stdout, "[%d]\n", u2(frame+pos_FrameNb));
 
@@ -714,14 +721,15 @@ int get_GPStime() {
 int get_GPS1() {
     int err=0;
 
-    // ((framebyte(pos_GPS1)<<8) | framebyte(pos_GPS1+1)) != pck_GPS1 ?
-    if ( framebyte(pos_GPS1) != ((pck_GPS1>>8) & 0xFF) ) {
+    // framebyte(pos_GPS1+1) != (pck_GPS1 & 0xFF) ?
+    err = check_CRC(pos_GPS1, pck_GPS1);
+    if (err) {
         gpx.crc |= crc_GPS1;
+        // reset GPS1-data (json)
+        gpx.jahr = 0; gpx.monat = 0; gpx.tag = 0;
+        gpx.std = 0; gpx.min = 0; gpx.sek = 0.0;
         return -1;
     }
-
-    err = check_CRC(pos_GPS1, pck_GPS1);
-    if (err) gpx.crc |= crc_GPS1;
 
     err |= get_GPSweek(); // no plausibility-check
     err |= get_GPStime(); // no plausibility-check
@@ -732,6 +740,7 @@ int get_GPS1() {
 int get_GPS2() {
     int err=0;
 
+    // framebyte(pos_GPS2+1) != (pck_GPS2 & 0xFF) ?
     err = check_CRC(pos_GPS2, pck_GPS2);
     if (err) gpx.crc |= crc_GPS2;
 
@@ -833,14 +842,16 @@ int get_GPSkoord() {
 int get_GPS3() {
     int err=0;
 
-    // ((framebyte(pos_GPS3)<<8) | framebyte(pos_GPS3+1)) != pck_GPS3 ?
-    if ( framebyte(pos_GPS3) != ((pck_GPS3>>8) & 0xFF) ) {
+    // framebyte(pos_GPS3+1) != (pck_GPS3 & 0xFF) ?
+    err = check_CRC(pos_GPS3, pck_GPS3);
+    if (err) {
         gpx.crc |= crc_GPS3;
+        // reset GPS3-data (json)
+        gpx.lat = 0.0; gpx.lon = 0.0; gpx.alt = 0.0;
+        gpx.vH  = 0.0; gpx.vD  = 0.0; gpx.vU  = 0.0;
+        gpx.numSV = 0;
         return -1;
     }
-
-    err = check_CRC(pos_GPS3, pck_GPS3);
-    if (err) gpx.crc |= crc_GPS3;
 
     err |= get_GPSkoord(); // plausibility-check: altitude, if ecef=(0,0,0)
 
@@ -1085,6 +1096,14 @@ int print_position(int ec) {
     int i;
     int err, err0, err1, err2, err3;
     int output, out_mask;
+    int encrypted = 0;
+
+    // Quick check for an encrypted packet (RS41-SGM)
+    // These sondes have a type 0x80 packet in place of the regular PTU packet.
+    if (check_CRC(pos_PTU, pck_ENCRYPTED)==0) { // frame[pos_PTU] == pck_ENCRYPTED>>8
+        encrypted = 1;                               // and CRC-OK
+        // Continue with the rest of the extraction
+    }
 
     err = get_FrameConf();
 
@@ -1102,6 +1121,9 @@ int print_position(int ec) {
         if (!err) {
             fprintf(stdout, "[%5d] ", gpx.frnr);
             fprintf(stdout, "(%s) ", gpx.id);
+        }
+        if (encrypted) { // e.g. 0x80A7-pck
+            fprintf(stdout, " (RS41-SGM: %02X%02X) ", frame[pos_PTU], frame[pos_PTU+1]);
         }
         if (!err1) {
             Gps2Date(gpx.week, gpx.gpssec, &gpx.jahr, &gpx.monat, &gpx.tag);
@@ -1169,13 +1191,22 @@ int print_position(int ec) {
 
         if (option_json) {
             // Print JSON output required by auto_rx.
-            if (!err && !err1 && !err3) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
+            if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
+                fprintf(stdout, "{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
+                               gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV );
                 if (option_ptu && !err0 && gpx.T > -273.0) {
-                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"temp\":%.1f }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV, gpx.T );
-                } else {
-                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV );
+                    fprintf(stdout, ", \"temp\": %.1f", gpx.T );
                 }
-                printf("\n");
+/*
+                if (option_ptu && !err0 && gpx.RH > -0.5) {
+                    fprintf(stdout, ", \"humidity\": %.1f", gpx.RH );
+                }
+*/
+                if (encrypted){
+                    fprintf(stdout, ", \"encrypted\": true");
+                }
+                fprintf(stdout, " }\n");
+                fprintf(stdout, "\n");
             }
         }
 

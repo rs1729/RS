@@ -574,10 +574,10 @@ static int get_PTU(gpx_t *gpx) {
                 printf(" Tc:%.2f ", Tc);
                 printf(" RH:%.1f ", RH);
                 printf(" TH:%.2f ", TH);
-           }
+            }
             printf("\n");
 
-            if (gpx->alt > -400.0)
+            //if (gpx->alt > -400.0)
             {
                 printf("    %9.2f ; %6.1f ; %6.1f ", gpx->alt, gpx->ptu_Rf1, gpx->ptu_Rf2);
                 printf("; %10.6f ; %10.6f ; %10.6f ", gpx->ptu_calT1[0], gpx->ptu_calT1[1], gpx->ptu_calT1[2]);
@@ -728,7 +728,7 @@ static int get_GPStime(gpx_t *gpx) {
 static int get_GPS1(gpx_t *gpx) {
     int err=0;
 
-    // gpx->frame[pos_GPS1+1] != pck_GPS1 & 0xFF ?
+    // gpx->frame[pos_GPS1+1] != (pck_GPS1 & 0xFF) ?
     err = check_CRC(gpx, pos_GPS1, pck_GPS1);
     if (err) {
         gpx->crc |= crc_GPS1;
@@ -747,7 +747,7 @@ static int get_GPS1(gpx_t *gpx) {
 static int get_GPS2(gpx_t *gpx) {
     int err=0;
 
-    // gpx->frame[pos_GPS2+1] != pck_GPS2 & 0xFF ?
+    // gpx->frame[pos_GPS2+1] != (pck_GPS2 & 0xFF) ?
     err = check_CRC(gpx, pos_GPS2, pck_GPS2);
     if (err) gpx->crc |= crc_GPS2;
 
@@ -854,7 +854,7 @@ static int get_GPSkoord(gpx_t *gpx) {
 static int get_GPS3(gpx_t *gpx) {
     int err=0;
 
-    // gpx->frame[pos_GPS3+1] != pck_GPS3 & 0xFF ?
+    // gpx->frame[pos_GPS3+1] != (pck_GPS3 & 0xFF) ?
     err = check_CRC(gpx, pos_GPS3, pck_GPS3);
     if (err) {
         gpx->crc |= crc_GPS3;
@@ -1210,7 +1210,7 @@ static int print_position(gpx_t *gpx, int ec) {
             if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                 // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
                 fprintf(stdout, "{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                               gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
+                               gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV );
                 if (gpx->option.ptu && !err0 && gpx->T > -273.0) {
                     fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
                 }
