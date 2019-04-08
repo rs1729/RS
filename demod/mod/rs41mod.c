@@ -328,6 +328,7 @@ GPS chip: ublox UBX-G6010-ST
 #define pck_ZEROstd  0x7611  // NDATA std-frm, no aux
 #define pos_ZEROstd   0x12B  // pos_AUX(0)
 
+#define pck_ENCRYPTED   0x80 // Packet type for an Encrypted payload
 
 /*
   frame[pos_FRAME-1] == 0x0F: len == NDATA_LEN(320)
@@ -1079,11 +1080,19 @@ static int print_position(gpx_t *gpx, int ec) {
     int i;
     int err, err0, err1, err2, err3;
     int output, out_mask;
+    int encrypted;
 
     gpx->out = 0;
     gpx->aux = 0;
 
     err = get_FrameConf(gpx);
+
+    // Quick check for an encrypted packet (RS41-SGM)
+    // These sondes have a type 0x80 packet in place of the regular PTU packet.
+    if (gpx->frame[pos_PTU] == pck_ENCRYPTED){
+        encrypted = 1;
+        // Continue with the rest of the extraction (which will result in null data)
+    }
 
     err1 = get_GPS1(gpx);
     err2 = get_GPS2(gpx);
@@ -1103,6 +1112,9 @@ static int print_position(gpx_t *gpx, int ec) {
         if (!err) {
             fprintf(stdout, "[%5d] ", gpx->frnr);
             fprintf(stdout, "(%s) ", gpx->id);
+        }
+        if (encrypted) {
+            fprintf(stdout, " Encrypted payload (RS41-SGM) ");
         }
         if (!err1) {
             Gps2Date(gpx);
@@ -1173,7 +1185,7 @@ static int print_position(gpx_t *gpx, int ec) {
 
         if (gpx->option.jsn) {
             // Print out telemetry data as JSON
-            if (!err && !err1 && !err3) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
+            if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                 // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
                 fprintf(stdout, "{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
                                gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vU, gpx->numSV);
@@ -1185,6 +1197,9 @@ static int print_position(gpx_t *gpx, int ec) {
                 }
                 if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
                     fprintf(stdout, ", \"aux\": \"%s\"",  gpx->xdata );
+                }
+                if (encrypted){
+                    printf(",\"encrypted\": true");
                 }
                 fprintf(stdout, " }\n");
                 fprintf(stdout, "\n");

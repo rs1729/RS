@@ -330,6 +330,7 @@ int check_CRC(ui32_t pos, ui32_t pck) {
 #define pck_ZEROstd  0x7611  // NDATA std-frm, no aux
 #define pos_ZEROstd   0x12B  // pos_AUX(0)
 
+#define pck_ENCRYPTED   0x80 // Packet type for an Encrypted payload
 
 /*
   frame[pos_FRAME-1] == 0x0F: len == NDATA_LEN(320)
@@ -1085,8 +1086,16 @@ int print_position(int ec) {
     int i;
     int err, err0, err1, err2, err3;
     int output, out_mask;
+    int encrypted;
 
     err = get_FrameConf();
+
+    // Quick check for an encrypted packet (RS41-SGM)
+    // These sondes have a type 0x80 packet in place of the regular PTU packet.
+    if (frame[pos_PTU] == pck_ENCRYPTED){
+        encrypted = 1;
+        // Continue with the rest of the extraction (which will result in null data)
+    }
 
     err1 = get_GPS1();
     err2 = get_GPS2();
@@ -1122,6 +1131,11 @@ int print_position(int ec) {
                 if (option_verbose == 3) fprintf(stdout," numSV: %02d ", gpx.numSV);
             }
         }
+
+        if (encrypted) {
+            fprintf(stdout, " Encrypted payload (RS41-SGM) ");
+        }
+
         if (option_ptu && !err0) {
             printf(" ");
             if (gpx.T > -273.0) printf(" T=%.1fC ", gpx.T);
@@ -1169,13 +1183,18 @@ int print_position(int ec) {
 
         if (option_json) {
             // Print JSON output required by auto_rx.
-            if (!err && !err1 && !err3) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
+            if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                 if (option_ptu && !err0 && gpx.T > -273.0) {
-                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"temp\":%.1f }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV, gpx.T );
+                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"temp\":%.1f ",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV, gpx.T );
                 } else {
-                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d }\n",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV );
+                    printf("{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d ",  gpx.frnr, gpx.id, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vU, gpx.numSV );
                 }
-                printf("\n");
+                // Add on a field if the payload data is encrypted (and is hence invalid...)
+                if (encrypted){
+                    printf(",\"encrypted\": true");
+                }
+
+                printf("}\n");
             }
         }
 
