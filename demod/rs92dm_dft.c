@@ -162,8 +162,9 @@ ui8_t framebyte(int pos) {
 
 /* ------------------------------------------------------------------------------------ */
 
-#define GPS_WEEK1024  1
 #define WEEKSEC       604800
+//#define GPS_WEEK1024  1      // GPS epoch
+ui8_t GPS_WEEK1024epoch = 1;   // GPS epoch
 
 /*
  * Convert GPS Week and Seconds to Modified Julian Day.
@@ -541,7 +542,7 @@ int calc_satpos_alm(EPHEM_t alm[], double t, SAT_t *satp) {
             else if (t-alm[j].toa < -WEEKSEC/2) rollover = -1;
             else rollover = 0;
             week = alm[j].week - rollover;
-            /*if (j == 1)*/ gpx.week = week + GPS_WEEK1024*1024;
+            /*if (j == 1)*/ gpx.week = week + GPS_WEEK1024epoch*1024;
 
             if (option_vel >= 2) {
                 GPS_SatellitePositionVelocity_Ephem(
@@ -1310,8 +1311,9 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "       -v, -vx, -vv\n");
             fprintf(stderr, "       -r, --raw\n");
             fprintf(stderr, "       -i, --invert\n");
-            fprintf(stderr, "       -a, --almanac  <almanacSEM>\n");
             fprintf(stderr, "       -e, --ephem    <ephemperisRinex>\n");
+            fprintf(stderr, "       -a, --almanac  <almanacSEM>\n");
+            fprintf(stderr, "           --gpsepoch <n> (2019-04-07: n=2)\n");
             fprintf(stderr, "       -g1          (verbose GPS:   4 sats)\n");
             fprintf(stderr, "       -g2          (verbose GPS: all sats)\n");
             fprintf(stderr, "       -gg          (vverbose GPS)\n");
@@ -1351,17 +1353,26 @@ int main(int argc, char *argv[]) {
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
         }
+        else if ( (strcmp(*argv, "-e") == 0) || (strncmp(*argv, "--ephem", 7) == 0) ) {
+            ++argv;
+            if (*argv) fp_eph = fopen(*argv, "rb"); // bin-mode
+            else return -1;
+            if (fp_eph == NULL) fprintf(stderr, "[rinex] %s konnte nicht geoeffnet werden\n", *argv);
+        }
         else if ( (strcmp(*argv, "-a") == 0) || (strcmp(*argv, "--almanac") == 0) ) {
             ++argv;
             if (*argv) fp_alm = fopen(*argv, "r"); // txt-mode
             else return -1;
             if (fp_alm == NULL) fprintf(stderr, "[almanac] %s konnte nicht geoeffnet werden\n", *argv);
         }
-        else if ( (strcmp(*argv, "-e") == 0) || (strncmp(*argv, "--ephem", 7) == 0) ) {
-            ++argv;
-            if (*argv) fp_eph = fopen(*argv, "rb"); // bin-mode
+        else if ( strcmp(*argv, "--gpsepoch") == 0 ) { // SEM almanac, GPS week: 10 bit
+            ++argv;                                    // GPS epoch (default: 1)
+            if (*argv) {                               // 2019-04-07: rollover 1 -> 2
+                int gpsepoch = atoi(*argv);
+                if (gpsepoch < 0  || gpsepoch > 4) gpsepoch = 1;
+                GPS_WEEK1024epoch = gpsepoch;
+            }
             else return -1;
-            if (fp_eph == NULL) fprintf(stderr, "[rinex] %s konnte nicht geoeffnet werden\n", *argv);
         }
         else if ( (strcmp(*argv, "--dop") == 0) ) {
             ++argv;
