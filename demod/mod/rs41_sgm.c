@@ -512,7 +512,7 @@ static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     return rh;
 }
 
-static int get_PTU(gpx_t *gpx) {
+static int get_PTU(gpx_t *gpx, int pos, int pck) {
     int err=0, i;
     int bR, bc1, bT1,
             bc2, bT2;
@@ -524,14 +524,17 @@ static int get_PTU(gpx_t *gpx) {
 
     get_CalData(gpx);
 
-    err = check_CRC(gpx, pos_PTU, pck_PTU);
+    //err = check_CRC(gpx, pos_PTU, pck_PTU);
+    err = check_CRC(gpx, pos, pck);
     if (err) gpx->crc |= crc_PTU;
 
     if (err == 0)
     {
-
+        // 0x7A2A: 16 byte (P)TU
+        // 0x7F1B: 12 byte _TU
         for (i = 0; i < 12; i++) {
-            meas[i] = u3(gpx->frame+pos_PTU+2+3*i);
+            //meas[i] = u3(gpx->frame+pos_PTU+2+3*i);
+            meas[i] = u3(gpx->frame+pos+2+3*i);
         }
 
         bR  = gpx->calfrchk[0x03] && gpx->calfrchk[0x04];
@@ -557,7 +560,7 @@ static int get_PTU(gpx_t *gpx) {
         gpx->RH = RH;
 
 
-        if (gpx->option.vbs == 4 && (gpx->crc & (crc_PTU | crc_GPS3))==0)
+        if (gpx->option.vbs == 4 && (gpx->crc & (crc_PTU | crc_GPS3))==0 && pos==pos_PTU)
         {
             printf("  h: %8.2f   # ", gpx->alt); // crc_GPS3 ?
 
@@ -748,7 +751,7 @@ static int get_GPS2(gpx_t *gpx, int ofs) {
     int err=0;
 
     // gpx->frame[pos_GPS2+1] != (pck_GPS2 & 0xFF) ?
-    err = check_CRC(gpx, pos_GPS2, pck_GPS2);
+    err = check_CRC(gpx, pos_GPS2+ofs, pck_GPS2);
     if (err) gpx->crc |= crc_GPS2;
 
     return err;
@@ -919,7 +922,7 @@ static int get_Aux(gpx_t *gpx) {
     return count7E;
 }
 
-static int get_Calconf(gpx_t *gpx, int out) {
+static int get_Calconf(gpx_t *gpx, int out, int ofs) {
     int i;
     unsigned byte;
     ui8_t calfr = 0;
@@ -928,16 +931,16 @@ static int get_Calconf(gpx_t *gpx, int out) {
     char sondetyp[9];
     int err = 0;
 
-    byte = gpx->frame[pos_CalData];
+    byte = gpx->frame[pos_CalData+ofs];
     calfr = byte;
-    err = check_CRC(gpx, pos_FRAME, pck_FRAME);
+    err = check_CRC(gpx, pos_FRAME+ofs, pck_FRAME);
 
     if (gpx->option.vbs == 3) {
         fprintf(stdout, "\n");  // fflush(stdout);
         fprintf(stdout, "[%5d] ", gpx->frnr);
         fprintf(stdout, " 0x%02x: ", calfr);
         for (i = 0; i < 16; i++) {
-            byte = gpx->frame[pos_CalData+1+i];
+            byte = gpx->frame[pos_CalData+ofs+1+i];
             fprintf(stdout, "%02x ", byte);
         }
         if (err == 0) fprintf(stdout, "[OK]");
@@ -948,9 +951,9 @@ static int get_Calconf(gpx_t *gpx, int out) {
     if (err == 0)
     {
         if (calfr == 0x00) {
-            byte = gpx->frame[pos_Calfreq] & 0xC0;  // erstmal nur oberste beiden bits
+            byte = gpx->frame[pos_Calfreq+ofs] & 0xC0;  // erstmal nur oberste beiden bits
             f0 = (byte * 10) / 64;  // 0x80 -> 1/2, 0x40 -> 1/4 ; dann mal 40
-            byte = gpx->frame[pos_Calfreq+1];
+            byte = gpx->frame[pos_Calfreq+ofs+1];
             f1 = 40 * byte;
             freq = 400000 + f1+f0; // kHz;
             if (out && gpx->option.vbs) fprintf(stdout, ": fq %d ", freq);
@@ -958,14 +961,14 @@ static int get_Calconf(gpx_t *gpx, int out) {
         }
 
         if (calfr == 0x01) {
-            fw = gpx->frame[pos_CalData+6] | (gpx->frame[pos_CalData+7]<<8);
+            fw = gpx->frame[pos_CalData+ofs+6] | (gpx->frame[pos_CalData+ofs+7]<<8);
             if (out && gpx->option.vbs) fprintf(stdout, ": fw 0x%04x ", fw);
             gpx->conf_fw = fw;
         }
 
         if (calfr == 0x02) {    // 0x5E, 0x5A..0x5B
-            ui8_t  bk = gpx->frame[pos_Calburst];  // fw >= 0x4ef5, burst-killtimer in 0x31 relevant
-            ui16_t kt = gpx->frame[pos_CalData+8] + (gpx->frame[pos_CalData+9] << 8); // killtimer (short?)
+            ui8_t  bk = gpx->frame[pos_Calburst+ofs];  // fw >= 0x4ef5, burst-killtimer in 0x31 relevant
+            ui16_t kt = gpx->frame[pos_CalData+ofs+8] + (gpx->frame[pos_CalData+ofs+9] << 8); // killtimer (short?)
             if (out && gpx->option.vbs) fprintf(stdout, ": BK %02X ", bk);
             if (out && gpx->option.vbs && kt != 0xFFFF ) fprintf(stdout, ": kt %.1fmin ", kt/60.0);
             gpx->conf_bk = bk;
@@ -973,7 +976,7 @@ static int get_Calconf(gpx_t *gpx, int out) {
         }
 
         if (calfr == 0x31) {    // 0x59..0x5A
-            ui16_t bt = gpx->frame[pos_CalData+7] + (gpx->frame[pos_CalData+8] << 8); // burst timer (short?)
+            ui16_t bt = gpx->frame[pos_CalData+ofs+7] + (gpx->frame[pos_CalData+ofs+8] << 8); // burst timer (short?)
             // fw >= 0x4ef5: default=[88 77]=0x7788sec=510min
             if (out  && bt != 0x0000 &&
                     (gpx->option.vbs == 3  ||  gpx->option.vbs && gpx->conf_bk)
@@ -982,7 +985,7 @@ static int get_Calconf(gpx_t *gpx, int out) {
         }
 
         if (calfr == 0x32) {
-            ui16_t cd = gpx->frame[pos_CalData+1] + (gpx->frame[pos_CalData+2] << 8); // countdown (bt or kt) (short?)
+            ui16_t cd = gpx->frame[pos_CalData+ofs+1] + (gpx->frame[pos_CalData+ofs+2] << 8); // countdown (bt or kt) (short?)
             if (out && cd != 0xFFFF &&
                     (gpx->option.vbs == 3  ||  gpx->option.vbs && (gpx->conf_bk || gpx->conf_kt != 0xFFFF))
                ) fprintf(stdout, ": cd %.1fmin ", cd/60.0);
@@ -992,7 +995,7 @@ static int get_Calconf(gpx_t *gpx, int out) {
         if (calfr == 0x21) {  // ... eventuell noch 2 bytes in 0x22
             for (i = 0; i < 9; i++) sondetyp[i] = 0;
             for (i = 0; i < 8; i++) {
-                byte = gpx->frame[pos_CalRSTyp + i];
+                byte = gpx->frame[pos_CalRSTyp+ofs + i];
                 if ((byte >= 0x20) && (byte < 0x7F)) sondetyp[i] = byte;
                 else if (byte == 0x00) sondetyp[i] = '\0';
             }
@@ -1103,14 +1106,14 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
 
 
 static int print_position(gpx_t *gpx, int ec) {
-    int i;
+    int i, j;
     int err, err0, err1, err2, err3;
     int output, out_mask;
     int encrypted = 0;
     int unexp = 0;
-    int pcks[8] = {0,0,0,0,0,0,0,0};
-    int dbfrm = 1;
-    int pcks_frm = 0, pcks_gps1 = 0, pcks_gps2 = 0, pcks_gps3 = 0;
+    int pcks[10] = {0,0,0,0,0,0,0,0,0,0};
+    int NbFrms = 1;
+    int pcks_frm = 0, pcks_xtu = 0, pcks_gps1 = 0, pcks_gps2 = 0, pcks_gps3 = 0;
 
     gpx->out = 0;
     gpx->aux = 0;
@@ -1128,7 +1131,7 @@ static int print_position(gpx_t *gpx, int ec) {
     err2 = get_GPS2(gpx, 0);
     err3 = get_GPS3(gpx, 0);
 
-    err0 = get_PTU(gpx);
+    err0 = get_PTU(gpx, pos_PTU, pck_PTU);
 
     out_mask = crc_FRAME|crc_GPS1|crc_GPS3;
     output = ((gpx->crc & out_mask) != out_mask);  // (!err || !err1 || !err3);
@@ -1147,6 +1150,8 @@ static int print_position(gpx_t *gpx, int ec) {
 
             if (blk < 0x80 && crc==0) {
                 int ofs = 0;
+                unexp = 0;
+                gpx->crc = 0;
                 switch (pck) {
                     case 0x7928:
                             ofs = pos - pos_FRAME;
@@ -1155,34 +1160,43 @@ static int print_position(gpx_t *gpx, int ec) {
                                 if (ofs != 0) err = get_FrameConf(gpx, ofs);
                                 pcks_frm = 1;
                             }
-                            else dbfrm = 2;
+                            else NbFrms = 2;
+                            break;
+                    case 0x7F1B:
+                            //ofs = pos - pos_PTU;
+                            pcks[2+pcks_xtu] = pos;
+                            if (pcks_xtu == 0) {
+                                err0 = get_PTU(gpx, pos, pck);
+                                pcks_xtu = 1;
+                            }
+                            else NbFrms = 2;
                             break;
                     case 0x7C1E:
                             ofs = pos - pos_GPS1;
-                            pcks[2+pcks_gps1] = ofs;
+                            pcks[4+pcks_gps1] = ofs;
                             if (pcks_gps1 == 0) {
                                 err1 = get_GPS1(gpx, ofs);
                                 pcks_gps1 = 1;
                             }
-                            else dbfrm = 2;
+                            else NbFrms = 2;
                             break;
                     case 0x7D59:
                             ofs = pos - pos_GPS2;
-                            pcks[4+pcks_gps2] = ofs;
+                            pcks[6+pcks_gps2] = ofs;
                             if (pcks_gps2 == 0) {
                                 err2 = get_GPS2(gpx, ofs);
                                 pcks_gps2 = 1;
                             }
-                            else dbfrm = 2;
+                            else NbFrms = 2;
                             break;
                     case 0x7B15:
                             ofs = pos - pos_GPS3;
-                            pcks[6+pcks_gps3] = ofs;
+                            pcks[8+pcks_gps3] = ofs;
                             if (pcks_gps3 == 0) {
                                 err3 = get_GPS3(gpx, ofs);
                                 pcks_gps3 = 1;
                             }
-                            else dbfrm = 2;
+                            else NbFrms = 2;
                             break;
                 }
             }
@@ -1197,8 +1211,10 @@ static int print_position(gpx_t *gpx, int ec) {
 
         if (!err && gpx->option.aut && gpx->option.vbs == 3) fprintf(stdout, "<%c> ", gpx->option.inv?'-':'+');
 
-        while (dbfrm > 0)
+        for (j = 0; j < NbFrms; j++)
         {
+            if (j > 0) fprintf(stdout, "\n");
+
             if (!err) {
                 fprintf(stdout, "[%5d] ", gpx->frnr);
                 fprintf(stdout, "(%s) ", gpx->id);
@@ -1223,20 +1239,30 @@ static int print_position(gpx_t *gpx, int ec) {
                 }
             }
 
-            dbfrm -= 1;
-            if (dbfrm > 0) {
-                fprintf(stdout, "\n");
-                err = get_FrameConf(gpx, pcks[1]);
-                err1 = get_GPS1(gpx, pcks[3]);
-                err3 = get_GPS3(gpx, pcks[7]);
+            if (gpx->option.ptu && !err0) {
+                printf(" ");
+                if (gpx->T > -273.0) printf(" T=%.1fC ", gpx->T);
+                if (gpx->RH > -0.5)  printf(" RH=%.0f%% ", gpx->RH);
+            }
+
+            if (gpx->option.crc) {
+                fprintf(stdout, " # [");
+                for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx->crc>>i)&1);
+                fprintf(stdout, "]");
+            }
+
+            get_Calconf(gpx, output, pcks[j]);
+
+            if (NbFrms == 2) {
+                //fprintf(stdout, "\n");
+                gpx->crc = 0;
+                err  = get_FrameConf(gpx, pcks[1]);
+                err0 = get_PTU(gpx, pcks[3], 0x7F1B);
+                err1 = get_GPS1(gpx, pcks[5]);
+                err3 = get_GPS3(gpx, pcks[9]);
             }
         }
 
-        if (gpx->option.ptu && !err0) {
-            printf(" ");
-            if (gpx->T > -273.0) printf(" T=%.1fC ", gpx->T);
-            if (gpx->RH > -0.5)  printf(" RH=%.0f%% ", gpx->RH);
-        }
 
         if (encrypted) { // e.g. 0x80A7-pck
             fprintf(stdout, " (RS41-SGM: %02X%02X) ", gpx->frame[pos_PTU], gpx->frame[pos_PTU+1]);
@@ -1258,11 +1284,6 @@ static int print_position(gpx_t *gpx, int ec) {
                     pos = pos+2+len+2;
                 }
             }
-            else {
-                fprintf(stdout, " # [");
-                for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx->crc>>i)&1);
-                fprintf(stdout, "]");
-            }
             if (gpx->option.ecc == 2) {
                 if (ec > 0) fprintf(stdout, " (%d)", ec);
                 if (ec < 0) {
@@ -1273,7 +1294,6 @@ static int print_position(gpx_t *gpx, int ec) {
             }
         }
 
-        get_Calconf(gpx, output);
 
         if (gpx->option.vbs > 1 || gpx->option.jsn) {
             gpx->aux = get_Aux(gpx);
