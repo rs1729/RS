@@ -1111,9 +1111,11 @@ static int print_position(gpx_t *gpx, int ec) {
     int output, out_mask;
     int encrypted = 0;
     int unexp = 0;
-    int pcks[10] = {0,0,0,0,0,0,0,0,0,0};
+    int pcks[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
     int NbFrms = 1;
-    int pcks_frm = 0, pcks_xtu = 0, pcks_gps1 = 0, pcks_gps2 = 0, pcks_gps3 = 0;
+    int pcks_frm = 0,
+        pcks_xtu = 0, pcks_gps1 = 0, pcks_gps2 = 0, pcks_gps3 = 0,
+        pcks_crypt = 0;
 
     gpx->out = 0;
     gpx->aux = 0;
@@ -1139,7 +1141,6 @@ static int print_position(gpx_t *gpx, int ec) {
     if (gpx->option.ecc && ec >= 0 && (gpx->crc & 0x1F) != 0) {
         int pos, blk, len, crc, pck;   // unexpected blocks
         int flen = NDATA_LEN;
-        unexp = 1;
         if (frametype(gpx) < 0) flen += XDATA_LEN;
         pos = pos_FRAME;
         while (pos < flen-1) {         // e.g.
@@ -1148,9 +1149,8 @@ static int print_position(gpx_t *gpx, int ec) {
             crc = check_CRC(gpx, pos, blk<<8);
             pck = (blk<<8) | len;
 
-            if (blk < 0x80 && crc==0) {
+            if (crc==0) {
                 int ofs = 0;
-                unexp = 0;
                 gpx->crc = 0;
                 switch (pck) {
                     case 0x7928:
@@ -1198,6 +1198,15 @@ static int print_position(gpx_t *gpx, int ec) {
                             }
                             else NbFrms = 2;
                             break;
+                    case 0x80A7:
+                            pcks[10+pcks_crypt] = pos;
+                            if (pcks_crypt == 0) {
+                                pcks_crypt = 1;
+                            }
+                            else NbFrms = 2;
+                            break;
+                    default:
+                            if (blk != 0x76 && blk != 0x7E) unexp = 1;
                 }
             }
 
@@ -1245,10 +1254,15 @@ static int print_position(gpx_t *gpx, int ec) {
                 if (gpx->RH > -0.5)  printf(" RH=%.0f%% ", gpx->RH);
             }
 
-            if (gpx->option.crc) {
-                fprintf(stdout, " # [");
-                for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx->crc>>i)&1);
-                fprintf(stdout, "]");
+            if (pcks_crypt == 0) {
+                if (gpx->option.crc) {
+                    fprintf(stdout, " # [");
+                    for (i=0; i<5; i++) fprintf(stdout, "%d", (gpx->crc>>i)&1);
+                    fprintf(stdout, "]");
+                }
+            }
+            else {
+                if (pcks[10+j]) fprintf(stdout, " [80A7-%d] (RS41-SGM)", j);
             }
 
             get_Calconf(gpx, output, pcks[j]);
@@ -1264,8 +1278,8 @@ static int print_position(gpx_t *gpx, int ec) {
         }
 
 
-        if (encrypted) { // e.g. 0x80A7-pck
-            fprintf(stdout, " (RS41-SGM: %02X%02X) ", gpx->frame[pos_PTU], gpx->frame[pos_PTU+1]);
+        if (0 && encrypted) { // e.g. 0x80A7-pck
+            fprintf(stdout, " (RS41-SGM) ");
         }
 
         if (gpx->option.crc) {
@@ -1280,7 +1294,7 @@ static int print_position(gpx_t *gpx, int ec) {
                     len = gpx->frame[pos+1];   // 0x76xx: 00-padding block
                     crc = check_CRC(gpx, pos, blk<<8);
                     fprintf(stdout, " %02X%02X", gpx->frame[pos], gpx->frame[pos+1]);
-                    fprintf(stdout, "[%d]", crc&1);
+                    fprintf(stdout, " "); //fprintf(stdout, "[%d]", crc&1);
                     pos = pos+2+len+2;
                 }
             }
