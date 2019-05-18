@@ -387,8 +387,8 @@ static int get_SondeID(gpx_t *gpx, int crc, int ofs) {
             gpx->conf_cd = -1;
             gpx->conf_kt = -1;
             // don't reset gpx->frame[] !
-            // gpx->T = -273.15;
-            // gpx->RH = -1.0;
+            gpx->T = -273.15;
+            gpx->RH = -1.0;
             // new ID:
             memcpy(gpx->id, sondeid_bytes, 8);
             gpx->id[8] = '\0';
