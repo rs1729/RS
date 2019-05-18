@@ -1162,9 +1162,9 @@ static int print_position(gpx_t *gpx, int ec) {
             }
         }
         if (gpx->option.ptu && !err0) {
-            printf(" ");
-            if (gpx->T > -273.0) printf(" T=%.1fC ", gpx->T);
-            if (gpx->RH > -0.5)  printf(" RH=%.0f%% ", gpx->RH);
+            fprintf(stderr, " ");
+            if (gpx->T > -273.0) fprintf(stderr, " T=%.1fC ", gpx->T);
+            if (gpx->RH > -0.5)  fprintf(stderr, " RH=%.0f%% ", gpx->RH);
         }
 
 
@@ -1225,7 +1225,7 @@ static int print_position(gpx_t *gpx, int ec) {
                     fprintf(stdout, ", \"aux\": \"%s\"",  gpx->xdata );
                 }
                 if (encrypted){
-                    printf(", \"encrypted\": true");
+                    fprintf(stderr, ", \"encrypted\": true");
                 }
                 fprintf(stdout, " }\n");
                 fprintf(stdout, "\n");
@@ -1514,7 +1514,7 @@ int main(int argc, char *argv[]) {
             dsp.hdr = rs41_header;
             dsp.hdrlen = strlen(rs41_header);
             dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
-            dsp.h = 0.8; //0.7;  // 0.7..0.8? modulation index abzgl. BT
+            dsp.h = 0.6; //0.7;  // 0.7..0.8? modulation index abzgl. BT
             dsp.opt_iq = option_iq;
 
             if ( dsp.sps < 8 ) {
