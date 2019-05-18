@@ -100,8 +100,8 @@ typedef struct {
     ui16_t conf_fw; // firmware
     ui16_t conf_kt; // kill timer (sec)
     ui16_t conf_bt; // burst timer (sec)
+    ui16_t conf_cd; // kill countdown (sec) (kt or bt)
     ui8_t  conf_bk; // burst kill
-    ui8_t  conf_cd; // kill countdown (sec) (kt or bt)
     char rstyp[9];  // RS41-SG, RS41-SGP
     int  aux;
     char xdata[XDATA_LEN+16]; // xdata: aux_str1#aux_str2 ...
@@ -923,7 +923,7 @@ static int get_Calconf(gpx_t *gpx, int out, int ofs) {
             if (out && cd != 0xFFFF &&
                     (gpx->option.vbs == 3  ||  gpx->option.vbs && (gpx->conf_bk || gpx->conf_kt != 0xFFFF))
                ) fprintf(stdout, ": cd %.1fmin ", cd/60.0);
-            gpx->conf_cd = cd;
+            gpx->conf_cd = cd;  // (short/i16_t) ?
         }
 
         if (calfr == 0x21) {  // ... eventuell noch 2 bytes in 0x22
@@ -1287,8 +1287,8 @@ static int print_position(gpx_t *gpx, int ec) {
                     // Print out telemetry data as JSON
                     if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                         // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
-                        fprintf(stdout, "{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                                       gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV );
+                        fprintf(stdout, "{ \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"bt\": %d",
+                                       gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV, gpx->conf_cd );
                         if (gpx->option.ptu && !err0 && gpx->T > -273.0) {
                             fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
                         }
