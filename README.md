@@ -17,7 +17,7 @@ RS
   `RS/mk2a`: MkIIa (LMS6-1680MHz) <br />
   `RS/meisei`: Meisei <br />
 
-  `RS/demod`: alternative decoders using cross-correlation for header-synchronization <br />
+  `RS/demod/mod`: alternative decoders using cross-correlation for header-synchronization <br />
 
   `RS/ecc`: error correction codes (Reed-Solomon/BCH) <br />
 
