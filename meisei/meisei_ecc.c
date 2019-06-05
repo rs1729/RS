@@ -76,6 +76,7 @@ dass 1 ist, wenn die Anzahl 1en in den 16 bit davor gerade ist, und sonst 0.
 typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
 typedef unsigned int   ui32_t;
+typedef short i16_t;
 
 typedef struct {
     int jahr; int monat; int tag;
@@ -394,6 +395,9 @@ int main(int argc, char **argv) {
     int lat, lat1, lat2,
         lon, lon1, lon2,
         alt, alt1, alt2;
+    ui16_t vH, vD;
+     i16_t vU;
+    double velH, velD, velU;
     int latdeg,londeg;
     double latmin, lonmin;
     ui32_t t1, t2, ms, min, std, tt, mm, jj;
@@ -562,19 +566,28 @@ int main(int argc, char **argv) {
                             if ((counter % 2 == 0))  { //  (val & 0xFFFF) > 0)  {// == 0x8080
                                 //offset=24+16+1;
 
-                                lat1 = bits2val(frame_bits+HEADLEN+17, 16);
-                                lat2 = bits2val(frame_bits+HEADLEN+46, 16);
-                                lon1 = bits2val(frame_bits+HEADLEN+46+17, 16);
-                                lon2 = bits2val(frame_bits+HEADLEN+46+46, 16);
-                                alt1 = bits2val(frame_bits+HEADLEN+46+46+17, 16);
-                                alt2 = bits2val(frame_bits+HEADLEN+46+46+46, 16);
+                                lat1 = bits2val(frame_bits+HEADLEN+46*0+17, 16);
+                                lat2 = bits2val(frame_bits+HEADLEN+46*1   , 16);
+                                lon1 = bits2val(frame_bits+HEADLEN+46*1+17, 16);
+                                lon2 = bits2val(frame_bits+HEADLEN+46*2   , 16);
+                                alt1 = bits2val(frame_bits+HEADLEN+46*2+17, 16);
+                                alt2 = bits2val(frame_bits+HEADLEN+46*3   , 16);
 
                                 lat = (lat1 << 16) | lat2;
                                 lon = (lon1 << 16) | lon2;
                                 alt = (alt1 << 16) | alt2;
                                 //printf("%08X %08X %08X :  ", lat, lon, alt);
                                 printf("  ");
-                                printf("%.6f  %.6f  %.2f", (double)lat/1e7, (double)lon/1e7, (double)alt/1e2);
+                                printf("lat: %.5f  lon: %.5f  alt: %.2f", (double)lat/1e7, (double)lon/1e7, (double)alt/1e2);
+                                printf("  ");
+
+                                vH = bits2val(frame_bits+HEADLEN+46*3+17, 16);
+                                vD = bits2val(frame_bits+HEADLEN+46*4   , 16);
+                                vU = bits2val(frame_bits+HEADLEN+46*4+17, 16);
+                                velH = (double)vH/1e2;
+                                velD = (double)vD/1e2;
+                                velU = (double)vU/1e2;
+                                printf(" %.2fm/s  %.1f  %.2fm/s", velH, velD, velU);
                                 printf("  ");
 
                                 jj = bits2val(frame_bits+HEADLEN+5*46+ 8, 8) + 0x0700;
@@ -617,15 +630,17 @@ int main(int argc, char **argv) {
                                 //offset=24+16+1;
 
                                 dat2 = bits2val(frame_bits+HEADLEN, 16);
-                                printf("%05u (?%02d-%02d-%02d) ", dat2, dat2/1000,(dat2/10)%100, (dat2%10)+10);
+                                if (option_verbose) printf("%05u  ", dat2);
+                                printf("(%02d-%02d-%02d) ", dat2/1000,(dat2/10)%100, (dat2%10)+10); // 2020: +20 ?
 
-                                lat1 = bits2val(frame_bits+HEADLEN+17, 16);
-                                lat2 = bits2val(frame_bits+HEADLEN+46, 16);
-                                lon1 = bits2val(frame_bits+HEADLEN+46+17, 16);
-                                lon2 = bits2val(frame_bits+HEADLEN+46+46, 16);
-                                alt1 = bits2val(frame_bits+HEADLEN+46+46+17, 16);
-                                alt2 = bits2val(frame_bits+HEADLEN+46+46+46,  8);
+                                lat1 = bits2val(frame_bits+HEADLEN+46*0+17, 16);
+                                lat2 = bits2val(frame_bits+HEADLEN+46*1   , 16);
+                                lon1 = bits2val(frame_bits+HEADLEN+46*1+17, 16);
+                                lon2 = bits2val(frame_bits+HEADLEN+46*2   , 16);
+                                alt1 = bits2val(frame_bits+HEADLEN+46*2+17, 16);
+                                alt2 = bits2val(frame_bits+HEADLEN+46*3   ,  8);
 
+                                // NMEA?
                                 lat = (lat1 << 16) | lat2;
                                 lon = (lon1 << 16) | lon2;
                                 alt = (alt1 <<  8) | alt2;
@@ -635,7 +650,14 @@ int main(int argc, char **argv) {
                                 lonmin = (double)(lon/1e6-londeg)*100/60.0;
                                 //printf("%08X %08X %08X :  ", lat, lon, alt);
                                 printf("  ");
-                                printf("%.6f  %.6f  %.2f", (double)latdeg+latmin, (double)londeg+lonmin, (double)alt/1e2);
+                                printf("lat: %.5f  lon: %.5f  alt: %.2f", (double)latdeg+latmin, (double)londeg+lonmin, (double)alt/1e2);
+                                printf("  ");
+
+                                vD = bits2val(frame_bits+HEADLEN+46*4+17, 16);
+                                vH = bits2val(frame_bits+HEADLEN+46*5   , 16);
+                                velD = (double)vD/1e2;
+                                velH = (double)vH/1.94384e2; // knots -> m/s
+                                printf(" (course=%.1f  speed=%.2fm/s)", velD, velH);
                                 printf("  ");
                             }
                             //else { printf("\n"); }
