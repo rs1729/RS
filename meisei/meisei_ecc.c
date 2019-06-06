@@ -93,6 +93,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_res = 0,      // genauere Bitmessung
     option1 = 0,
     option2 = 0,
+    option_b = 0,
     option_ecc = 0,      // BCH(63,51)
     wavloaded = 0;
 
@@ -182,6 +183,7 @@ int read_wav_header(FILE *fp) {
 
 
 #define EOF_INT  0x1000000
+unsigned long sample_count = 0;
 
 int read_signed_sample(FILE *fp) {  // int = i32_t
     int byte, i, ret;         //  EOF -> 0x1000000
@@ -200,6 +202,8 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
 
     }
 
+    sample_count++;
+
     if (bits_sample ==  8) return ret-128;   // 8bit: 00..FF, centerpoint 0x80=128
     if (bits_sample == 16) return (short)ret;
 
@@ -207,7 +211,6 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
 }
 
 int par=1, par_alt=1;
-unsigned long sample_count = 0;
 
 int read_bits_fsk(FILE *fp, int *bit, int *len) {
     int n, sample, y0;
@@ -219,7 +222,7 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
         y0 = sample;
         sample = read_signed_sample(fp);
         if (sample == EOF_INT) return EOF;
-        sample_count++;
+        //sample_count++; // in read_signed_sample()
         par_alt = par;
         par =  (sample > 0) ? 1 : -1;
         n++;
@@ -238,6 +241,39 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
     else             *bit = (1-par_alt)/2;  // sdr#<rev1381?, invers: unten 1, oben -1
 
     /* Y-offset ? */
+
+    return 0;
+}
+
+int bitstart = 0;
+double bitgrenze = 0;
+/*unsigned*/ long scount = 0;
+int read_rawbit(FILE *fp, int *bit) {
+    int sample;
+    int sum;
+
+    sum = 0;
+
+    if (bitstart) {
+        scount = 0;    // eigentlich scount = 1
+        bitgrenze = 0; //   oder bitgrenze = -1
+        bitstart = 0;
+    }
+    bitgrenze += samples_per_bit;
+
+    do {
+        sample = read_signed_sample(fp);
+        if (sample == EOF_INT) return EOF;
+        //sample_count++; // in read_signed_sample()
+        //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
+        sum += sample;
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
+
+    if (sum >= 0) *bit = 1;
+    else          *bit = 0;
+
+    if (option_inv) *bit ^= 1;
 
     return 0;
 }
@@ -434,6 +470,7 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-1") == 0) ) {
             option1 = 1;
         }
+        else if   (strcmp(*argv, "-b") == 0) { option_b = 1; }
         else if   (strcmp(*argv, "--ecc") == 0) { option_ecc = 1; }
         else if ( (strcmp(*argv, "-v") == 0) ) {
             option_verbose = 1;
@@ -501,6 +538,19 @@ int main(int argc, char **argv) {
                 frame_rawbits[bit_count] = 0x30 + bit;
                 bit_count++;
 
+                if (option_b) {
+                    while (++i < len) {
+                        frame_rawbits[bit_count] = 0x30 + bit;
+                        bit_count++;
+                    }
+                    bitstart = 1;
+                    while (bit_count < RAWBITFRAME_LEN/4-RAWHEADLEN) {
+                        if (read_rawbit(fp, &bit) == EOF) break;
+                        frame_rawbits[bit_count] = 0x30 + bit;
+                        bit_count++;
+                    }
+                }
+
                 if (bit_count >= RAWBITFRAME_LEN/4-RAWHEADLEN) {  // 600-48
                     frame_rawbits[bit_count] = '\0';
 
@@ -518,12 +568,12 @@ int main(int argc, char **argv) {
                             // check parity,padding
                             if (errors >= 0) {
                                 check_err = 0;
-                                for (i = 46; i < 63; i++) { if (cw[i] != 0) check_err = 0x1; }
+                                for (j = 46; j < 63; j++) { if (cw[j] != 0) check_err = 0x1; }
                                 par = 1;
-                                for (i = 13; i < 13+16; i++) par ^= cw[i];
+                                for (j = 13; j < 13+16; j++) par ^= cw[j];
                                 if (cw[12] != par) check_err |= 0x100;
                                 par = 1;
-                                for (i = 30; i < 30+16; i++) par ^= cw[i];
+                                for (j = 30; j < 30+16; j++) par ^= cw[j];
                                 if (cw[29] != par) check_err |= 0x10;
                                 if (check_err) errors = -3;
                             }
