@@ -16,19 +16,22 @@ Variante 1 (RS-11G ?)
 049DCE1C667FDD8F537C8100004F20764630A20000000010040436 FB623080801F395FFE08A76540000FE01D0C2C1E75025006DE0A07
 049DCE1C67008C73D7168200004F0F764B31A2FFFF000010270B14 FB6230000000000000000000000000000000000000000000001D59
 
-0x00..0x02 HEADER  0x049DCE
-0x03..0x04 16 bit  0.5s-counter, count%2=0:
-0x1B..0x1D HEADER  0xFB6230
-0x20..0x23 32 bit  GPS-lat * 1e7 (DD.dddddd)
-0x24..0x27 32 bit  GPS-lon * 1e7 (DD.dddddd)
-0x28..0x2B 32 bit  GPS-alt * 1e2 (m)
-0x32..0x35 32 bit  date jjJJMMTT
+0x00..0x02  HEADER  0x049DCE
+0x03..0x04  16 bit  0.5s-counter, count%2=0:
+0x1B..0x1D  HEADER  0xFB6230
+0x20..0x23  32 bit  GPS-lat * 1e7 (DD.dddddd)
+0x24..0x27  32 bit  GPS-lon * 1e7 (DD.dddddd)
+0x28..0x2B  32 bit  GPS-alt * 1e2 (m)
+0x2C..0x2D  16 bit  GPS-vH  * 1e2 (m/s)
+0x2E..0x2F  16 bit  GPS-vD  * 1e2 (degree) (0..360 unsigned)
+0x30..0x31  16 bit  GPS-vU  * 1e2 (m/s)
+0x32..0x35  32 bit  date jjJJMMTT
 
-0x00..0x02 HEADER  0x049DCE
-0x03..0x04 16 bit  0.5s-counter, count%2=1:
-0x17..0x18 16 bit  time ms xxyy, 00.000-59.000
-0x19..0x1A 16 bit  time hh:mm
-0x1B..0x1D HEADER  0xFB6230
+0x00..0x02  HEADER  0x049DCE
+0x03..0x04  16 bit  0.5s-counter, count%2=1:
+0x17..0x18  16 bit  time ms xxyy, 00.000-59.000
+0x19..0x1A  16 bit  time hh:mm
+0x1B..0x1D  HEADER  0xFB6230
 
 
 0x049DCE ^ 0xFB6230 = 0xFFFFFE
@@ -48,6 +51,8 @@ Variante 2 (iMS-100 ?)
 0x20..0x23  32 bit  GPS-lat * 1e4 (NMEA DDMM.mmmm)
 0x24..0x27  32 bit  GPS-lon * 1e4 (NMEA DDMM.mmmm)
 0x28..0x2A  24 bit  GPS-alt * 1e2 (m)
+0x30..0x31  16 bit  GPS-vD  * 1e2 (degree)
+0x32..0x33  16 bit  GPS-vH  * 1.944e2 (knots)
 
 0x00..0x02  HEADER  0x049DCE
 0x03..0x04  16 bit  0.5s-counter, count%2=1:
@@ -61,6 +66,13 @@ gekuerzt auf (46,34), die letzten 12 bit sind die BCH-Kontrollbits.
 
 Die 34 Nachrichtenbits sind aufgeteilt in 16+1+16+1, d.h. nach einem 16 bit Block kommt ein Paritaetsbit,
 dass 1 ist, wenn die Anzahl 1en in den 16 bit davor gerade ist, und sonst 0.
+*/
+
+/*
+2 "raw" symbols -> 1 biphase-symbol (bit): 2400 (raw) baud
+ecc: option_b, exact symbol rate; if necessary, adjust --br <baud>
+e.g.
+./meisei_ecc -1 --ecc -v -b --br 2398 audio.wav
 */
 
 
@@ -97,6 +109,8 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_ecc = 0,      // BCH(63,51)
     wavloaded = 0;
 
+float baudrate = -1;
+
 /* -------------------------------------------------------------------------- */
 // Fehlerkorrektur (noch?) nicht sehr effektiv... (t zu klein)
 
@@ -111,7 +125,7 @@ int block, check_err;
 
 /* -------------------------------------------------------------------------- */
 
-#define BAUD_RATE 2400
+#define BAUD_RATE 2400  // raw symbol rate; bit=biphase_symbol, bitrate=1200
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
 float samples_per_bit = 0;
@@ -475,6 +489,14 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-v") == 0) ) {
             option_verbose = 1;
         }
+        else if ( (strcmp(*argv, "--br") == 0) ) {
+            ++argv;
+            if (*argv) {
+                baudrate = atof(*argv);
+                if (baudrate < 2200 || baudrate > 2400) baudrate = 2400; // default: 2400
+            }
+            else return -1;
+        }
         else {
             if ((option1 == 1  && option2 == 1) || (!option_raw && option1 == 0  && option2 == 0)) goto help_out;
             fp = fopen(*argv, "rb");
@@ -493,6 +515,10 @@ int main(int argc, char **argv) {
     if (i) {
         fclose(fp);
         return -1;
+    }
+    if (baudrate > 0) {
+        samples_per_bit = sample_rate/baudrate; // default baudrate: 2400
+        fprintf(stderr, "sps corr: %.4f\n", samples_per_bit);
     }
 
     if (option_ecc) {
@@ -637,7 +663,7 @@ int main(int argc, char **argv) {
                                 velH = (double)vH/1e2;
                                 velD = (double)vD/1e2;
                                 velU = (double)vU/1e2;
-                                printf(" %.2fm/s  %.1f  %.2fm/s", velH, velD, velU);
+                                printf(" vH: %.2fm/s  D: %.1f  vV: %.2fm/s", velH, velD, velU);
                                 printf("  ");
 
                                 jj = bits2val(frame_bits+HEADLEN+5*46+ 8, 8) + 0x0700;
@@ -705,9 +731,9 @@ int main(int argc, char **argv) {
 
                                 vD = bits2val(frame_bits+HEADLEN+46*4+17, 16);
                                 vH = bits2val(frame_bits+HEADLEN+46*5   , 16);
-                                velD = (double)vD/1e2;
-                                velH = (double)vH/1.94384e2; // knots -> m/s
-                                printf(" (course=%.1f  speed=%.2fm/s)", velD, velH);
+                                velD = (double)vD/1e2;       // course, true
+                                velH = (double)vH/1.94384e2; // speed: knots -> m/s
+                                printf(" (vH: %.1fm/s  D: %.2f)", velH, velD);
                                 printf("  ");
                             }
                             //else { printf("\n"); }
