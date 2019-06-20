@@ -2,6 +2,9 @@
 ## Radiosonde RS92
 
 Tools for decoding RS92-SGP and RS92-AGP radiosonde signals.
+Based on information already available at<br />
+http://brmlab.cz/project/weathersonde/
+
 
 ### Files
 
