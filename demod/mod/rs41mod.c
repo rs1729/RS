@@ -1088,8 +1088,8 @@ static int prn_gpspos(gpx_t *gpx) {
     fprintf(stdout, " lat: %.5f ", gpx->lat);
     fprintf(stdout, " lon: %.5f ", gpx->lon);
     fprintf(stdout, " alt: %.2f ", gpx->alt);
-    fprintf(stdout,"  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
-    if (gpx->option.vbs == 3) fprintf(stdout," sats: %02d ", gpx->numSV);
+    fprintf(stdout, "  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
+    if (gpx->option.vbs == 3) fprintf(stdout, " sats: %02d ", gpx->numSV);
     return 0;
 }
 
@@ -1374,7 +1374,7 @@ static int print_position(gpx_t *gpx, int ec) {
 
                 if (!err1) prn_gpstime(gpx);
                 if (!err3) prn_gpspos(gpx);
-                if (!err0) prn_ptu(gpx);
+                if (!err0 && gpx->option.ptu) prn_ptu(gpx);
                 if (0 && !err) get_Calconf(gpx, out, 0); // only if ecc-OK
 
                 output = ((gpx->crc & out_mask) != out_mask);
