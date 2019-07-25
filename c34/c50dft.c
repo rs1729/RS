@@ -20,7 +20,8 @@ static int  option_verbose = 0,
 
 
 typedef struct {
-    int frnr;
+    //int frnr;
+    int sn;
     int jahr; int monat; int tag;
     int std; int min; int sek;
     float lat; float lon; float alt;
@@ -295,6 +296,7 @@ static int bits2bytes8N1(ui8_t bits[], ui8_t bytes[], int n) {
 static void printGPX() {
     int i;
 
+        if (gpx.sn) printf("( %d ) ", gpx.sn);
         printf(" %04d-%02d-%02d", gpx.jahr, gpx.monat, gpx.tag);
         printf(" %02d:%02d:%02d", gpx.std, gpx.min, gpx.sek);
         printf(" ");
@@ -312,7 +314,13 @@ static void printGPX() {
 
 static void printJSON() {
     // UTC or GPS time ?
-    printf("{ \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.1f",
+    char json_sonde_id[] = "C50-xxxx\0\0\0\0\0\0\0";
+    if (gpx.sn) {
+        sprintf(json_sonde_id, "C50-%u", gpx.sn);
+    }
+    printf("{ ");
+    printf("\"id\": \"%s\", ", json_sonde_id);
+    printf("\"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.1f",
            gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt);
     printf(" }\n");
     //printf("\n");
@@ -359,7 +367,8 @@ static int evalBytes2() {
     ui8_t id = bytes[2];
     unsigned check;
     static unsigned int cnt_dat = -1, cnt_tim = -1,
-                        cnt_lat = -1, cnt_lon = -1, cnt_alt = -1;
+                        cnt_lat = -1, cnt_lon = -1, cnt_alt = -1,
+                        cnt_sn = -1;
 
     check = ((bytes[7]<<8)|bytes[8]) != check2(bytes+2, 5);
 
@@ -399,6 +408,11 @@ static int evalBytes2() {
         gpx.alt = val/10.0;
         gpx.chk = (gpx.chk & ~(0x1<<4)) | (check<<4);
         if (check==0) cnt_alt = sample_count;
+    }
+    else if (id == 0x64 ) {  // serial number
+        if (check==0) gpx.sn = val;
+        gpx.chk = (gpx.chk & ~(0x1<<5)) | (check<<5);
+        //if (check==0) cnt_sn = sample_count;
     }
 
     if (id == 0x18) {
