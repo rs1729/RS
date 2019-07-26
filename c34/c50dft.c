@@ -14,6 +14,7 @@ typedef  unsigned char  ui8_t;
 
 static int  option_verbose = 0,
             option_raw = 0,
+            option_ptu = 0,
             option_dft = 0,
             option_json = 0,
             wavloaded = 0;
@@ -26,6 +27,7 @@ typedef struct {
     int std; int min; int sek;
     float lat; float lon; float alt;
     unsigned chk;
+    float T; float RH;
 } gpx_t;
 
 static gpx_t gpx;
@@ -304,9 +306,16 @@ static void printGPX() {
         printf(" lon: %.5f", gpx.lon);
         printf(" alt: %.1f", gpx.alt);
 
+        if (option_ptu && (gpx.T > -273.0 || gpx.RH > -0.5)) {
+            printf(" ");
+            if (gpx.T > -273.0) printf(" T=%.1fC", gpx.T);
+            if (gpx.RH > -0.5) printf(" RH=%.0f%%", gpx.RH);
+        }
+
         if (option_verbose) {
             printf("  # ");
             for (i = 0; i < 5; i++) printf("%d", (gpx.chk>>i)&1);
+            if (option_ptu) for (i = 6; i < 8; i++) printf("%d", (gpx.chk>>i)&1);
         }
 
         printf("\n");
@@ -322,6 +331,10 @@ static void printJSON() {
     printf("\"id\": \"%s\", ", json_sonde_id);
     printf("\"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.1f",
            gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt);
+    if (option_ptu && (gpx.T > -273.0 || gpx.RH > -0.5)) {
+        if (gpx.T > -273.0) printf(", \"temp\": %.1f", gpx.T);
+        if (gpx.RH > -0.5) printf(", \"humidity\": %.1f", gpx.RH);
+    }
     printf(" }\n");
     //printf("\n");
 }
@@ -368,7 +381,8 @@ static int evalBytes2() {
     unsigned check;
     static unsigned int cnt_dat = -1, cnt_tim = -1,
                         cnt_lat = -1, cnt_lon = -1, cnt_alt = -1,
-                        cnt_sn = -1;
+                        cnt_sn = -1,
+                        cnt_t3 = -1, cnt_rh = -1;
 
     check = ((bytes[7]<<8)|bytes[8]) != check2(bytes+2, 5);
 
@@ -410,8 +424,8 @@ static int evalBytes2() {
         if (check==0) cnt_alt = sample_count;
     }
     else if (id == 0x64 ) {  // serial number
-        if (check==0) gpx.sn = val;
-        gpx.chk = (gpx.chk & ~(0x1<<5)) | (check<<5);
+        if (check==0) gpx.sn = val; // 16 bit
+        //gpx.chk = (gpx.chk & ~(0x1<<15)) | (check<<15);
         //if (check==0) cnt_sn = sample_count;
     }
 
@@ -424,9 +438,29 @@ static int evalBytes2() {
                  cnt_alt - cnt_lat < sample_rate &&
                  cnt_alt - cnt_lon < sample_rate )
             {
+                if (cnt_alt - cnt_t3 > sample_rate) gpx.T = -273.15;
+                if (cnt_alt - cnt_rh > sample_rate) gpx.RH = -1.0;
                 printJSON();
             }
         }
+    }
+
+    // PTU floats
+    if (id == 0x03) {  // temperature
+        float t = -273.15;
+        memcpy(&t, &val, 4);
+        if (t < -273.0 || t > 100.0) t = -273.15;
+        gpx.T = t;
+        gpx.chk = (gpx.chk & ~(0x1<<6)) | (check<<6);
+        if (check==0) cnt_t3 = sample_count;
+    }
+    if (id == 0x10) {  // rel. humidity
+        float rh = -1.0;
+        memcpy(&rh, &val, 4);
+        if (rh < -0.4 || rh > 110.0) rh = -1.0;
+        gpx.RH = rh;
+        gpx.chk = (gpx.chk & ~(0x1<<7)) | (check<<7);
+        if (check==0) cnt_rh = sample_count;
     }
 
     return check;
@@ -486,6 +520,9 @@ int main(int argc, char *argv[]) {
         }
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
             option_raw = 1;
+        }
+        else if ( (strcmp(*argv, "--ptu") == 0) ) {
+            option_ptu = 1;
         }
         else if ( (strcmp(*argv, "-d1") == 0) || (strcmp(*argv, "--dft1") == 0) ) {
             option_dft = 1;

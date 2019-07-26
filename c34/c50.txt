@@ -32,3 +32,6 @@ Checksum: Fletcher16
 PTU-Data: float32?
 
 
+more pck_ids:
+https://github.com/projecthorus/radiosonde_auto_rx/issues/170
+
