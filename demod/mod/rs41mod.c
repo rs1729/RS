@@ -518,7 +518,7 @@ static float get_Tc(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
 }
 
 // rel.hum., capacitor
-// (data:) ftp://ftp-cdc.dwd.de/pub/CDC/observations_germany/radiosondes/
+// (data:) ftp://ftp-cdc.dwd.de/climate_environment/CDC/observations_germany/radiosondes/
 // (diffAlt: Ellipsoid-Geoid)
 static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     float a0 = 7.5;                    // empirical
@@ -955,6 +955,16 @@ static int get_Calconf(gpx_t *gpx, int out, int ofs) {
             }
             if (out && gpx->option.vbs) fprintf(stdout, ": %s ", sondetyp);
             strcpy(gpx->rstyp, sondetyp);
+            if (out && gpx->option.vbs == 3) { // Stationsdruck QFE
+                float qfe1 = 0.0, qfe2 = 0.0;
+                memcpy(&qfe1, gpx->frame+pos_CalData+1, 4);
+                memcpy(&qfe2, gpx->frame+pos_CalData+5, 4);
+                if (qfe1 > 0.0 || qfe2 > 0.0) {
+                    fprintf(stdout, " ");
+                    if (qfe1 > 0.0) fprintf(stdout, "QFE1:%.1fhPa ", qfe1);
+                    if (qfe2 > 0.0) fprintf(stdout, "QFE2:%.1fhPa ", qfe2);
+                }
+            }
         }
     }
 
