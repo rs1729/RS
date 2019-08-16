@@ -92,6 +92,15 @@ typedef struct {
     double V_signal;
     double SNRdB;
 
+    int sr_base;
+    int decM;
+    int dectaps;
+    float complex *decXbuffer;
+    float complex *decMbuf;
+    float complex *ex; // exp_lut
+    ui32_t sample_dec;
+    double xlt_fq;
+
 } dsp_t;
 
 

@@ -265,7 +265,7 @@ float read_wav_header(pcm_t *pcm, FILE *fp) {
     fprintf(stderr, "channels   : %d\n", channels);
 
     if (pcm->sel_ch < 0  ||  pcm->sel_ch >= channels) pcm->sel_ch = 0; // default channel: 0
-    fprintf(stderr, "channel-In : %d\n", pcm->sel_ch+1);
+    //fprintf(stderr, "channel-In : %d\n", pcm->sel_ch+1); // nur wenn nicht IQ
 
     if ((bits_sample != 8) && (bits_sample != 16)) return -1;
 
@@ -276,6 +276,7 @@ float read_wav_header(pcm_t *pcm, FILE *fp) {
 
     return 0;
 }
+
 
 static int f32read_sample(dsp_t *dsp, float *s) {
     int i;
@@ -312,6 +313,29 @@ static int f32read_csample(dsp_t *dsp, float complex *z) {
 
     return 0;
 }
+
+static int f32read_cblock(dsp_t *dsp) {
+
+    int n;
+    int len;
+    int sum;
+
+    len = dsp->decM;
+
+    if (dsp->bps == 8) {
+        ui8_t u[2*dsp->decM];
+        len = fread( u, dsp->bps/8, 2*dsp->decM, dsp->fp) / 2;
+        for (n = 0; n < len; n++) dsp->decMbuf[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
+    }
+    else { // dsp->bps == 16
+        short b[2*dsp->decM];
+        len = fread( b, dsp->bps/8, 2*dsp->decM, dsp->fp) / 2;
+        for (n = 0; n < len; n++) dsp->decMbuf[n] = b[2*n]/32768.0 + I*b[2*n+1]/32768.0;
+    }
+
+    return len;
+}
+
 
 float get_bufvar(dsp_t *dsp, int ofs) {
     float mu  = dsp->xs[(dsp->sample_out+dsp->M + ofs) % dsp->M]/dsp->Nvar;
@@ -357,6 +381,55 @@ static int get_SNR(dsp_t *dsp) {
     return 0;
 }
 
+
+static int res = 1; // 1..10 Hz, exp_lut resolution
+static double *ws_dec;
+
+static double sinc(double x) {
+    double y;
+    if (x == 0) y = 1;
+    else y = sin(M_PI*x)/(M_PI*x);
+    return y;
+}
+
+static int decimate_init(int taps, float f) {
+    double *h, *w;
+    double norm = 0;
+    int n;
+
+    if (taps % 2 == 0) taps++; // odd/symmetric
+
+    if ( taps < 1 ) taps = 1;
+
+    h = (double*)calloc( taps+1, sizeof(double));
+    w = (double*)calloc( taps+1, sizeof(double));
+    ws_dec = (double*)calloc( taps+1, sizeof(double));
+
+    for (n = 0; n < taps; n++) {
+        w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(taps-1)) + 1430/18608.0*cos(4*M_PI*n/(taps-1)); // Blackmann
+        h[n] = 2*f*sinc(2*f*(n-(taps-1)/2));
+        ws_dec[n] = w[n]*h[n];
+        norm += ws_dec[n];
+    }
+    for (n = 0; n < taps; n++) {
+        ws_dec[n] /= norm;
+    }
+
+    free(h); h = NULL;
+    free(w); w = NULL;
+
+    return taps;
+}
+
+static float complex lowpass(float complex buffer[], int sample, int M) {
+    int n;
+    double complex w = 0;
+    for (n = 0; n < M; n++) {
+        w += buffer[(sample+n+1)%M]*ws_dec[M-1-n];
+    }
+    return (float complex)w;
+}
+
 int f32buf_sample(dsp_t *dsp, int inv) {
     float s = 0.0;
     float xneu, xalt;
@@ -368,10 +441,20 @@ int f32buf_sample(dsp_t *dsp, int inv) {
 
     if (dsp->opt_iq) {
 
-        if ( f32read_csample(dsp, &z) == EOF ) return EOF;
+        if (dsp->opt_iq == 5) {
+            int j;
+            if ( f32read_cblock(dsp) < dsp->decM ) return EOF;
+            for (j = 0; j < dsp->decM; j++) {
+                dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % (dsp->sr_base/res)];
+                dsp->sample_dec += 1;
+            }
+            z = lowpass(dsp->decXbuffer, dsp->sample_dec, dsp->dectaps);
+        }
+        else if ( f32read_csample(dsp, &z) == EOF ) return EOF;
+
         dsp->raw_iqbuf[dsp->sample_in % dsp->N_IQBUF] = z;
 
-        z *= cexp(-t*2*M_PI*dsp->df*I);
+        //z *= cexp(-t*2*M_PI*dsp->df*I);
         z0 = dsp->rot_iqbuf[(dsp->sample_in-1 + dsp->N_IQBUF) % dsp->N_IQBUF];
         w = z * conj(z0);
         s = gain * carg(w)/M_PI;
@@ -672,6 +755,49 @@ int init_buffers(dsp_t *dsp) {
     float *m = NULL;
 
 
+    if (dsp->opt_iq == 5)
+    {
+        int dec_sr = 48000;
+        int decM = 1;
+        int sr_base = dsp->sr;
+
+        if (dec_sr > sr_base) dec_sr = sr_base;
+
+        if (dec_sr < sr_base) {
+            while (sr_base % dec_sr) dec_sr += 1;
+            decM = sr_base / dec_sr;
+        }
+
+        int IF = dsp->sr/decM; fprintf(stderr, "IF: %d\n", IF);
+        float f_lp = (IF+20e3)/(4.0*sr_base);
+        float t_bw = (IF-20e3)/*2.0*/; if (t_bw < 0) t_bw = 8e3;
+        int taps = 4*sr_base/t_bw; if (taps%2==0) taps++; // 4/0.01+1=401
+
+        dsp->dectaps = decimate_init(taps, f_lp);
+
+        dsp->sr_base = sr_base;
+        dsp->sr = IF; // dsp->sr/decM
+        dsp->sps /= (float)decM;
+        dsp->_spb /= (float)decM;
+        dsp->decM = decM; fprintf(stderr, "dec: %d\n", decM);
+    }
+    if (dsp->opt_iq == 5)
+    {
+        dsp->decXbuffer = calloc( dsp->dectaps+1, sizeof(float complex));
+        if (dsp->decXbuffer == NULL) return -1;
+
+        dsp->decMbuf = calloc( dsp->decM+1, sizeof(float complex));
+        if (dsp->decMbuf == NULL) return -1;
+
+        dsp->ex = calloc(dsp->sr_base/res+1, sizeof(float complex));
+        if (dsp->ex == NULL) return -1;
+        for (n = 0; n < dsp->sr_base/res; n++) {
+            t = (double)n*dsp->xlt_fq; // xlt_fq=xltFq/sample_rate , integer xltFq frequency
+            dsp->ex[n] = cexp(t*2*M_PI*I);
+        }
+    }
+
+
     L = dsp->hdrlen * dsp->sps + 0.5;
     M = 3*L;
     //if (dsp->sps < 6) M = 6*L;
@@ -800,8 +926,17 @@ int free_buffers(dsp_t *dsp) {
 
     if (dsp->opt_iq)
     {
-        if (dsp->raw_iqbuf)  { free(dsp->raw_iqbuf); dsp->raw_iqbuf = NULL; }
-        if (dsp->rot_iqbuf)  { free(dsp->rot_iqbuf); dsp->rot_iqbuf = NULL; }
+        if (dsp->raw_iqbuf) { free(dsp->raw_iqbuf); dsp->raw_iqbuf = NULL; }
+        if (dsp->rot_iqbuf) { free(dsp->rot_iqbuf); dsp->rot_iqbuf = NULL; }
+    }
+
+    if (dsp->opt_iq == 5)
+    {
+        if (dsp->decXbuffer) { free(dsp->decXbuffer); dsp->decXbuffer = NULL; }
+        if (dsp->decMbuf)    { free(dsp->decMbuf);    dsp->decMbuf    = NULL; }
+        if (dsp->ex)         { free(dsp->ex);         dsp->ex         = NULL; }
+
+        if (ws_dec) { free(ws_dec); ws_dec = NULL; }
     }
 
     return 0;
