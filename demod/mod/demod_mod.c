@@ -318,7 +318,6 @@ static int f32read_cblock(dsp_t *dsp) {
 
     int n;
     int len;
-    int sum;
 
     len = dsp->decM;
 
@@ -383,7 +382,7 @@ static int get_SNR(dsp_t *dsp) {
 
 
 static int res = 1; // 1..10 Hz, exp_lut resolution
-static double *ws_dec;
+static float *ws_dec;
 
 static double sinc(double x) {
     double y;
@@ -403,7 +402,7 @@ static int decimate_init(int taps, float f) {
 
     h = (double*)calloc( taps+1, sizeof(double));
     w = (double*)calloc( taps+1, sizeof(double));
-    ws_dec = (double*)calloc( taps+1, sizeof(double));
+    ws_dec = (float*)calloc( taps+1, sizeof(float));
 
     for (n = 0; n < taps; n++) {
         w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(taps-1)) + 1430/18608.0*cos(4*M_PI*n/(taps-1)); // Blackmann
@@ -757,32 +756,36 @@ int init_buffers(dsp_t *dsp) {
 
     if (dsp->opt_iq == 5)
     {
-        int dec_sr = 48000;
-        int decM = 1;
+        int IF_sr = 48000; // designated IF sample rate
+        int decM = 1; // decimate M:1
         int sr_base = dsp->sr;
+        float f_lp; // dec_lowpass: lowpass_bandwidth/2
+        float t_bw; // dec_lowpass: transition_bandwidth
+        int taps; // dec_lowpass: taps
 
-        if (dec_sr > sr_base) dec_sr = sr_base;
-
-        if (dec_sr < sr_base) {
-            while (sr_base % dec_sr) dec_sr += 1;
-            decM = sr_base / dec_sr;
+        if (IF_sr > sr_base) IF_sr = sr_base;
+        if (IF_sr < sr_base) {
+            while (sr_base % IF_sr) IF_sr += 1;
+            decM = sr_base / IF_sr;
         }
 
-        int IF = dsp->sr/decM; fprintf(stderr, "IF: %d\n", IF);
-        float f_lp = (IF+20e3)/(4.0*sr_base);
-        float t_bw = (IF-20e3)/*2.0*/; if (t_bw < 0) t_bw = 8e3;
-        int taps = 4*sr_base/t_bw; if (taps%2==0) taps++; // 4/0.01+1=401
+        f_lp = (IF_sr+20e3)/(4.0*sr_base);
+        t_bw = (IF_sr-20e3)/*/2.0*/; if (t_bw < 0) t_bw = 8e3;
+        t_bw /= sr_base;
+        taps = 4.0/t_bw; if (taps%2==0) taps++;
 
         dsp->dectaps = decimate_init(taps, f_lp);
 
         dsp->sr_base = sr_base;
-        dsp->sr = IF; // dsp->sr/decM
+        dsp->sr = IF_sr; // sr_base/decM
         dsp->sps /= (float)decM;
         dsp->_spb /= (float)decM;
-        dsp->decM = decM; fprintf(stderr, "dec: %d\n", decM);
-    }
-    if (dsp->opt_iq == 5)
-    {
+        dsp->decM = decM;
+
+        fprintf(stderr, "IF: %d\n", IF_sr);
+        fprintf(stderr, "dec: %d\n", decM);
+
+
         dsp->decXbuffer = calloc( dsp->dectaps+1, sizeof(float complex));
         if (dsp->decXbuffer == NULL) return -1;
 
