@@ -328,6 +328,7 @@ int crc16_0(ui8_t frame[], int len) {
 
 typedef struct {
     int frnr;
+    int prev_frnr;
     ui32_t id;
     int week; int gpstow;
     int jahr; int monat; int tag;
@@ -633,17 +634,14 @@ void print_frame(int len) {
 
             if (option_jsn) {
                 // Print JSON output required by auto_rx.
-                if (crc_err==0 && (gpx.id & 0xFFFF0000)) { // CRC-OK and FullID
-                    static ui32_t _id0;
-                    static int frn0;
-                    if (gpx.frnr != frn0 || gpx.id != _id0)
-                    {   // UTC oder GPS?
-                        printf("{ \"frame\": %d, \"id\": \"%d\", \"time\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f }\n",
+                if (gpx.prev_frnr != gpx.frnr) { //|| gpx.id != _id0
+                    if (crc_err==0 && (gpx.id & 0xFFFF0000)) { // CRC-OK and FullID
+                        // UTC oder GPS?
+                        printf("{ \"frame\": %d, \"id\": \"LMS6-%d\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f }\n",
                                gpx.frnr, gpx.id, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vV );
-                        //printf("\n");
-                        frn0 = gpx.frnr;
-                        _id0 = gpx.id;
+                        printf("\n");
                     }
+                    gpx.prev_frnr = gpx.frnr;
                 }
             }
 
