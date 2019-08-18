@@ -15,6 +15,7 @@ typedef int   i32_t;
 
 static int option_verbose = 0,  // ausfuehrliche Anzeige
            option_inv = 0,      // invertiert Signal
+           option_iq = 0,
            //option_dc = 0,
            option_silent = 0,
            option_cont = 0,
@@ -89,22 +90,23 @@ typedef struct {
     float complex *Fm;
     char *type;
     ui8_t tn; // signed?
+    int lpN;
 } rsheader_t;
 
 #define Nrs 10
 #define idxAB 8
 #define idxRS 9
 static rsheader_t rs_hdr[Nrs] = {
-    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9", 2}, // DFM6: -2 (unsigned)
-    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41", 3},
-    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92", 4},
-    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6", 8},
-    { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS", 10}, // Mk2a/LMS6-1680
-    { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10", 5},
-    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50", 9},  // C34/C50 2900 Hz tone
-    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET", 6},    // IMET1AB=7, IMET1RS=8
-    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 6}, //       (rs_hdr[idxAB])
-    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET1RS", 7}  // IMET4 (rs_hdr[idxRS])
+    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9", 2    , 0}, // DFM6: -2 (unsigned)
+    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41", 3    , 0},
+    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92", 4    , 0},
+    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6", 8    , 0},
+    { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS", 10 , 1}, // Mk2a/LMS6-1680
+    { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10", 5     , 1},
+    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50", 9  , 1}, // C34/C50 2900 Hz tone
+    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET", 6    , 1}, // IMET1AB=7, IMET1RS=8
+    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 6 , 1}, //       (rs_hdr[idxAB])
+    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET1RS", 7 , 1}  // IMET4 (rs_hdr[idxRS])
 };
 
 
@@ -137,7 +139,7 @@ static unsigned int sample_in, sample_out, delay;
 
 static int M;
 
-static float *bufs  = NULL;
+static float *bufs = NULL;
 
 static char *rawbits = NULL;
 
@@ -163,6 +165,13 @@ static float complex  *ew;
 static float complex  *X, *Z, *cx;
 static float *xn;
 static float *db;
+
+// IQ-FM: lowpass
+static float *ws_lp[2];
+static float complex *Y;
+//static float complex *lp_buf;
+static float complex  *WS[2];
+static int dsp__lptaps[2];
 
 static void dft_raw(float complex *Z) {
     int s, l, l2, i, j, k;
@@ -242,7 +251,7 @@ static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpo
     float mx = 0.0;
     float mx2 = 0.0;
     float re_cx = 0.0;
-    double xnorm = 1;
+    double xnorm = 1.0;
     unsigned int mpos = 0;
 
     dc = 0.0;
@@ -259,7 +268,18 @@ static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpo
 
     dc = get_bufmu(pos-sample_out); //oder: dc = creal(X[0])/(K+rshd->L) = avg(xn) // zu lang (M10)
 
-    for (i = 0; i < N_DFT; i++) Z[i] = X[i]*rshd->Fm[i];
+    if (option_iq) {
+        // X[0] = 0; // dc: -> dc_ofs ...
+        // lowpass(xn)
+        for (i = 0; i < N_DFT; i++) Y[i] = X[i] * WS[rshd->lpN][i];
+        for (i = 0; i < N_DFT; i++) Z[i] = Y[i] * rshd->Fm[i];
+        Nidft(Y, cx);
+        for (i = 0; i < N_DFT; i++) xn[i] = creal(cx[i])/(float)N_DFT;
+    }
+    else {
+        for (i = 0; i < N_DFT; i++) Z[i] = X[i] * rshd->Fm[i];
+    }
+
 
     Nidft(Z, cx);
 
@@ -284,12 +304,13 @@ static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpo
 
     mpos = pos - (K + rshd->L-1) + mp; // t = L-1
 
-    //xnorm = sqrt(qs[(mpos + 2*M) % M]);
-    xnorm = 0.0;                           //xn[mp-t + i]
-    for (i = 0; i < rshd->L; i++) xnorm += bufs[(mpos-i + M) % M]*bufs[(mpos-i + M) % M];
+    xnorm = 0.0;
+    for (i = 0; i < rshd->L; i++) xnorm += xn[mp-i]*xn[mp-i];
     xnorm = sqrt(xnorm);
 
     mx /= xnorm*N_DFT;
+
+    if (option_iq) mpos -= dsp__lptaps[rshd->lpN]/2;  // lowpass delay
 
     *maxv = mx;
     *maxvpos = mpos;
@@ -358,7 +379,7 @@ static int read_wav_header(FILE *fp, int wav_channel) {
 
     if (wav_channel >= 0  &&  wav_channel < channels) wav_ch = wav_channel;
     else wav_ch = 0;
-    fprintf(stderr, "channel-In : %d\n", wav_ch+1);
+    //fprintf(stderr, "channel-In : %d\n", wav_ch+1);
 
     if ((bits_sample != 8) && (bits_sample != 16)) return -1;
 
@@ -386,13 +407,137 @@ static int f32read_sample(FILE *fp, float *s) {
     return 0;
 }
 
+static int f32read_csample(FILE *fp, float complex *z) {
+    short x = 0, y = 0;
+
+    if (fread( &x, bits_sample/8, 1, fp) != 1) return EOF;
+    if (fread( &y, bits_sample/8, 1, fp) != 1) return EOF;
+
+    *z = x + I*y;
+
+    if (bits_sample ==  8) { *z -= 128 + I*128; }
+    *z /= 128.0;
+    if (bits_sample == 16) { *z /= 256.0; }
+
+    return 0;
+}
+
+// decimation
+static ui32_t dsp__sr_base;
+static ui32_t dsp__sample_dec;
+static int dsp__decM = 1;
+static int dsp__dectaps;
+static float complex *dsp__decXbuffer;
+static float complex *dsp__decMbuf;
+static float complex *dsp__ex; // exp_lut
+
+static int res = 1; // 1..10 Hz, exp_lut resolution
+static float *ws_dec;
+static double dsp__xlt_fq = 0.0;
+
+static int f32read_cblock(FILE *fp) {
+
+    int n;
+    int len;
+
+    len = dsp__decM;
+
+    if (bits_sample == 8) {
+        ui8_t u[2*dsp__decM];
+        len = fread( u, bits_sample/8, 2*dsp__decM, fp) / 2;
+        for (n = 0; n < len; n++) dsp__decMbuf[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
+    }
+    else { // bits_sample == 16
+        short b[2*dsp__decM];
+        len = fread( b, bits_sample/8, 2*dsp__decM, fp) / 2;
+        for (n = 0; n < len; n++) dsp__decMbuf[n] = b[2*n]/32768.0 + I*b[2*n+1]/32768.0;
+    }
+
+    return len;
+}
+
+static double sinc(double x) {
+    double y;
+    if (x == 0) y = 1;
+    else y = sin(M_PI*x)/(M_PI*x);
+    return y;
+}
+
+static int lowpass_init(float f, int taps, float **pws) {
+    double *h, *w;
+    double norm = 0;
+    int n;
+    float *ws = NULL;
+
+    if (taps % 2 == 0) taps++; // odd/symmetric
+
+    if ( taps < 1 ) taps = 1;
+
+    h = (double*)calloc( taps+1, sizeof(double));
+    w = (double*)calloc( taps+1, sizeof(double));
+    ws = (float*)calloc( taps+1, sizeof(float));
+
+    for (n = 0; n < taps; n++) {
+        w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(taps-1)) + 1430/18608.0*cos(4*M_PI*n/(taps-1)); // Blackmann
+        h[n] = 2*f*sinc(2*f*(n-(taps-1)/2));
+        ws[n] = w[n]*h[n];
+        norm += ws[n]; // 1-norm
+    }
+    for (n = 0; n < taps; n++) {
+        ws[n] /= norm; // 1-norm
+    }
+    *pws = ws;
+
+    free(h); h = NULL;
+    free(w); w = NULL;
+
+    return taps;
+}
+
+// struct { int taps; double *ws}
+static float complex lowpass(float complex buffer[], int sample, int taps, float *ws) {
+    int n;
+    double complex w = 0;
+    for (n = 0; n < taps; n++) {
+        w += buffer[(sample+n+1)%taps]*ws[taps-1-n];
+    }
+    return (float complex)w;
+}
+
 
 static int f32buf_sample(FILE *fp, int inv) {
     float s = 0.0;
     float xneu, xalt;
+    static float complex z0;
+    float complex z=0, w;
+    double gain = 0.8;
 
+    if (option_iq)
+    {
+        if (option_iq == 5) { // baseband decimation
+            int j;
+            if ( f32read_cblock(fp) < dsp__decM ) return EOF;
+            for (j = 0; j < dsp__decM; j++) {
+                dsp__decXbuffer[dsp__sample_dec % dsp__dectaps] = dsp__decMbuf[j] * dsp__ex[dsp__sample_dec % (dsp__sr_base/res)];
+                dsp__sample_dec += 1;
+            }
+            z = lowpass(dsp__decXbuffer, dsp__sample_dec, dsp__dectaps, ws_dec);
 
-    if (f32read_sample(fp, &s) == EOF) return EOF;
+            //lp_buf[sample_in % dsp__lptaps] = z;  // lowpass -> FM
+            //z = lowpass(lp_buf, sample_in, dsp__lptaps, ws_lp); // individual lps in getCorrDFT()
+        }
+        else if ( f32read_csample(fp, &z) == EOF ) return EOF;
+
+        // IQ: different modulation indices h=h(rs) -> FM-demod
+        // FM-demod (incl. lowpass)
+        w = z * conj(z0);
+        s = gain * carg(w)/M_PI;
+        z0 = z;
+    }
+    else
+    {
+        if (f32read_sample(fp, &s) == EOF) return EOF;
+    }
 
     if (inv) s = -s;
     bufs[sample_in % M] = s  - dc_ofs;
@@ -539,6 +684,70 @@ static int init_buffers() {
     int hLen = 0;
     int Lmax = 0;
 
+
+    if (option_iq == 5)
+    {
+        int IF_sr = 48000; // designated IF sample rate
+        int decM = 1; // decimate M:1
+        int sr_base = sample_rate;
+        float f_lp; // dec_lowpass: lowpass_bw/2
+        float t_bw; // dec_lowpass: transition_bw
+        int taps; // dec_lowpass: taps
+
+        if (IF_sr > sr_base) IF_sr = sr_base;
+        if (IF_sr < sr_base) {
+            while (sr_base % IF_sr) IF_sr += 1;
+            decM = sr_base / IF_sr;
+        }
+
+        f_lp = (IF_sr+20e3)/(4.0*sr_base);
+        t_bw = (IF_sr-20e3)/*/2.0*/; if (t_bw < 0) t_bw = 8e3;
+        t_bw /= sr_base;
+        taps = 4.0/t_bw; if (taps%2==0) taps++;
+
+        dsp__dectaps = lowpass_init(f_lp, taps, &ws_dec);
+
+        dsp__sr_base = sr_base;
+        sample_rate = IF_sr; // sr_base/decM
+        dsp__decM = decM;
+
+        fprintf(stderr, "IF: %d\n", IF_sr);
+        fprintf(stderr, "dec: %d\n", decM);
+
+
+        dsp__decXbuffer = calloc( dsp__dectaps+1, sizeof(float complex));
+        if (dsp__decXbuffer == NULL) return -1;
+
+        dsp__decMbuf = calloc( dsp__decM+1, sizeof(float complex));
+        if (dsp__decMbuf == NULL) return -1;
+
+        dsp__ex = calloc(dsp__sr_base/res+1, sizeof(float complex));
+        if (dsp__ex == NULL) return -1;
+        for (n = 0; n < dsp__sr_base/res; n++) {
+            t = (double)n*dsp__xlt_fq; // xlt_fq=xltFq/sample_rate , integer xltFq frequency
+            dsp__ex[n] = cexp(t*2*M_PI*I);
+        }
+    }
+
+    if (option_iq)
+    {
+        // IF lowpass -> xn[] in getCorrDFT()
+        float f_lp; // lowpass_bw
+        int taps; // lowpass taps: 4*sr/transition_bw
+
+        f_lp = 10e3/(float)sample_rate/2.0;  // RS41,DFM: 10kHz
+        taps = 4*sample_rate/4e3; if (taps%2==0) taps++; // 4kHz
+        dsp__lptaps[0] = lowpass_init(f_lp, taps, &ws_lp[0]);
+
+        f_lp = 20e3/(float)sample_rate/2.0;  // M10: 20kHz
+        taps = 4*sample_rate/4e3; if (taps%2==0) taps++; // 4kHz
+        dsp__lptaps[1] = lowpass_init(f_lp, taps, &ws_lp[1]);
+
+        //lp_buf = calloc( dsp__lptaps+1, sizeof(float complex));
+        //if (lp_buf == NULL) return -1;
+    }
+
+
     for (j = 0; j < Nrs; j++) {
         rs_hdr[j].spb = sample_rate/(float)rs_hdr[j].bps;
         rs_hdr[j].hLen = strlen(rs_hdr[j].header);
@@ -578,10 +787,10 @@ static int init_buffers() {
     xn = calloc(N_DFT+1, sizeof(float));  if (xn == NULL) return -1;
     db = calloc(N_DFT+1, sizeof(float));  if (db == NULL) return -1;
 
-    ew = calloc(LOG2N+1, sizeof(complex float));  if (ew == NULL) return -1;
-    X  = calloc(N_DFT+1, sizeof(complex float));  if (X  == NULL) return -1;
-    Z  = calloc(N_DFT+1, sizeof(complex float));  if (Z  == NULL) return -1;
-    cx = calloc(N_DFT+1, sizeof(complex float));  if (cx == NULL) return -1;
+    ew = calloc(LOG2N+1, sizeof(float complex));  if (ew == NULL) return -1;
+    X  = calloc(N_DFT+1, sizeof(float complex));  if (X  == NULL) return -1;
+    Z  = calloc(N_DFT+1, sizeof(float complex));  if (Z  == NULL) return -1;
+    cx = calloc(N_DFT+1, sizeof(float complex));  if (cx == NULL) return -1;
 
     for (n = 0; n < LOG2N; n++) {
         k = 1 << n;
@@ -594,7 +803,7 @@ static int init_buffers() {
 
     for (j = 0; j < Nrs-1; j++)
     {
-        rs_hdr[j].Fm = (float complex *)calloc(N_DFT+1, sizeof(complex float));  if (rs_hdr[j].Fm == NULL) return -1;
+        rs_hdr[j].Fm = (float complex *)calloc(N_DFT+1, sizeof(float complex));  if (rs_hdr[j].Fm == NULL) return -1;
         bits = rs_hdr[j].header;
         spb = rs_hdr[j].spb;
         sigma = sqrt(log(2)) / (2*M_PI*rs_hdr[j].BT);
@@ -632,6 +841,18 @@ static int init_buffers() {
     }
 
 
+    if (option_iq)
+    {
+        for (j = 0; j < 2; j++) {
+            WS[j] = (float complex *)calloc(N_DFT+1, sizeof(float complex));  if (WS[j] == NULL) return -1;
+            for (i = 0; i < dsp__lptaps[j]; i++) m[i] = ws_lp[j][i];
+            while (i < N_DFT) m[i++] = 0.0;
+            dft(m, WS[j]);
+        }
+        Y  = (float complex *)calloc(N_DFT+1, sizeof(float complex));  if (Y == NULL) return -1;
+    }
+
+
     free(match); match = NULL;
     free(m); m = NULL;
 
@@ -658,6 +879,26 @@ static int free_buffers() {
     for (j = 0; j < Nrs-1; j++) {
         if (rs_hdr[j].Fm) { free(rs_hdr[j].Fm); rs_hdr[j].Fm = NULL; }
     }
+
+
+    // iq buffers
+
+    if (option_iq == 5)
+    {
+        if (dsp__decXbuffer) { free(dsp__decXbuffer); dsp__decXbuffer = NULL; }
+        if (dsp__decMbuf) { free(dsp__decMbuf); dsp__decMbuf = NULL; }
+        if (dsp__ex) { free(dsp__ex); dsp__ex = NULL; }
+
+    }
+
+    if (option_iq) {
+        for (j = 0; j < 2; j++) {
+            if (ws_lp[j]) { free(ws_lp[j]); ws_lp[j] = NULL; }
+            if (WS[j]) { free(WS[j]); WS[j] = NULL; }
+        }
+        if (Y) { free(Y); Y = NULL; }
+    }
+
 
     return 0;
 }
@@ -701,6 +942,17 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
             option_verbose = 1;
         }
+        else if ( (strcmp(*argv, "--iq") == 0) ) { option_iq = 1; }
+        else if   (strcmp(*argv, "--IQ") == 0) { // fq baseband -> IF (rotate from and decimate)
+            double fq = 0.0;                     // --IQ <fq> , -0.5 < fq < 0.5
+            ++argv;
+            if (*argv) fq = atof(*argv);
+            else return -1;
+            if (fq < -0.5) fq = -0.5;
+            if (fq >  0.5) fq =  0.5;
+            dsp__xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
+            option_iq = 5;
+        }
         //else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
         else if ( (strcmp(*argv, "-s") == 0) || (strcmp(*argv, "--silent") == 0) ) {
             option_silent = 1;
@@ -742,6 +994,10 @@ int main(int argc, char **argv) {
         return -50;
     }
 
+    if (option_iq && channels < 2) {
+        fprintf(stderr, "error: iq channels < 2\n");
+        return -50;
+    }
 
     K = init_buffers();
     if ( K < 0 ) {
