@@ -34,7 +34,7 @@ my $line;
 
 my $hms;
 my $lat; my $lon; my $alt;
-my $sign;
+my $sign = 1;
 my $NS; my $EW;
 my $str;
 
