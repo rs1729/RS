@@ -735,9 +735,10 @@ int main(int argc, char **argv) {
                                     dat2 = bits2val(subframe_bits+HEADLEN, 16);
                                     gpx.tag = dat2/1000;
                                     gpx.monat = (dat2/10)%100;
-                                    gpx.jahr = (dat2%10)+10;
+                                    gpx.jahr = 2000 + (dat2%10)+10;
                                     //if (option_verbose) printf("%05u  ", dat2);
-                                    printf("(%02d-%02d-%02d) ", gpx.tag, gpx.monat, gpx.jahr); // 2020: +20 ?
+                                    //printf("(%02d-%02d-%02d) ", gpx.tag, gpx.monat, gpx.jahr%100); // 2020: +20 ?
+                                    printf("(%04d-%02d-%02d) ", gpx.jahr, gpx.monat, gpx.tag); // 2020: +20 ?
 
                                     lat1 = bits2val(subframe_bits+HEADLEN+46*0+17, 16);
                                     lat2 = bits2val(subframe_bits+HEADLEN+46*1   , 16);
@@ -784,7 +785,7 @@ int main(int argc, char **argv) {
                                     printf("\n");
                                     if (option_jsn && err_frm==0) {
                                         printf("{ \"frame\": %d, \"id\": \"IMS100\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f }\n",
-                                               gpx.frnr, 2000+gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD );
+                                               gpx.frnr, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD );
                                         printf("\n");
                                     }
                                 }
