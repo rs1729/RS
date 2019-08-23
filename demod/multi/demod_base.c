@@ -452,7 +452,7 @@ static int get_SNR(dsp_t *dsp) {
     return 0;
 }
 
-static int res = 1; // 1..10 Hz, exp_lut resolution
+static ui32_t res = 1; // 1..10 Hz, exp_lut resolution
 
 static double sinc(double x) {
     double y;
@@ -475,9 +475,9 @@ int decimate_init(int taps, float f) {
 
     if ( M < 1 ) M = 1;
 
-    h = (double*)calloc( M+1, sizeof(double));
-    w = (double*)calloc( M+1, sizeof(double));
-    ws_dec = (double*)calloc( M+1, sizeof(double));
+    h = (double*)calloc( M+1, sizeof(double)); if (h == NULL) return -1;
+    w = (double*)calloc( M+1, sizeof(double)); if (w == NULL) return -1;
+    ws_dec = (double*)calloc( M+1, sizeof(double)); if (ws_dec == NULL) return -1;
 
     for (n = 0; n < M; n++) {
         w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(M-1)) + 1430/18608.0*cos(4*M_PI*n/(M-1)); // Blackmann
@@ -504,8 +504,8 @@ int decimate_free() {
 }
 
 
-static float complex lowpass(float complex buffer[], int sample, int M) {
-    int n;
+static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t M) {
+    ui32_t n;
     double complex w = 0;
     for (n = 0; n < M; n++) {
         w += buffer[(sample+n+1)%M]*ws_dec[M-1-n];
@@ -526,11 +526,13 @@ int f32buf_sample(dsp_t *dsp, int inv) {
     if (dsp->opt_iq) {
 
         if (dsp->opt_iq == 5) {
+            ui32_t s_reset = dsp->dectaps*dsp->sr_base; // dsp->sr_base % res == 0
             int j;
             if ( f32read_cblock(dsp) < dsp->decM ) return EOF;
             for (j = 0; j < dsp->decM; j++) {
                 dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % (dsp->sr_base/res)];
                 dsp->sample_dec += 1;
+                if (dsp->sample_dec == s_reset) dsp->sample_dec = 0;
             }
             z = lowpass(dsp->decXbuffer, dsp->sample_dec, dsp->dectaps);
         }
