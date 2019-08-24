@@ -779,80 +779,16 @@ static int print_frame(gpx_t *gpx, dsp_t *dsp) {
 
 /* -------------------------------------------------------------------------- */
 
-// header bit buffer
-typedef struct {
-    char *hdr;
-    char *buf;
-    char len;
-    int bufpos;
-    float ths;
-} hdb_t;
-
-static float cmp_hdb(hdb_t *hdb) { // bit-errors?
-    int i, j;
-    int headlen = hdb->len;
-    int berrs1 = 0, berrs2 = 0;
-
-    i = 0;
-    j = hdb->bufpos;
-    while (i < headlen) {
-        if (j < 0) j = headlen-1;
-        if (hdb->buf[j] != hdb->hdr[headlen-1-i]) berrs1 += 1;
-        j--;
-        i++;
-    }
-
-    i = 0;
-    j = hdb->bufpos;
-    while (i < headlen) {
-        if (j < 0) j = headlen-1;
-        if ((hdb->buf[j]^0x01) != hdb->hdr[headlen-1-i]) berrs2 += 1;
-        j--;
-        i++;
-    }
-    if (berrs2 < berrs1) return (-headlen+berrs2)/(float)headlen;
-    else                 return ( headlen-berrs1)/(float)headlen;
-
-    return 0;
-}
-
-static int find_binhead(FILE *fp, hdb_t *hdb, float *score) {
-    int bit;
-    int headlen = hdb->len;
-    float mv;
-
-    //*score = 0.0;
-
-    while ( (bit = fgetc(fp)) != EOF )
-    {
-        bit &= 1;
-
-        hdb->bufpos = (hdb->bufpos+1) % headlen;
-        hdb->buf[hdb->bufpos] = 0x30 | bit;  // Ascii
-
-        mv = cmp_hdb(hdb);
-        if ( fabs(mv) > hdb->ths ) {
-            *score = mv;
-            return 1;
-        }
-    }
-
-    return EOF;
-}
-
 
 void *thd_dfm09(void *targs) {
-
 
     thargs_t *tharg = targs;
     pcm_t *pcm = &(tharg->pcm);
 
+
     int option_iq = 5;
-    int option_bin = 0;
     int spike = 0;
 
-    FILE *fp = NULL;
-    char *fpname = NULL;
 
     int ret = 0;
     int k;
@@ -877,9 +813,6 @@ void *thd_dfm09(void *targs) {
     dsp_t dsp = {0};
 
     gpx_t gpx = {0};
-
-    hdb_t hdb = {0};
-    ui32_t hdrcnt = 0;
 
 /*
 #ifdef CYGWIN
@@ -947,16 +880,12 @@ void *thd_dfm09(void *targs) {
     bitofs += shift;
 
 
+    bitQ = 0;
     while ( 1 && bitQ != EOF )
     {
-        if (option_bin) { // aka find_binrawhead()
-            header_found = find_binhead(fp, &hdb, &_mv); // symbols or bits?
-            hdrcnt += nfrms;
-        }
-        else {
-            header_found = find_header(&dsp, thres, 2, bitofs, 0);
-            _mv = dsp.mv;
-        }
+        header_found = find_header(&dsp, thres, 2, bitofs, 0);
+        _mv = dsp.mv;
+
         if (header_found == EOF) break;
 
         // mv == correlation score
@@ -975,34 +904,18 @@ void *thd_dfm09(void *targs) {
 
             frm = 0;
             while ( frm < nfrms ) { // nfrms=1,2,4,8
-                if (option_bin) {
-                    gpx._frmcnt = hdrcnt + frm;
-                }
-                else {
-                    gpx._frmcnt = dsp.mv_pos/(2.0*dsp.sps*BITFRAME_LEN) + frm;
-                }
+
+                gpx._frmcnt = dsp.mv_pos/(2.0*dsp.sps*BITFRAME_LEN) + frm;
+
                 while ( pos < BITFRAME_LEN )
                 {
-                    if (option_bin) {
-                        // symbols or bits?
-                        // manchester1 1->10,0->01: 1.bit (DFM-06)
-                        // manchester2 0->10,1->01: 2.bit (DFM-09)
-                        bitQ = fgetc(fp);
-                        if (bitQ != EOF) {
-                            bit = bitQ & 0x1;
-                            bitQ = fgetc(fp);  // check: rbit0^rbit1=1 (Manchester)
-                            if (bitQ != EOF) bit = bitQ & 0x1; // 2.bit (DFM-09)
-                        }
+                    if (option_iq >= 2) {
+                        float bl = -1;
+                        if (option_iq > 2) bl = 4.0;
+                        bitQ = read_slbit(&dsp, &bit, 0/*gpx.option.inv*/, bitofs, bitpos, bl, 0);
                     }
                     else {
-                        if (option_iq >= 2) {
-                            float bl = -1;
-                            if (option_iq > 2) bl = 4.0;
-                            bitQ = read_slbit(&dsp, &bit, 0/*gpx.option.inv*/, bitofs, bitpos, bl, 0);
-                        }
-                        else {
-                            bitQ = read_slbit(&dsp, &bit, 0/*gpx.option.inv*/, bitofs, bitpos, -1, spike);
-                        }
+                        bitQ = read_slbit(&dsp, &bit, 0/*gpx.option.inv*/, bitofs, bitpos, -1, spike);
                     }
                     if ( bitQ == EOF ) { frm = nfrms; break; } // liest 2x EOF
 

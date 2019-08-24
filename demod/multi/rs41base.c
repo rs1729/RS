@@ -6,7 +6,7 @@
  *  (a)
  *      gcc -DINCLUDESTATIC -c rs41base.c
  *  (b)
- *      gcc -c demod_mod.c
+ *      gcc -c bch_ecc_mod.c
  *      gcc -c rs41base.c
  *
  *  author: zilog80
@@ -1468,69 +1468,6 @@ static void print_frame(gpx_t *gpx, int len, dsp_t *dsp) {
 /* -------------------------------------------------------------------------- */
 
 
-// header bit buffer
-typedef struct {
-    char *hdr;
-    char *buf;
-    char len;
-    int bufpos;
-    float ths;
-} hdb_t;
-
-static float cmp_hdb(hdb_t *hdb) { // bit-errors?
-    int i, j;
-    int headlen = hdb->len;
-    int berrs1 = 0, berrs2 = 0;
-
-    i = 0;
-    j = hdb->bufpos;
-    while (i < headlen) {
-        if (j < 0) j = headlen-1;
-        if (hdb->buf[j] != hdb->hdr[headlen-1-i]) berrs1 += 1;
-        j--;
-        i++;
-    }
-
-    i = 0;
-    j = hdb->bufpos;
-    while (i < headlen) {
-        if (j < 0) j = headlen-1;
-        if ((hdb->buf[j]^0x01) != hdb->hdr[headlen-1-i]) berrs2 += 1;
-        j--;
-        i++;
-    }
-
-    if (berrs2 < berrs1) return (-headlen+berrs2)/(float)headlen;
-    else                 return ( headlen-berrs1)/(float)headlen;
-
-    return 0;
-}
-
-static int find_binhead(FILE *fp, hdb_t *hdb, float *score) {
-    int bit;
-    int headlen = hdb->len;
-    float mv;
-
-    //*score = 0.0;
-
-    while ( (bit = fgetc(fp)) != EOF )
-    {
-        bit &= 1;
-
-        hdb->bufpos = (hdb->bufpos+1) % headlen;
-        hdb->buf[hdb->bufpos] = 0x30 | bit;  // Ascii
-
-        mv = cmp_hdb(hdb);
-        if ( fabs(mv) > hdb->ths ) {
-            *score = mv;
-            return 1;
-        }
-    }
-
-    return EOF;
-}
-
-
 void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
 
     thargs_t *tharg = targs;
@@ -1540,12 +1477,7 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     //int option_inv = 0;    // invertiert Signal
     int option_iq = 5; // baseband, decimate
     int option_ofs = 0;
-    int option_bin = 0;
-    //int sel_wavch = 0;     // audio channel: left
-    int rawhex = 0, xorhex = 0;
 
-    //FILE *fp;
-    //char *fpname = NULL;
 
     int k;
 
@@ -1569,8 +1501,6 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
 
     gpx_t gpx = {0};
 
-    hdb_t hdb = {0};
-
 /*
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _fileno(stdin)
@@ -1593,9 +1523,7 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     memcpy(gpx.frame, rs41_header_bytes, sizeof(rs41_header_bytes)); // 8 header bytes
 
 
-    //if (option_iq) sel_wavch = 0;
-
-    pcm->sel_ch = 0; //sel_wavch;
+    pcm->sel_ch = 0;
 
     // rs41: BT=0.5, h=0.8,1.0 ?
     symlen = 1;
@@ -1609,14 +1537,7 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.decM = pcm->decM;
 
     dsp.thd = tharg->thd;
-/*
-    thread_struct->tn;
-    dsp.mutex = thread_struct->mutex;
-    dsp.cond = thread_struct->cond;
-    dsp.xlt_fq = thread_struct->xlt_fq;
-    dsp.max_fq = thread_struct->max_fq;
-    dsp.blk = thread_struct->blk;
-*/
+
     dsp.bps = pcm->bps;
     dsp.nch = pcm->nch;
     dsp.ch = pcm->sel_ch;
@@ -1642,11 +1563,11 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
         return NULL;
     };
 
-    //if (option_iq >= 2) bitofs += 1; // FM: +1 , IQ: +2
+    //if (option_iq: 2,3) bitofs += 1; // FM: +1 , IQ: +2, IQ5: +1
     bitofs += shift;
 
-//fprintf(stderr, "%d\n", dsp.tn);
 
+    bitQ = 0;
     while ( 1 && bitQ != EOF )
     {
         header_found = find_header(&dsp, thres, 3, bitofs, 0);
