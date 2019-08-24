@@ -452,7 +452,9 @@ static int get_SNR(dsp_t *dsp) {
     return 0;
 }
 
+
 static ui32_t res = 1; // 1..10 Hz, exp_lut resolution
+static float *ws_dec;
 
 static double sinc(double x) {
     double y;
@@ -461,39 +463,33 @@ static double sinc(double x) {
     return y;
 }
 
-static double *ws_dec;
-
 int decimate_init(int taps, float f) {
-    //int M = 4 / (tbw/sr) + 1;
-    int M = taps;
-    if (M % 2 == 0) M++; // odd/symmetric
-    //float f = 0.25;
-
     double *h, *w;
     double norm = 0;
     int n;
 
-    if ( M < 1 ) M = 1;
+    if (taps % 2 == 0) taps++; // odd/symmetric
 
-    h = (double*)calloc( M+1, sizeof(double)); if (h == NULL) return -1;
-    w = (double*)calloc( M+1, sizeof(double)); if (w == NULL) return -1;
-    ws_dec = (double*)calloc( M+1, sizeof(double)); if (ws_dec == NULL) return -1;
+    if ( taps < 1 ) taps = 1;
 
-    for (n = 0; n < M; n++) {
-        w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(M-1)) + 1430/18608.0*cos(4*M_PI*n/(M-1)); // Blackmann
-        h[n] = 2*f*sinc(2*f*(n-(M-1)/2));
+    h = (double*)calloc( taps+1, sizeof(double)); if (h == NULL) return -1;
+    w = (double*)calloc( taps+1, sizeof(double)); if (w == NULL) return -1;
+    ws_dec = (float*)calloc( taps+1, sizeof(float)); if (ws_dec == NULL) return -1;
+
+    for (n = 0; n < taps; n++) {
+        w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(taps-1)) + 1430/18608.0*cos(4*M_PI*n/(taps-1)); // Blackmann
+        h[n] = 2*f*sinc(2*f*(n-(taps-1)/2));
         ws_dec[n] = w[n]*h[n];
         norm += ws_dec[n];
     }
-    for (n = 0; n < M; n++) {
+    for (n = 0; n < taps; n++) {
         ws_dec[n] /= norm;
-        //fprintf(stderr, "%d  %f  %f  %f\n", n, h[n], w[n], ws_dec[n]);
     }
 
     free(h); h = NULL;
     free(w); w = NULL;
 
-    return M;
+    return taps;
 }
 
 int decimate_free() {
@@ -522,7 +518,6 @@ int f32buf_sample(dsp_t *dsp, int inv) {
 
     double t = dsp->sample_in / (double)dsp->sr;
 
-
     if (dsp->opt_iq) {
 
         if (dsp->opt_iq == 5) {
@@ -537,7 +532,6 @@ int f32buf_sample(dsp_t *dsp, int inv) {
             z = lowpass(dsp->decXbuffer, dsp->sample_dec, dsp->dectaps);
         }
         else if ( f32read_csample(dsp, &z) == EOF ) return EOF;
-
 
         dsp->raw_iqbuf[dsp->sample_in % dsp->N_IQBUF] = z;
 
