@@ -117,6 +117,7 @@ typedef struct {
     ui32_t sr_base;
     ui32_t dectaps;
     ui32_t sample_dec;
+    ui32_t lut_len;
     float complex *decXbuffer;
     float complex *decMbuf;
     float complex *ex; // exp_lut

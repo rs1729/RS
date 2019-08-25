@@ -381,7 +381,6 @@ static int get_SNR(dsp_t *dsp) {
 }
 
 
-static ui32_t res = 1; // 1..10 Hz, exp_lut resolution
 static float *ws_dec;
 
 static double sinc(double x) {
@@ -441,11 +440,11 @@ int f32buf_sample(dsp_t *dsp, int inv) {
     if (dsp->opt_iq) {
 
         if (dsp->opt_iq == 5) {
-            ui32_t s_reset = dsp->dectaps*dsp->sr_base; // dsp->sr_base % res == 0
+            ui32_t s_reset = dsp->dectaps*dsp->lut_len;
             int j;
             if ( f32read_cblock(dsp) < dsp->decM ) return EOF;
             for (j = 0; j < dsp->decM; j++) {
-                dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % (dsp->sr_base/res)];
+                dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % dsp->lut_len];
                 dsp->sample_dec += 1;
                 if (dsp->sample_dec == s_reset) dsp->sample_dec = 0;
             }
@@ -788,6 +787,41 @@ int init_buffers(dsp_t *dsp) {
 
         fprintf(stderr, "IF: %d\n", IF_sr);
         fprintf(stderr, "dec: %d\n", decM);
+    }
+    if (dsp->opt_iq == 5)
+    {
+        // look up table, exp-rotation
+        int W = 2*8; // 16 Hz window
+        int d = 1; // 1..W , groesster Teiler d <= W von sr_base
+        int freq = (int)( dsp->xlt_fq * (double)dsp->sr_base + 0.5);
+        int freq0 = freq; // init
+        double f0 = freq0 / (double)dsp->sr_base; // init
+
+        for (d = W; d > 0; d--) { // groesster Teiler d <= W von sr
+            if (dsp->sr_base % d == 0) break;
+        }
+        if (d == 0) d = 1; // d >= 1 ?
+
+        for (k = 0; k < W/2; k++) {
+            if ((freq+k) % d == 0) {
+                freq0 = freq + k;
+                break;
+            }
+            if ((freq-k) % d == 0) {
+                freq0 = freq - k;
+                break;
+            }
+        }
+
+        dsp->lut_len = dsp->sr_base / d;
+        f0 = freq0 / (double)dsp->sr_base;
+
+        dsp->ex = calloc(dsp->lut_len+1, sizeof(float complex));
+        if (dsp->ex == NULL) return -1;
+        for (n = 0; n < dsp->lut_len; n++) {
+            t = f0*(double)n;
+            dsp->ex[n] = cexp(t*2*M_PI*I);
+        }
 
 
         dsp->decXbuffer = calloc( dsp->dectaps+1, sizeof(float complex));
@@ -795,13 +829,6 @@ int init_buffers(dsp_t *dsp) {
 
         dsp->decMbuf = calloc( dsp->decM+1, sizeof(float complex));
         if (dsp->decMbuf == NULL) return -1;
-
-        dsp->ex = calloc(dsp->sr_base/res+1, sizeof(float complex));
-        if (dsp->ex == NULL) return -1;
-        for (n = 0; n < dsp->sr_base/res; n++) {
-            t = (double)n*dsp->xlt_fq; // xlt_fq=xltFq/sample_rate , integer xltFq frequency
-            dsp->ex[n] = cexp(t*2*M_PI*I);
-        }
     }
 
 
