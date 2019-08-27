@@ -381,26 +381,33 @@ static int read_wav_header(FILE *fp, int wav_channel) {
     else wav_ch = 0;
     //fprintf(stderr, "channel-In : %d\n", wav_ch+1);
 
-    if ((bits_sample != 8) && (bits_sample != 16)) return -1;
+    if (bits_sample != 8 && bits_sample != 16 && bits_sample != 32) return -1;
 
     return 0;
 }
 
 static int f32read_sample(FILE *fp, float *s) {
     int i;
-    short b = 0;
+    unsigned int word = 0;
+    short *b = (short*)&word;
+    float *f = (float*)&word;
 
     for (i = 0; i < channels; i++) {
 
-        if (fread( &b, bits_sample/8, 1, fp) != 1) return EOF;
+        if (fread( &word, bits_sample/8, 1, fp) != 1) return EOF;
 
         if (i == wav_ch) {  // i = 0: links bzw. mono
             //if (bits_sample ==  8)  sint = b-128;   // 8bit: 00..FF, centerpoint 0x80=128
             //if (bits_sample == 16)  sint = (short)b;
 
-            if (bits_sample ==  8) { b -= 128; }
-            *s = b/128.0;
-            if (bits_sample == 16) { *s /= 256.0; }
+            if (bits_sample == 32) {
+                *s = *f;
+            }
+            else {
+                if (bits_sample ==  8) { *b -= 128; }
+                *s = *b/128.0;
+                if (bits_sample == 16) { *s /= 256.0; }
+            }
         }
     }
 
@@ -408,16 +415,27 @@ static int f32read_sample(FILE *fp, float *s) {
 }
 
 static int f32read_csample(FILE *fp, float complex *z) {
-    short x = 0, y = 0;
 
-    if (fread( &x, bits_sample/8, 1, fp) != 1) return EOF;
-    if (fread( &y, bits_sample/8, 1, fp) != 1) return EOF;
+    if (bits_sample ==  32) {
+        float x = 0, y = 0;
 
-    *z = x + I*y;
+        if (fread( &x, bits_sample/8, 1, fp) != 1) return EOF;
+        if (fread( &y, bits_sample/8, 1, fp) != 1) return EOF;
 
-    if (bits_sample ==  8) { *z -= 128 + I*128; }
-    *z /= 128.0;
-    if (bits_sample == 16) { *z /= 256.0; }
+        *z = x + I*y;
+    }
+    else {  // bits_sample == 8,16
+        short a = 0, b = 0;
+
+        if (fread( &a, bits_sample/8, 1, fp) != 1) return EOF;
+        if (fread( &b, bits_sample/8, 1, fp) != 1) return EOF;
+
+        *z = a + I*b;
+
+        if (bits_sample ==  8) { *z -= 128 + I*128; }
+        *z /= 128.0;
+        if (bits_sample == 16) { *z /= 256.0; }
+    }
 
     return 0;
 }
@@ -447,10 +465,15 @@ static int f32read_cblock(FILE *fp) {
         len = fread( u, bits_sample/8, 2*dsp__decM, fp) / 2;
         for (n = 0; n < len; n++) dsp__decMbuf[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
     }
-    else { // bits_sample == 16
+    else if (bits_sample == 16) { // bits_sample == 16
         short b[2*dsp__decM];
         len = fread( b, bits_sample/8, 2*dsp__decM, fp) / 2;
         for (n = 0; n < len; n++) dsp__decMbuf[n] = b[2*n]/32768.0 + I*b[2*n+1]/32768.0;
+    }
+    else { // bits_sample == 32   //float32
+        float f[2*dsp__decM];
+        len = fread( f, bits_sample/8, 2*dsp__decM, fp) / 2;
+        for (n = 0; n < len; n++) dsp__decMbuf[n] = f[2*n] + I*f[2*n+1];
     }
 
     return len;

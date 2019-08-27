@@ -149,7 +149,7 @@ int main(int argc, char **argv) {
             ++argv;
             if (*argv) bits_sample = atoi(*argv); else return -1;
             channels = 2;
-            if (sample_rate < 1 || (bits_sample != 8 && bits_sample != 16 /*&&bits_sample!=32*/)) {
+            if (sample_rate < 1 || (bits_sample != 8 && bits_sample != 16 && bits_sample != 32)) {
                 fprintf(stderr, "- <sr> <bs>\n");
                 return -1;
             }

@@ -267,7 +267,7 @@ float read_wav_header(pcm_t *pcm, FILE *fp) {
     if (pcm->sel_ch < 0  ||  pcm->sel_ch >= channels) pcm->sel_ch = 0; // default channel: 0
     //fprintf(stderr, "channel-In : %d\n", pcm->sel_ch+1); // nur wenn nicht IQ
 
-    if ((bits_sample != 8) && (bits_sample != 16)) return -1;
+    if (bits_sample != 8 && bits_sample != 16 && bits_sample != 32) return -1;
 
 
     pcm->sr  = sample_rate;
@@ -280,19 +280,26 @@ float read_wav_header(pcm_t *pcm, FILE *fp) {
 
 static int f32read_sample(dsp_t *dsp, float *s) {
     int i;
-    short b = 0;
+    unsigned int word = 0;
+    short *b = (short*)&word;
+    float *f = (float*)&word;
 
     for (i = 0; i < dsp->nch; i++) {
 
-        if (fread( &b, dsp->bps/8, 1, dsp->fp) != 1) return EOF;
+        if (fread( &word, dsp->bps/8, 1, dsp->fp) != 1) return EOF;
 
         if (i == dsp->ch) {  // i = 0: links bzw. mono
             //if (bits_sample ==  8)  sint = b-128;   // 8bit: 00..FF, centerpoint 0x80=128
             //if (bits_sample == 16)  sint = (short)b;
 
-            if (dsp->bps ==  8) { b -= 128; }
-            *s = b/128.0;
-            if (dsp->bps == 16) { *s /= 256.0; }
+            if (dsp->bps == 32) {
+                *s = *f;
+            }
+            else {
+                if (dsp->bps ==  8) { *b -= 128; }
+                *s = *b/128.0;
+                if (dsp->bps == 16) { *s /= 256.0; }
+            }
         }
     }
 
@@ -300,16 +307,27 @@ static int f32read_sample(dsp_t *dsp, float *s) {
 }
 
 static int f32read_csample(dsp_t *dsp, float complex *z) {
-    short x = 0, y = 0;
 
-    if (fread( &x, dsp->bps/8, 1, dsp->fp) != 1) return EOF;
-    if (fread( &y, dsp->bps/8, 1, dsp->fp) != 1) return EOF;
+    if (dsp->bps == 32) {
+        float x = 0, y = 0;
 
-    *z = x + I*y;
+        if (fread( &x, dsp->bps/8, 1, dsp->fp) != 1) return EOF;
+        if (fread( &y, dsp->bps/8, 1, dsp->fp) != 1) return EOF;
 
-    if (dsp->bps ==  8) { *z -= 128 + I*128; }
-    *z /= 128.0;
-    if (dsp->bps == 16) { *z /= 256.0; }
+        *z = x + I*y;
+    }
+    else {  // dsp->bps == 8,16
+        short a = 0, b = 0;
+
+        if (fread( &a, dsp->bps/8, 1, dsp->fp) != 1) return EOF;
+        if (fread( &b, dsp->bps/8, 1, dsp->fp) != 1) return EOF;
+
+        *z = a + I*b;
+
+        if (dsp->bps ==  8) { *z -= 128 + I*128; }
+        *z /= 128.0;
+        if (dsp->bps == 16) { *z /= 256.0; }
+    }
 
     return 0;
 }
@@ -321,15 +339,20 @@ static int f32read_cblock(dsp_t *dsp) {
 
     len = dsp->decM;
 
-    if (dsp->bps == 8) {
+    if (dsp->bps == 8) { //uint8
         ui8_t u[2*dsp->decM];
         len = fread( u, dsp->bps/8, 2*dsp->decM, dsp->fp) / 2;
         for (n = 0; n < len; n++) dsp->decMbuf[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
     }
-    else { // dsp->bps == 16
+    else if (dsp->bps == 16) { //int16
         short b[2*dsp->decM];
         len = fread( b, dsp->bps/8, 2*dsp->decM, dsp->fp) / 2;
         for (n = 0; n < len; n++) dsp->decMbuf[n] = b[2*n]/32768.0 + I*b[2*n+1]/32768.0;
+    }
+    else { // dsp->bps == 32   //float32
+        float f[2*dsp->decM];
+        len = fread( f, dsp->bps/8, 2*dsp->decM, dsp->fp) / 2;
+        for (n = 0; n < len; n++) dsp->decMbuf[n] = f[2*n] + I*f[2*n+1];
     }
 
     return len;

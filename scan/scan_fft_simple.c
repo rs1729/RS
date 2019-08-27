@@ -272,7 +272,7 @@ static int read_wav_header(FILE *fp, int wav_channel) {
     else wav_ch = 0;
     fprintf(stderr, "channel-In : %d\n", wav_ch+1);
 
-    if ((bits_sample != 8) && (bits_sample != 16)) return -1;
+    if (bits_sample != 8 && bits_sample != 16 && bits_sample != 32) return -1;
 
     return 0;
 }

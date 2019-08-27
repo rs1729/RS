@@ -167,8 +167,9 @@ static void db_power(dft_t *dft, float complex Z[], float db[]) {  // iq-samples
 static int init_dft(dft_t *dft) {
     int i, k, n;
     float normM = 0;
+    int bytes_sample = bits_sample/8;
 
-    bufIQ  = calloc(2*(dft->N+2), 2);  if (bufIQ == NULL) return -1;
+    bufIQ  = calloc(2*(dft->N+2), bytes_sample);  if (bufIQ == NULL) return -1;
     buffer = calloc(dft->N+1, sizeof(float complex));  if (buffer == NULL) return -1;
 
     dft->xn = calloc(dft->N+1,   sizeof(float complex));  if (dft->xn == NULL) return -1;
@@ -275,7 +276,7 @@ static int read_wav_header(FILE *fp, int wav_channel) {
     else wav_ch = 0;
     fprintf(stderr, "channel-In : %d\n", wav_ch+1);
 
-    if ((bits_sample != 8) && (bits_sample != 16)) return -1;
+    if (bits_sample != 8 && bits_sample != 16 && bits_sample != 32) return -1;
 
     return 0;
 }
@@ -302,8 +303,9 @@ static int bufIQ2complex(dft_t *dft) {
     float complex z;
     unsigned char *buf8;
     short *buf16;
+    float *buf32;
 
-    if (bits_sample ==  8) {
+    if (bits_sample == 8) {
         buf8 = bufIQ;
         for (i = 0; i < dft->N2; i++) {
             z = buf8[2*i]-128.0 + I*(buf8[2*i+1]-128.0);
@@ -311,11 +313,18 @@ static int bufIQ2complex(dft_t *dft) {
             buffer[i] = z;
         }
     }
-    else { // bits_sample == 16
+    else if (bits_sample == 16) {
         buf16 = bufIQ;
         for (i = 0; i < dft->N2; i++) {
             z = buf16[2*i] + I*buf16[2*i+1];
             z /= 128.0*256.0;
+            buffer[i] = z;
+        }
+    }
+    else { // bits_sample == 32
+        buf32 = bufIQ;
+        for (i = 0; i < dft->N2; i++) {
+            z = buf32[2*i] + I*buf32[2*i+1];
             buffer[i] = z;
         }
     }
@@ -325,19 +334,26 @@ static int bufIQ2complex(dft_t *dft) {
 
 static int f32read_sample(FILE *fp, float *s) {
     int i;
-    short b = 0;
+    unsigned int word = 0;
+    short *b = (short*)&word;
+    float *f = (float*)&word;
 
     for (i = 0; i < channels; i++) {
 
-        if (fread( &b, bits_sample/8, 1, fp) != 1) return EOF;
+        if (fread( &word, bits_sample/8, 1, fp) != 1) return EOF;
 
         if (i == wav_ch) {  // i = 0: links bzw. mono
             //if (bits_sample ==  8)  sint = b-128;   // 8bit: 00..FF, centerpoint 0x80=128
             //if (bits_sample == 16)  sint = (short)b;
 
-            if (bits_sample ==  8) { b -= 128; }
-            *s = b/128.0;
-            if (bits_sample == 16) { *s /= 256.0; }
+            if (bits_sample == 32) {
+                *s = *f;
+            }
+            else {
+                if (bits_sample ==  8) { *b -= 128; }
+                *s = *b/128.0;
+                if (bits_sample == 16) { *s /= 256.0; }
+            }
         }
     }
 
@@ -431,6 +447,13 @@ int main(int argc, char **argv) {
             fprintf(stderr, "error: wav header\n");
             return -1;
         }
+    }
+
+    // read_wav_header() == -1
+    if (bits_sample != 8 && bits_sample != 16 && bits_sample != 32) {
+        fclose(fp);
+        fprintf(stderr, "error: bits/sample\n");
+        return -1;
     }
 
     DFT.sr = sample_rate;
