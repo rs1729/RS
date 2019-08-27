@@ -924,6 +924,7 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     gpx.option.inv = 0; // irrelevant
     gpx.option.vbs = 2;
     gpx.option.ptu = 1;
+    gpx.option.jsn = tharg->option_jsn;
     gpx.option.col = 0; //option_color;
 
 

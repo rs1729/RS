@@ -85,7 +85,8 @@ int main(int argc, char **argv) {
     int xlt_cnt = 0;
     double base_fqs[MAX_FQ];
     void *rstype[MAX_FQ];
-    int option_pcmraw = 0;
+    int option_pcmraw = 0,
+        option_jsn = 0;
 
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _fileno(stdin)
@@ -137,6 +138,9 @@ int main(int argc, char **argv) {
                 rstype[xlt_cnt] = thd_m10;
                 xlt_cnt++;
             }
+        }
+        else if   (strcmp(*argv, "--json") == 0) {
+            option_jsn = 1;
         }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
@@ -197,7 +201,10 @@ int main(int argc, char **argv) {
         tharg[k].thd.blk = block_decMB;
         tharg[k].thd.max_fq = xlt_cnt;
         tharg[k].thd.xlt_fq = -base_fqs[k]; // S(t)*exp(-f*2pi*I*t): fq baseband -> IF (rotate from and decimate)
+
         tharg[k].pcm = pcm;
+
+        tharg[k].option_jsn = option_jsn;
 
         rbf1 |= tharg[k].thd.tn_bit;
     }

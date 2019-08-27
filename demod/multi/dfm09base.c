@@ -830,7 +830,7 @@ void *thd_dfm09(void *targs) {
     gpx.option.ecc = 1;
     gpx.option.aut = 1;
     gpx.option.dst = 0;
-    gpx.option.jsn = 0;
+    gpx.option.jsn = tharg->option_jsn;
 
 
     headerlen = strlen(dfm_rawheader);

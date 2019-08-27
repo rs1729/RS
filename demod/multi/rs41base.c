@@ -1511,9 +1511,9 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     gpx.option.vbs = 1;
     gpx.option.ptu = 1;
     gpx.option.aut = 1;
-    gpx.option.jsn = 0;
+    gpx.option.jsn = tharg->option_jsn;
 
-    gpx.option.ecc = 1;  // turn off for ber-measurement
+    gpx.option.ecc = 1;
 
     if (gpx.option.ecc) {
         rs_init_RS255(&gpx.RS);  // RS, GF
