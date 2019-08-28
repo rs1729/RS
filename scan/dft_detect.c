@@ -16,7 +16,7 @@ typedef int   i32_t;
 static int option_verbose = 0,  // ausfuehrliche Anzeige
            option_inv = 0,      // invertiert Signal
            option_iq = 0,
-           //option_dc = 0,
+           option_dc = 0,
            option_silent = 0,
            option_cont = 0,
            wavloaded = 0;
@@ -91,22 +91,23 @@ typedef struct {
     char *type;
     ui8_t tn; // signed?
     int lpN;
+    float dc;
 } rsheader_t;
 
 #define Nrs 10
 #define idxAB 8
 #define idxRS 9
 static rsheader_t rs_hdr[Nrs] = {
-    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9", 2    , 0}, // DFM6: -2 (unsigned)
-    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41", 3    , 0},
-    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92", 4    , 0},
-    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6", 8    , 0},
-    { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS", 10 , 1}, // Mk2a/LMS6-1680
-    { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10", 5     , 1},
-    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50", 9  , 1}, // C34/C50 2900 Hz tone
-    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET", 6    , 1}, // IMET1AB=7, IMET1RS=8
-    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 6 , 1}, //       (rs_hdr[idxAB])
-    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET1RS", 7 , 1}  // IMET4 (rs_hdr[idxRS])
+    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9", 2    , 0, 0.0}, // DFM6: -2 (unsigned)
+    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41", 3    , 0, 0.0},
+    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92", 4    , 0, 0.0},
+    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6", 8    , 0, 0.0},
+    { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS", 10 , 1, 0.0}, // Mk2a/LMS6-1680
+    { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10", 5     , 1, 0.0},
+    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50", 9  , 1, 0.0}, // C34/C50 2900 Hz tone
+    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET", 6    , 1, 0.0}, // IMET1AB=7, IMET1RS=8
+    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 6 , 1, 0.0}, //       (rs_hdr[idxAB])
+    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET1RS", 7 , 1, 0.0}  // IMET4 (rs_hdr[idxRS])
 };
 
 
@@ -152,8 +153,6 @@ static float *xs = NULL,
              *qs = NULL;
 */
 
-static float dc_ofs = 0.0;
-static float dc = 0.0;
 
 /* ------------------------------------------------------------------------------------ */
 
@@ -254,7 +253,8 @@ static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpo
     double xnorm = 1.0;
     unsigned int mpos = 0;
 
-    dc = 0.0;
+    double dc = 0.0;
+    rshd->dc = 0.0;
 
     if (K + rshd->L > N_DFT) return -1;
 //    if (sample_out < rshd->L) return -2; // nur falls K-4 < L
@@ -266,21 +266,29 @@ static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpo
 
     dft(xn, X);
 
-    dc = get_bufmu(pos-sample_out); //oder: dc = creal(X[0])/(K+rshd->L) = avg(xn) // zu lang (M10)
+
+    //dc = get_bufmu(pos-sample_out); //oder: dc = creal(X[0])/(K+rshd->L) = avg(xn) // zu lang (M10)
+
+    dc = 0.0;
+    if (option_dc) {
+        //X[0] = 0; // all samples in window
+        // L < K
+        for (i=K-rshd->L; i<K+rshd->L;i++) dc += xn[i]; // only last 2L samples (avoid M10 carrier offset)
+        dc /= 2.0*(float)rshd->L;
+        X[0] -= N_DFT*dc  * 0.98;
+    }
+    rshd->dc = dc;
 
     if (option_iq) {
-        // X[0] = 0; // dc: -> dc_ofs ...
         // lowpass(xn)
-        for (i = 0; i < N_DFT; i++) Y[i] = X[i] * WS[rshd->lpN][i];
-        for (i = 0; i < N_DFT; i++) Z[i] = Y[i] * rshd->Fm[i];
-        Nidft(Y, cx);
+        for (i = 0; i < N_DFT; i++) X[i] *= WS[rshd->lpN][i];
+    }
+
+    if (option_dc || option_iq) { // mx = mx(xn[]), xn(lowpass, dc)
+        Nidft(X, cx);
         for (i = 0; i < N_DFT; i++) xn[i] = creal(cx[i])/(float)N_DFT;
     }
-    else {
-        for (i = 0; i < N_DFT; i++) Z[i] = X[i] * rshd->Fm[i];
-    }
-
-
+    for (i = 0; i < N_DFT; i++) Z[i] = X[i] * rshd->Fm[i];
     Nidft(Z, cx);
 
 
@@ -563,7 +571,7 @@ static int f32buf_sample(FILE *fp, int inv) {
     }
 
     if (inv) s = -s;
-    bufs[sample_in % M] = s  - dc_ofs;
+    bufs[sample_in % M] = s;
 
     xneu = bufs[(sample_in  ) % M];
     xalt = bufs[(sample_in+M - Nvar) % M];
@@ -631,17 +639,20 @@ static int headcmp(int symlen, unsigned int mvp, int inv, rsheader_t *rshd) {
     char sign = 0;
     int len = 0;
 
-    float dc = 0.0;
-/*
+    double dc = 0.0;
+
     if (option_dc)
     {
+/*
         len = rshd->L;
         for (pos = 0; pos < len; pos++) {
-            dc += bufs[(mvp - 1 - pos + M) % M];
+            dc += (double)bufs[(mvp - 1 - pos + M) % M];
         }
-        dc /= (float)len;
-    }
+        dc /= (double)len;
 */
+        dc = rshd->dc;
+    }
+
     if (symlen != 1) step = 2;
     if (inv) sign=1;
 
@@ -976,7 +987,7 @@ int main(int argc, char **argv) {
             dsp__xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
-        //else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
+        else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
         else if ( (strcmp(*argv, "-s") == 0) || (strcmp(*argv, "--silent") == 0) ) {
             option_silent = 1;
         }
