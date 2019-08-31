@@ -464,7 +464,8 @@ int bits2bytes(char *bitstr, ui8_t *bytes) {
 typedef struct {
     int frnr;
     int sn;
-    int week; int gpstow;
+    int week;
+    double gpstow;
     int jahr; int monat; int tag;
     int wday;
     int std; int min; float sek;
@@ -482,7 +483,7 @@ gpx_t gpx0 = { 0 };
 #define pos_SondeSN  (OFS+0x00)  // ?4 byte 00 7A....
 #define pos_FrameNb  (OFS+0x04)  // 2 byte
 //GPS Position
-#define pos_GPSTOW   (OFS+0x06)  // 4 byte
+#define pos_GPSTOW   (OFS+0x06)  // 8 byte
 #define pos_GPSlat   (OFS+0x0E)  // 4 byte
 #define pos_GPSlon   (OFS+0x12)  // 4 byte
 #define pos_GPSalt   (OFS+0x16)  // 4 byte
@@ -522,30 +523,33 @@ int get_FrameNb() {
 }
 
 
-char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
-//char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+//char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 int get_GPStime() {
     int i;
     unsigned byte;
     ui8_t gpstime_bytes[4];
-    int gpstime = 0, // 32bit
-        day;
+    ui32_t gpstime, tow_u4;
+    ui32_t w[2]; // 64bit float
+    int day;
     float ms;
+    double *f64 = (double*)w;
 
+    w[0] = 0;
     for (i = 0; i < 4; i++) {
         byte = p_frame[pos_GPSTOW + i];
-        gpstime_bytes[i] = byte;
+        w[0] |= byte << (8*(3-i));
     }
-    gpstime = 0;
+    w[1] = 0;
     for (i = 0; i < 4; i++) {
-        gpstime |= gpstime_bytes[i] << (8*(3-i));
+        byte = p_frame[pos_GPSTOW+4 + i];
+        w[1] |= byte << (8*(3-i));
     }
 
-    gpx.gpstow = gpstime;
-
-    ms = gpstime % 1000;
-    gpstime /= 1000;
+    gpx.gpstow = *f64;
+    tow_u4 = (ui32_t)gpx.gpstow;
+    gpstime = tow_u4;
 
     day = gpstime / (24 * 3600);
     gpstime %= (24*3600);
@@ -555,7 +559,7 @@ int get_GPStime() {
     gpx.wday = day;
     gpx.std = gpstime / 3600;
     gpx.min = (gpstime % 3600) / 60;
-    gpx.sek = gpstime % 60 + ms/1000.0;
+    gpx.sek = (gpstime % 60) + gpx.gpstow - tow_u4;
 
     return 0;
 }
@@ -755,7 +759,8 @@ void print_frame(int crc_err, int len) {
             get_SondeSN();
             if (option_verbose) printf(" (%7d) ", gpx.sn);
             printf(" [%5d] ", gpx.frnr);
-            //
+            printf("%s ", weekday[gpx.wday]);
+            printf("(%02d:%02d:%06.3f) ", gpx.std, gpx.min, gpx.sek);
             get_GPSlat();
             get_GPSlon();
             err = get_GPSalt();
