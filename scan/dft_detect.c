@@ -50,6 +50,9 @@ static char m10_header[] = "10011001100110010100110010011001";
 // M10-aux: 76 9F : 0111011010011111 (framelen 0x76+1)
 // M10+   : 64 AF : 0110010010101111 (w/ gtop-GPS)
 
+//int  meisei_bps = 2400;   // 0xFB6230 =
+static char meisei_header[] = "110011001101001101001101010100101010110010101010"; // 11111011 01100010 00110000
+
 // imet_9600 / 1200 Hz;
 static char imet_preamble[] = "11110000111100001111000011110000"
                               "11110000111100001111000011110000"
@@ -94,9 +97,9 @@ typedef struct {
     float dc;
 } rsheader_t;
 
-#define Nrs 10
-#define idxAB 8
-#define idxRS 9
+#define Nrs 11
+#define idxAB 9
+#define idxRS 10
 static rsheader_t rs_hdr[Nrs] = {
     { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9", 2    , 0, 0.0}, // DFM6: -2 (unsigned)
     { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41", 3    , 0, 0.0},
@@ -104,6 +107,7 @@ static rsheader_t rs_hdr[Nrs] = {
     { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6", 8    , 0, 0.0},
     { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS", 10 , 1, 0.0}, // Mk2a/LMS6-1680
     { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10", 5     , 1, 0.0},
+    { 2400, 0, 0, meisei_header,  1.0, 0.0, 0.70, 2, NULL, "MEISEI", 11 , 1, 0.0},
     { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50", 9  , 1, 0.0}, // C34/C50 2900 Hz tone
     { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET", 6    , 1, 0.0}, // IMET1AB=7, IMET1RS=8
     { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 6 , 1, 0.0}, //       (rs_hdr[idxAB])
@@ -1166,7 +1170,7 @@ int main(int argc, char **argv) {
                         }
 
                         if (header_found) {
-                            if (!option_silent) {
+                            if (!option_silent && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
                                 if (option_verbose) fprintf(stdout, "sample: %d\n", mv_pos[j]);
                                 fprintf(stdout, "%s: %.4f\n", rs_hdr[j].type, mv[j]);
                             }
