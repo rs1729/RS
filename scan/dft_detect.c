@@ -59,12 +59,10 @@ static char imet_preamble[] = "11110000111100001111000011110000"
                               "11110000111100001111000011110000"
                               "11110000111100001111000011110000"; // 1200 Hz preamble
 
-
 //int  imet1ab_sps = 9600; // 1200 bits/sec
 static char imet1ab_header[] = "11110000111100001111000011110000"
                   // "11110000""10101100110010101100101010101100"
                      "11110000""10101100110010101100101010101100";
-
 
 // 11110000:1 , 001100110:0 // 11/4=2.1818..
 static char imet1rs_header[] =
@@ -74,7 +72,6 @@ static char imet1rs_header[] =
 // imet1rs/imet4 1200Hz preamble , lead_out , 8N1 byte: lead-in 8bits lead-out , ...
 // 1:1200Hz/0:2200Hz tones, bit-duration 1/1200 sec, phase ...
 // bits: 1111111111111111111 10 10000000 10 ..;
-
 
 // C34/C50: 2400 baud, 1:2900Hz/0:4800Hz
 static char c34_preheader[] =
@@ -94,6 +91,7 @@ typedef struct {
     char *type;
     int tn;
     int lpFM;
+    int lpIQ;
     float dc;
 } rsheader_t;
 
@@ -101,17 +99,17 @@ typedef struct {
 #define idxAB 9
 #define idxRS 10
 static rsheader_t rs_hdr[Nrs] = {
-    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9",    2 , 0, 0.0}, // DFM6: -2 ?
-    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41",    3 , 0, 0.0},
-    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92",    4 , 0, 0.0},
-    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6",    8 , 0, 0.0},
-    { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS", 10 , 1, 0.0}, // Mk2a/LMS6-1680
-    { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10",     5 , 1, 0.0},
-    { 2400, 0, 0, meisei_header,  1.0, 0.0, 0.70, 2, NULL, "MEISEI", 11 , 0, 0.0},
-    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50",  9 , 0, 0.0}, // C34/C50 2900 Hz tone
-    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET",    6 , 1, 0.0}, // IMET1AB=7, IMET1RS=8
-    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 6 , 1, 0.0}, //       (rs_hdr[idxAB])
-    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET1RS", 7 , 0, 0.0}  // IMET4 (rs_hdr[idxRS])
+    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9",    2 , 0, 0, 0.0}, // DFM6: -2 ?
+    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41",    3 , 0, 0, 0.0},
+    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92",    4 , 0, 0, 0.0},
+    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6",    8 , 0, 0, 0.0},
+    { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS", 10 , 1, 2, 0.0}, // Mk2a/LMS6-1680
+    { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10",     5 , 1, 1, 0.0},
+    { 2400, 0, 0, meisei_header,  1.0, 0.0, 0.70, 2, NULL, "MEISEI", 11 , 0, 1, 0.0},
+    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50",  9 , 0, 1, 0.0}, // C34/C50 2900 Hz tone
+    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET",    6 , 1, 2, 0.0}, // IMET1AB=7, IMET1RS=8
+    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 6 , 1, 2, 0.0}, // (rs_hdr[idxAB])
+    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET1RS", 7 , 0, 2, 0.0}  // (rs_hdr[idxRS]) IMET4: lpIQ=1 ...
 };
 
 
@@ -140,23 +138,14 @@ static rsheader_t rs_hdr[Nrs] = {
 static int sample_rate = 0, bits_sample = 0, channels = 0;
 static int wav_ch = 0;  // 0: links bzw. mono; 1: rechts
 
-static unsigned int sample_in, sample_out, delay;
+static ui32_t sample_in, sample_out, delay;
 
 static int M;
 
+static float *buf_fm[3];
 static float *bufs = NULL;
 
 static char *rawbits = NULL;
-
-static int Nvar = 0; // < M
-static double xsum = 0;
-static float *xs = NULL;
-/*
-static double xsum=0, qsum=0;
-static float *xs = NULL,
-             *qs = NULL;
-*/
-
 
 /* ------------------------------------------------------------------------------------ */
 
@@ -170,11 +159,17 @@ static float *xn;
 static float *db;
 
 // FM: lowpass
-static float *ws_lp[2];
+static float *ws_lpFM[2];
+static int dsp__lpFMtaps[2]; // ui32_t
 static float complex *Y;
-//static float complex *lpIQ_buf;
-static float complex  *WS[2];
-static int dsp__lptaps[2];
+static float complex *WS[2];
+// IF: lowpass
+static float *ws_lpIQ[2];
+static int dsp__lpIQtaps; // ui32_t
+static float complex *lpIQ_buf;
+
+static float complex *iq_buf;
+
 
 static void dft_raw(float complex *Z) {
     int s, l, l2, i, j, k;
@@ -231,22 +226,12 @@ static float freq2bin(int f) {
 }
 
 static float bin2freq(int k) {
-    return  sample_rate * k / (float)N_DFT;
+    float fq = k / (float)N_DFT;
+    if ( fq >= 0.5) fq -= 1.0;
+    return fq*sample_rate;
 }
 
 /* ------------------------------------------------------------------------------------ */
-/*
-static float get_bufvar(int ofs) {
-    float mu  = xs[(sample_out+M + ofs) % M]/Nvar;
-    float var = qs[(sample_out+M + ofs) % M]/Nvar - mu*mu;
-    return var;
-}
-*/
-static float get_bufmu(int ofs) {
-    float mu  = xs[(sample_out+M + ofs) % M]/Nvar;
-    return mu;
-}
-
 
 static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpos, rsheader_t *rshd) {
     int i;
@@ -264,6 +249,8 @@ static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpo
 //    if (sample_out < rshd->L) return -2; // nur falls K-4 < L
 
     if (pos == 0) pos = sample_out;
+
+    bufs = buf_fm[rshd->lpIQ];
 
     for (i = 0; i < K+rshd->L; i++) xn[i] = bufs[(pos+M -(K+rshd->L-1) + i) % M];
     while (i < N_DFT) xn[i++] = 0.0;
@@ -322,7 +309,7 @@ static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpo
 
     mx /= xnorm*N_DFT;
 
-    if (option_iq) mpos -= dsp__lptaps[rshd->lpFM]/2;  // lowpass delay
+    if (option_iq) mpos -= dsp__lpFMtaps[rshd->lpFM]/2;  // lowpass delay
 
     *maxv = mx;
     *maxvpos = mpos;
@@ -454,14 +441,14 @@ static int f32read_csample(FILE *fp, float complex *z) {
 
 // decimation
 static ui32_t dsp__sr_base;
+static ui32_t dsp__dectaps;
 static ui32_t dsp__sample_dec;
 static int dsp__decM = 1;
-static int dsp__dectaps;
 static float complex *dsp__decXbuffer;
 static float complex *dsp__decMbuf;
 static float complex *dsp__ex; // exp_lut
+static ui32_t dsp__lut_len;
 
-static int res = 1; // 1..10 Hz, exp_lut resolution
 static float *ws_dec;
 static double dsp__xlt_fq = 0.0;
 
@@ -508,9 +495,9 @@ static int lowpass_init(float f, int taps, float **pws) {
 
     if ( taps < 1 ) taps = 1;
 
-    h = (double*)calloc( taps+1, sizeof(double));
-    w = (double*)calloc( taps+1, sizeof(double));
-    ws = (float*)calloc( taps+1, sizeof(float));
+    h = (double*)calloc( taps+1, sizeof(double)); if (h == NULL) return -1;
+    w = (double*)calloc( taps+1, sizeof(double)); if (w == NULL) return -1;
+    ws = (float*)calloc( taps+1, sizeof(float)); if (ws == NULL) return -1;
 
     for (n = 0; n < taps; n++) {
         w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(taps-1)) + 1430/18608.0*cos(4*M_PI*n/(taps-1)); // Blackmann
@@ -530,8 +517,8 @@ static int lowpass_init(float f, int taps, float **pws) {
 }
 
 // struct { int taps; double *ws}
-static float complex lowpass(float complex buffer[], int sample, int taps, float *ws) {
-    int n;
+static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
     double complex w = 0;
     for (n = 0; n < taps; n++) {
         w += buffer[(sample+n+1)%taps]*ws[taps-1-n];
@@ -541,51 +528,64 @@ static float complex lowpass(float complex buffer[], int sample, int taps, float
 
 
 static int f32buf_sample(FILE *fp, int inv) {
-    float s = 0.0;
-    float xneu, xalt;
+    float _s = 0.0;
+    float s[3];
+    static float complex z0_fm0;
+    static float complex z0_fm1;
     static float complex z0;
-    float complex z=0, w;
+    float complex z_fm0=0, z_fm1=0;
+    float complex z, w;
     double gain = 0.8;
+    int i;
 
     if (option_iq)
     {
         if (option_iq == 5) { // baseband decimation
+            ui32_t s_reset = dsp__dectaps*dsp__lut_len;
             int j;
             if ( f32read_cblock(fp) < dsp__decM ) return EOF;
             for (j = 0; j < dsp__decM; j++) {
-                dsp__decXbuffer[dsp__sample_dec % dsp__dectaps] = dsp__decMbuf[j] * dsp__ex[dsp__sample_dec % (dsp__sr_base/res)];
+                dsp__decXbuffer[dsp__sample_dec % dsp__dectaps] = dsp__decMbuf[j] * dsp__ex[dsp__sample_dec % dsp__lut_len];
                 dsp__sample_dec += 1;
+                if (dsp__sample_dec == s_reset) dsp__sample_dec = 0;
             }
             z = lowpass(dsp__decXbuffer, dsp__sample_dec, dsp__dectaps, ws_dec);
 
         }
         else if ( f32read_csample(fp, &z) == EOF ) return EOF;
 
-        //(no IF-lowpass, only one stream)
-        //lpIF_buf[sample_in % dsp__lptaps] = z;
-        //z = lowpass(lpIF_buf, sample_in, dsp__lptaps, ws_lp); // ->  FM-lp in getCorrDFT()
+        // IF-lowpass
+        // a) detect signal bandwidth/center-fq (not reliable), or
+        // b) 3 FM-streams
+        //
+        lpIQ_buf[sample_in % dsp__lpIQtaps] = z;
+        z_fm0 = lowpass(lpIQ_buf, sample_in, dsp__lpIQtaps, ws_lpIQ[0]);
+        z_fm1 = lowpass(lpIQ_buf, sample_in, dsp__lpIQtaps, ws_lpIQ[1]);
 
         // IQ: different modulation indices h=h(rs) -> FM-demod
+        w = z_fm0 * conj(z0_fm0);
+        s[0] = gain * carg(w)/M_PI;
+        z0_fm0 = z_fm0;
+
+        w = z_fm1 * conj(z0_fm1);
+        s[1] = gain * carg(w)/M_PI;
+        z0_fm1 = z_fm1;
+
         w = z * conj(z0);
-        s = gain * carg(w)/M_PI;
+        s[2] = gain * carg(w)/M_PI;
         z0 = z;
     }
     else
     {
-        if (f32read_sample(fp, &s) == EOF) return EOF;
+        if (f32read_sample(fp, &_s) == EOF) return EOF;
+        for (i = 0; i < 3; i++) s[i] = _s;
     }
 
-    if (inv) s = -s;
-    bufs[sample_in % M] = s;
+    for (i = 0; i < 3; i++) {
+        if (inv) s[i]= -s[i];
+        buf_fm[i][sample_in % M] = s[i];
+    }
 
-    xneu = bufs[(sample_in  ) % M];
-    xalt = bufs[(sample_in+M - Nvar) % M];
-    xsum +=  xneu - xalt;                 // + xneu - xalt
-    xs[sample_in % M] = xsum;
-/*
-    qsum += (xneu - xalt)*(xneu + xalt);  // + xneu*xneu - xalt*xalt
-    qs[sample_in % M] = qsum;
-*/
 
     sample_out = sample_in - delay;
 
@@ -594,13 +594,15 @@ static int f32buf_sample(FILE *fp, int inv) {
     return 0;
 }
 
-static int read_bufbit(int symlen, char *bits, unsigned int mvp, int reset, float dc, float spb) {
+static int read_bufbit(int symlen, char *bits, unsigned int mvp, int reset, float dc, rsheader_t *rshd) {
 // symlen==2: manchester2 0->10,1->01->1: 2.bit
 
     static unsigned int rcount;
     static float rbitgrenze;
 
     double sum = 0.0;
+
+    bufs = buf_fm[rshd->lpIQ];
 
     if (reset) {
         rcount = 0;
@@ -610,14 +612,14 @@ static int read_bufbit(int symlen, char *bits, unsigned int mvp, int reset, floa
     // bei symlen=2 (Manchester) kein dc noetig,
     // allerdings M10-header mit symlen=1
 
-    rbitgrenze += spb;
+    rbitgrenze += rshd->spb;
     do {
         sum += bufs[(rcount + mvp + M) % M] - dc;
         rcount++;
     } while (rcount < rbitgrenze);  // n < spb
 
     if (symlen == 2) {
-        rbitgrenze += spb;
+        rbitgrenze += rshd->spb;
         do {
             sum -= bufs[(rcount + mvp + M) % M] - dc;
             rcount++;
@@ -663,7 +665,7 @@ static int headcmp(int symlen, unsigned int mvp, int inv, rsheader_t *rshd) {
 
     len = rshd->hLen;
     for (pos = 0; pos < len; pos += step) {
-        read_bufbit(symlen, rawbits+pos, mvp+1-(int)(rshd->hLen*rshd->spb), pos==0, dc, rshd->spb);
+        read_bufbit(symlen, rawbits+pos, mvp+1-(int)(rshd->hLen*rshd->spb), pos==0, dc, rshd);
     }
     rawbits[pos] = '\0';
 
@@ -744,7 +746,9 @@ static int init_buffers() {
         t_bw /= sr_base;
         taps = 4.0/t_bw; if (taps%2==0) taps++;
 
-        dsp__dectaps = lowpass_init(f_lp, taps, &ws_dec);
+        taps = lowpass_init(f_lp, taps, &ws_dec);
+        if (taps < 0) return -1;
+        dsp__dectaps = taps;
 
         dsp__sr_base = sr_base;
         sample_rate = IF_sr; // sr_base/decM
@@ -752,6 +756,41 @@ static int init_buffers() {
 
         fprintf(stderr, "IF: %d\n", IF_sr);
         fprintf(stderr, "dec: %d\n", decM);
+    }
+    if (option_iq == 5)
+    {
+        // look up table, exp-rotation
+        int W = 2*8; // 16 Hz window
+        int d = 1; // 1..W , groesster Teiler d <= W von sr_base
+        int freq = (int)( dsp__xlt_fq * (double)dsp__sr_base + 0.5);
+        int freq0 = freq; // init
+        double f0 = freq0 / (double)dsp__sr_base; // init
+
+        for (d = W; d > 0; d--) { // groesster Teiler d <= W von sr
+            if (dsp__sr_base % d == 0) break;
+        }
+        if (d == 0) d = 1; // d >= 1 ?
+
+        for (k = 0; k < W/2; k++) {
+            if ((freq+k) % d == 0) {
+                freq0 = freq + k;
+                break;
+            }
+            if ((freq-k) % d == 0) {
+                freq0 = freq - k;
+                break;
+            }
+        }
+
+        dsp__lut_len = dsp__sr_base / d;
+        f0 = freq0 / (double)dsp__sr_base;
+
+        dsp__ex = calloc(dsp__lut_len+1, sizeof(float complex));
+        if (dsp__ex == NULL) return -1;
+        for (n = 0; n < dsp__lut_len; n++) {
+            t = f0*(double)n;
+            dsp__ex[n] = cexp(t*2*M_PI*I);
+        }
 
 
         dsp__decXbuffer = calloc( dsp__dectaps+1, sizeof(float complex));
@@ -759,31 +798,38 @@ static int init_buffers() {
 
         dsp__decMbuf = calloc( dsp__decM+1, sizeof(float complex));
         if (dsp__decMbuf == NULL) return -1;
-
-        dsp__ex = calloc(dsp__sr_base/res+1, sizeof(float complex));
-        if (dsp__ex == NULL) return -1;
-        for (n = 0; n < dsp__sr_base/res; n++) {
-            t = (double)n*dsp__xlt_fq; // xlt_fq=xltFq/sample_rate , integer xltFq frequency
-            dsp__ex[n] = cexp(t*2*M_PI*I);
-        }
     }
+
 
     if (option_iq)
     {
-        // FM lowpass -> xn[] in getCorrDFT()
         float f_lp; // lowpass_bw
+        float f_lp0, f_lp1;
         int taps; // lowpass taps: 4*sr/transition_bw
 
+        // FM lowpass -> xn[] in getCorrDFT()
         f_lp = 4e3/(float)sample_rate;  // RS41,DFM: 4kHz (FM-audio)
-        taps = 4*sample_rate/4e3; if (taps%2==0) taps++; // 4kHz transition
-        dsp__lptaps[0] = lowpass_init(f_lp, taps, &ws_lp[0]);
-
+        taps = 4*sample_rate/2e3; if (taps%2==0) taps++; // 2kHz transition
+        taps = lowpass_init(f_lp, taps, &ws_lpFM[0]);
+        if (taps < 0) return -1;
+        dsp__lpFMtaps[0] = taps;
+        //
         f_lp = 10e3/(float)sample_rate;  // M10: 10kHz (FM-audio)
-        taps = 4*sample_rate/4e3; if (taps%2==0) taps++; // 4kHz transition
-        dsp__lptaps[1] = lowpass_init(f_lp, taps, &ws_lp[1]);
+        taps = 4*sample_rate/2e3; if (taps%2==0) taps++; // 2kHz transition
+        taps = lowpass_init(f_lp, taps, &ws_lpFM[1]);
+        if (taps < 0) return -1;
+        dsp__lpFMtaps[1] = taps;
 
-        //lpIQ_buf = calloc( dsp__lptaps+1, sizeof(float complex));
-        //if (lpIQ_buf == NULL) return -1;
+        // IF lowpass
+        taps = 4*sample_rate/4e3; if (taps%2==0) taps++; // 4kHz transition
+        f_lp0 = 12e3/(float)sample_rate/2.0;  // RS41,DFM: 12kHz (IF/IQ)
+        taps = lowpass_init(f_lp0, taps, &ws_lpIQ[0]); if (taps < 0) return -1;
+        f_lp1 = 22e3/(float)sample_rate/2.0;  // M10: 22kHz (IF/IQ)
+        taps = lowpass_init(f_lp1, taps, &ws_lpIQ[1]); if (taps < 0) return -1;
+        dsp__lpIQtaps = taps;
+        lpIQ_buf = calloc( dsp__lpIQtaps+3, sizeof(float complex));
+        if (lpIQ_buf == NULL) return -1;
+
     }
 
 
@@ -814,14 +860,13 @@ static int init_buffers() {
     delay = L/16;
     M = N_DFT + delay + 8; // L+K < M
 
-    Nvar = Lmax; // wenn Nvar fuer xnorm, dann Nvar=rshd.L
 
     rawbits = (char *)calloc( hLen+1, sizeof(char)); if (rawbits == NULL) return -100;
-    bufs  = (float *)calloc( M+1, sizeof(float)); if (bufs  == NULL) return -100;
-    xs = (float *)calloc( M+1, sizeof(float)); if (xs == NULL) return -100;
-/*
-    qs = (float *)calloc( M+1, sizeof(float)); if (qs == NULL) return -100;
-*/
+    for (j = 0; j < 3; j++) {
+        buf_fm[j]  = (float *)calloc( M+1, sizeof(float)); if (buf_fm[j]  == NULL) return -100;
+    }
+    bufs = buf_fm[2];
+
 
     xn = calloc(N_DFT+1, sizeof(float));  if (xn == NULL) return -1;
     db = calloc(N_DFT+1, sizeof(float));  if (db == NULL) return -1;
@@ -884,11 +929,11 @@ static int init_buffers() {
     {
         for (j = 0; j < 2; j++) {
             WS[j] = (float complex *)calloc(N_DFT+1, sizeof(float complex));  if (WS[j] == NULL) return -1;
-            for (i = 0; i < dsp__lptaps[j]; i++) m[i] = ws_lp[j][i];
+            for (i = 0; i < dsp__lpFMtaps[j]; i++) m[i] = ws_lpFM[j][i];
             while (i < N_DFT) m[i++] = 0.0;
             dft(m, WS[j]);
         }
-        Y  = (float complex *)calloc(N_DFT+1, sizeof(float complex));  if (Y == NULL) return -1;
+        Y = (float complex *)calloc(N_DFT+1, sizeof(float complex));  if (Y == NULL) return -1;
     }
 
 
@@ -901,11 +946,10 @@ static int init_buffers() {
 static int free_buffers() {
     int j;
 
-    if (bufs)  { free(bufs);  bufs  = NULL; }
-    if (xs)  { free(xs);  xs  = NULL; }
-/*
-    if (qs)  { free(qs);  qs  = NULL; }
-*/
+    for (j = 0; j < 3; j++) {
+        if (buf_fm[j])  { free(buf_fm[j]);  buf_fm[j]  = NULL; }
+    }
+
     if (rawbits) { free(rawbits); rawbits = NULL; }
 
     if (xn) { free(xn); xn = NULL; }
@@ -932,10 +976,17 @@ static int free_buffers() {
 
     if (option_iq) {
         for (j = 0; j < 2; j++) {
-            if (ws_lp[j]) { free(ws_lp[j]); ws_lp[j] = NULL; }
+            if (ws_lpFM[j]) { free(ws_lpFM[j]); ws_lpFM[j] = NULL; }
             if (WS[j]) { free(WS[j]); WS[j] = NULL; }
         }
         if (Y) { free(Y); Y = NULL; }
+
+        if (iq_buf) { free(iq_buf); iq_buf = NULL; }
+
+        for (j = 0; j < 1; j++) {
+            if (ws_lpIQ[j]) { free(ws_lpIQ[j]); ws_lpIQ[j] = NULL; }
+        }
+        if (lpIQ_buf) { free(lpIQ_buf); lpIQ_buf = NULL; }
     }
 
 
@@ -1102,7 +1153,7 @@ int main(int argc, char **argv) {
 
                                 if (f32buf_sample(fp, option_inv) == EOF) break;//goto ende;
 
-                                xn[n % D] = bufs[sample_out % M];
+                                xn[n % D] = buf_fm[rs_hdr[j].lpIQ][sample_out % M];
                                 n++;
 
                                 if (n % D == 0) {
