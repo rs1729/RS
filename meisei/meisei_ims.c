@@ -44,7 +44,8 @@ Variante 2 (iMS-100 ?)
 
 0x00..0x02  HEADER  0x049DCE
 0x03..0x04  16 bit  0.5s-counter, count%2=0:
-0x11..0x12  30xx, xx=C1(ims100?),A2(rg11?)
+0x07..0x0A  32 bit  cfg[cnt%64] (float32); cfg[0,16,32,48]=SN
+0x11..0x12  30xx, xx=C1(ims100?),A2(rs11?)
 0x17..0x18  16 bit  time ms yyxx, 00.000-59.000
 0x19..0x1A  16 bit  time hh:mm
 0x1B..0x1D  HEADER  0xFB6230
@@ -57,10 +58,11 @@ Variante 2 (iMS-100 ?)
 
 0x00..0x02  HEADER  0x049DCE
 0x03..0x04  16 bit  0.5s-counter, count%2=1:
-0x11..0x12  31xx, xx=C1(ims100?),A2(rg11?)
+0x07..0x0A  32 bit  cfg[cnt%64] (float32); freq=400e3+cfg[15]*1e2/kHz
+0x11..0x12  31xx, xx=C1(ims100?),A2(rs11?)
 0x17..0x18  16 bit  1024-counter yyxx, +0x400=1024; rollover synchron zu ms-counter, nach rollover auch +0x300=768
 0x1B..0x1D  HEADER  0xFB6230
-0x22..0x23  yy00..yy03 (config?, fast constant, manchmal verschoben)
+0x22..0x23  yy00..yy03 (yy00: GPS PRN?)
 
 
 Die 46bit-Bloecke sind BCH-Codewoerter. Es handelt sich um einen (63,51)-Code mit Generatorpolynom
@@ -99,6 +101,10 @@ typedef struct {
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     ui32_t ecc;
+    float cfg[64];
+    ui32_t _sn;
+    float sn; //  0 mod 16
+    float fq; // 15 mod 64
 } gpx_t;
 
 gpx_t gpx;
@@ -304,8 +310,8 @@ int read_rawbit(FILE *fp, int *bit) {
 #define RAWBITFRAME_LEN (BITFRAME_LEN*2)
 
 char frame_rawbits[RAWBITFRAME_LEN+10];  // braucht eigentlich nur 1/2 (vormals 1/4)
-char frame_bits[BITFRAME_LEN+10];
-char *subframe_bits;
+ui8_t frame_bits[BITFRAME_LEN+10];
+ui8_t *subframe_bits;
 
 #define HEADLEN 24
 #define RAWHEADLEN (2*HEADLEN)
@@ -381,7 +387,6 @@ int compare_subheader() {
     return 0;
 
 }
-
 
 
 /* -------------------------------------------------------------------------- */
@@ -460,6 +465,9 @@ int main(int argc, char **argv) {
     int latdeg,londeg;
     double latmin, lonmin;
     ui32_t t1, t2, ms, min, std, tt, mm, jj;
+
+    float sn = -1;
+    float fq = -1;
 
 
 #ifdef CYGWIN
@@ -562,6 +570,11 @@ int main(int argc, char **argv) {
 
             if (!header_found) {
                 header_found = compare_subheader();
+
+/*              //type 1: detect GPS position in FB6230 first
+                if ( header_found % 2 == 0 && !option2     //header0xFB6230
+                  || header_found % 2 == 1 &&  option2 ) { //header0x049DCE
+*/
                 if (header_found % 2 == 1) { //header0x049DCE
                     bit_count = 0;
                     for (j = 0; j < HEADLEN; j++) {
@@ -570,6 +583,7 @@ int main(int argc, char **argv) {
                     }
                 }
                 else header_found = 0;
+
             }
             else {
                 frame_rawbits[bit_count] = 0x30 + bit;
@@ -596,7 +610,7 @@ int main(int argc, char **argv) {
                     err_frm = 0;
 
                     for (subframe = 0; subframe < 2; subframe++)
-                    {
+                    {                                                       // option2:
                         subframe_bits = frame_bits;                         // subframe 0: 049DCE
                         if (subframe > 0) subframe_bits += BITFRAME_LEN/4;  // subframe 1: FB6230
 
@@ -637,13 +651,20 @@ int main(int argc, char **argv) {
                         }
 
                         if (!option2 && !option_raw) {
-
-                            if (header_found % 2 == 1) {
+                jmpRS11:
+                            if (header_found % 2 == 1)
+                            {
                                 val = bits2val(subframe_bits+HEADLEN, 16);
                                 counter = val & 0xFFFF;
-                                if (counter % 2 == 0) printf("\n");
-                                //printf("[0x%04X = %d] ", counter, counter);
                                 printf("[%d] ", counter);
+
+                                // 0x30yy, 0x31yy
+                                val = bits2val(subframe_bits+HEADLEN+46*3+17, 16);
+                                if ( (val & 0xFF) >= 0xC0 && err_frm == 0) {
+                                    option2 = 1;
+                                    printf("\n");
+                                    goto jmpIMS;
+                                }
 
                                 if (counter % 2 == 1) {
                                     t2 = bits2val(subframe_bits+HEADLEN+5*46  , 8);  // LSB
@@ -653,16 +674,13 @@ int main(int argc, char **argv) {
                                     min = bits2val(subframe_bits+HEADLEN+5*46+25, 8);
                                     printf("  ");
                                     printf("%02d:%02d:%06.3f ", std, min, (double)ms/1000.0);
-                                    printf("  ");
-
-                                    //printf("\n");
+                                    printf("\n");
                                 }
                             }
 
-                            if (header_found % 2 == 0) {
-                                val = bits2val(subframe_bits+HEADLEN, 16);
-                                //printf("%04x ", val & 0xFFFF);
-                                if ((counter % 2 == 0))  { //  (val & 0xFFFF) > 0)  {// == 0x8080
+                            if (header_found % 2 == 0)
+                            {
+                                if ((counter % 2 == 0)) {
                                     //offset=24+16+1;
 
                                     lat1 = bits2val(subframe_bits+HEADLEN+46*0+17, 16);
@@ -692,23 +710,45 @@ int main(int argc, char **argv) {
                                     jj = bits2val(subframe_bits+HEADLEN+5*46+ 8, 8) + 0x0700;
                                     mm = bits2val(subframe_bits+HEADLEN+5*46+17, 8);
                                     tt = bits2val(subframe_bits+HEADLEN+5*46+25, 8);
-                                    printf("  ");
-                                    printf("%4d-%02d-%02d ", jj, mm, tt);
-                                    printf("  ");
-
-                                    //printf("\n");
+                                    printf(" %4d-%02d-%02d ", jj, mm, tt);
+                                    printf("\n");
                                 }
                             }
 
                         }
-                        else if (option2 && !option_raw) {
-
+                        else if (option2 && !option_raw) { // iMS-100
+                jmpIMS:
                             if (header_found % 2 == 1) { // 049DCE
+                                ui16_t w16[2];
+                                ui32_t w32;
+                                float *fcfg = (float *)&w32;
+
+                                // 0x30C1, 0x31C1
+                                val = bits2val(subframe_bits+HEADLEN+46*3+17, 16);
+                                if ( (val & 0xFF) < 0xC0 && err_frm == 0) {
+                                    option2 = 0;
+                                    printf("\n");
+                                    goto jmpRS11;
+                                }
+
                                 val = bits2val(subframe_bits+HEADLEN, 16);
                                 counter = val & 0xFFFF;
-                                //if (counter % 2 == 0) printf("\n");
 
                                 if (counter % 2 == 0) printf("[%d] ", counter);
+
+                                w16[0] = bits2val(subframe_bits+HEADLEN+46*1   , 16);
+                                w16[1] = bits2val(subframe_bits+HEADLEN+46*1+17, 16);
+                                w32 = (w16[1]<<16) | w16[0];
+
+                                if (err_frm == 0) // oder kleineren subblock pruefen
+                                {
+                                    gpx.cfg[counter%64] = *fcfg;
+
+                                    // (main?) SN
+                                    if (counter % 0x10 == 0) { sn = *fcfg; gpx.sn = sn; gpx._sn = w32; }
+                                    // freq
+                                    if (counter % 64 == 15) { fq = 400e3+(*fcfg)*100.0; gpx.fq = fq; }
+                                }
 
                                 if (counter % 2 == 0) {
                                     gpx.frnr = counter;
@@ -726,10 +766,9 @@ int main(int argc, char **argv) {
                                 }
                             }
 
-                            if (header_found % 2 == 0) { // FB6230
-                                val = bits2val(subframe_bits+HEADLEN, 16);
-                                //printf("%04x ", val & 0xFFFF);
-                                if ((counter % 2 == 0))  { //  (val & 0xFFFF) > 0)  {// == 0x2390
+                            if (header_found % 2 == 0) // FB6230
+                            {
+                                if ((counter % 2 == 0)) {
                                     //offset=24+16+1;
 
                                     dat2 = bits2val(subframe_bits+HEADLEN, 16);
@@ -758,36 +797,45 @@ int main(int argc, char **argv) {
                                     gpx.lat = (double)latdeg+latmin;
                                     gpx.lon = (double)londeg+lonmin;
                                     gpx.alt = (double)alt/1e2;
-                                    //printf("%08X %08X %08X :  ", lat, lon, alt);
+
                                     printf("  ");
                                     printf("lat: %.5f  lon: %.5f  alt: %.2f", gpx.lat, gpx.lon, gpx.alt);
                                     printf("  ");
 
-                                    ui16_t vD = bits2val(subframe_bits+HEADLEN+46*4+17, 16);
-                                    ui16_t vX = bits2val(subframe_bits+HEADLEN+46*5   , 16);
-                                    //i16_t vU = bits2val(subframe_bits+HEADLEN+46*5+17, 16);
-                                    double velD = (double)vD/1e2;       // course, true
-                                    double velX = (double)vX/1.94384e2; // knots -> m/s
-                                    //double velU = (double)vU/1e3;
-                                    gpx.vH = velX;
+                                    vD = bits2val(subframe_bits+HEADLEN+46*4+17, 16);
+                                    vH = bits2val(subframe_bits+HEADLEN+46*5   , 16);
+                                    velD = (double)vD/1e2;       // course, true
+                                    velH = (double)vH/1.94384e2; // knots -> m/s
+                                    gpx.vH = velH;
                                     gpx.vD = velD;
 
-                                    //printf(" (course=%.1f  speed=%.2fm/s)", velD, velX);
                                     printf(" (vH: %.1fm/s  D: %.2f)", gpx.vH, gpx.vD);
-                                    //printf(" %.2fm/s  %.1f  %.2fm/s", velH, velD, velU);
                                     printf("  ");
                                 }
 
                                 if (counter % 2 == 0) {
                                     if (option_ecc) {
+                                    printf(" ");
                                         if (err_frm) printf("[NO]"); else printf("[OK]");
                                     }
+                                    if (option_verbose) {
+                                        if (sn > 0) {
+                                            printf(" : sn %.0f", sn);
+                                            sn = -1;
+                                        }
+                                        if (fq > 0) {
+                                            printf(" : fq %.1f MHz", fq/1e3);
+                                            fq = -1;
+                                        }
+                                    }
                                     printf("\n");
+
                                     if (option_jsn && err_frm==0) {
-                                        printf("{ \"frame\": %d, \"id\": \"IMS100\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f }\n",
-                                               gpx.frnr, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD );
+                                        printf("{ \"frame\": %d, \"id\": \"IMS100-%.0f\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f }\n",
+                                               gpx.frnr, gpx.sn, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD );
                                         printf("\n");
                                     }
+
                                 }
                             }
 
@@ -821,9 +869,9 @@ int main(int argc, char **argv) {
                         }
 
                         bit_count = 0;
-                        header_found = 0;
-
+                        header_found += 1;
                     }
+                    header_found = 0;
                 }
             }
         }
