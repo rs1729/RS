@@ -236,7 +236,7 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
     return ret;
 }
 
-int par=1, par_alt=1;
+int parX=1, parX_alt=1;
 
 int read_bits_fsk(FILE *fp, int *bit, int *len) {
     int n, sample, y0;
@@ -249,10 +249,10 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
         sample = read_signed_sample(fp);
         if (sample == EOF_INT) return EOF;
         //sample_count++; // in read_signed_sample()
-        par_alt = par;
-        par =  (sample > 0) ? 1 : -1;
+        parX_alt = parX;
+        parX =  (sample > 0) ? 1 : -1;
         n++;
-    } while (par*par_alt > 0);
+    } while (parX*parX_alt > 0);
 
     if (!option_res) l = (float)n / samples_per_bit;
     else {                                 // genauere Bitlaengen-Messung
@@ -263,8 +263,8 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
 
     *len = (int)(l+0.5);
 
-    if (!option_inv) *bit = (1+par_alt)/2;  // oben 1, unten -1
-    else             *bit = (1-par_alt)/2;  // sdr#<rev1381?, invers: unten 1, oben -1
+    if (!option_inv) *bit = (1+parX_alt)/2;  // oben 1, unten -1
+    else             *bit = (1-parX_alt)/2;  // sdr#<rev1381?, invers: unten 1, oben -1
 
     /* Y-offset ? */
 
@@ -446,7 +446,7 @@ int main(int argc, char **argv) {
 
     FILE *fp;
     char *fpname;
-    int i, j;
+    int j, il;
     int bit_count = 0,
         header_found = 0,
         bit, len;
@@ -529,8 +529,8 @@ int main(int argc, char **argv) {
     if (!wavloaded) fp = stdin;
 
 
-    i = read_wav_header(fp);
-    if (i) {
+    j = read_wav_header(fp);
+    if (j) {
         fclose(fp);
         return -1;
     }
@@ -563,7 +563,7 @@ int main(int argc, char **argv) {
             continue;   // ...
         }
 
-        for (i = 0; i < len; i++) {
+        for (il = 0; il < len; il++) {
 
             inc_bufpos();
             buf[bufpos] = 0x30 + bit;  // Ascii
@@ -590,7 +590,7 @@ int main(int argc, char **argv) {
                 bit_count++;
 
                 if (option_b) {
-                    while (++i < len) {
+                    while (++il < len) {
                         frame_rawbits[bit_count] = 0x30 + bit;
                         bit_count++;
                     }
@@ -625,6 +625,7 @@ int main(int argc, char **argv) {
 
                                 // check parity,padding
                                 if (errors >= 0) {
+                                    int par = 0;
                                     check_err = 0;
                                     for (j = 46; j < 63; j++) { if (cw[j] != 0) check_err = 0x1; }
                                     par = 1;
@@ -824,7 +825,7 @@ int main(int argc, char **argv) {
                                             sn = -1;
                                         }
                                         if (fq > 0) {
-                                            printf(" : fq %.1f MHz", fq/1e3);
+                                            printf(" : fq %.0f", fq); // kHz
                                             fq = -1;
                                         }
                                     }
@@ -846,15 +847,15 @@ int main(int argc, char **argv) {
 
                             printf("%06X ", val & 0xFFFFFF);
                             //printf("  ");
-                            for (i = 0; i < 6; i++) {
+                            for (j = 0; j < 6; j++) {
 
-                                val = bits2val(subframe_bits+HEADLEN+46*i   , 16);
+                                val = bits2val(subframe_bits+HEADLEN+46*j   , 16);
                                 printf("%04X ", val & 0xFFFF);
 
-                                val = bits2val(subframe_bits+HEADLEN+46*i+17, 16);
+                                val = bits2val(subframe_bits+HEADLEN+46*j+17, 16);
                                 printf("%04X ", val & 0xFFFF);
 
-                                //val = bits2val(subframe_bits+HEADLEN+46*i+34, 12);
+                                //val = bits2val(subframe_bits+HEADLEN+46*j+34, 12);
                                 //printf("%03X ", val & 0xFFF);
                                 //printf(" ");
                             }
