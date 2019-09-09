@@ -5,7 +5,8 @@ gcc -O2 -c bch_ecc_mod.c
 gcc -O2 -c rs41base.c
 gcc -O2 -c dfm09base.c
 gcc -O2 -c m10base.c
-gcc -O2 rs_multi.c demod_base.o bch_ecc_mod.o rs41base.o dfm09base.o m10base.o -lm -pthread
+gcc -O2 -c lms6Xbase.c
+gcc -O2 rs_multi.c demod_base.o bch_ecc_mod.o rs41base.o dfm09base.o m10base.o lms6Xbase.o -lm -pthread
 
 ./a.out --rs41 <fq0> --dfm <fq1> --m10 <fq2> baseband_IQ.wav
 -0.5 < fq < 0.5 , fq=freq/sr
@@ -34,6 +35,7 @@ int rbf1; // extern in demod_base.c
 void *thd_rs41(void *);
 void *thd_dfm09(void *);
 void *thd_m10(void *);
+void *thd_lms6X(void *);
 
 
 #define IF_SAMPLE_RATE  48000
@@ -136,6 +138,19 @@ int main(int argc, char **argv) {
             if (xlt_cnt < MAX_FQ) {
                 base_fqs[xlt_cnt] = fq;
                 rstype[xlt_cnt] = thd_m10;
+                xlt_cnt++;
+            }
+        }
+        else if (strcmp(*argv, "--lms") == 0) {
+            double fq = 0.0;
+            ++argv;
+            if (*argv) fq = atof(*argv);
+            else return -1;
+            if (fq < -0.5) fq = -0.5;
+            if (fq >  0.5) fq =  0.5;
+            if (xlt_cnt < MAX_FQ) {
+                base_fqs[xlt_cnt] = fq;
+                rstype[xlt_cnt] = thd_lms6X;
                 xlt_cnt++;
             }
         }
