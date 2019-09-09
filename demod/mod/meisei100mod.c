@@ -397,8 +397,6 @@ int main(int argc, char **argv) {
 
         if (header_found) {
 
-//fprintf(stderr, "pos: %d  mv: %+.4f\n", dsp.mv_pos, dsp.mv);
-
             bitpos = 0;
             for (j = 0; j < HEADLEN; j++) {
                 gpx.frame_bits[j] = header0x049DCEbits[j] - 0x30;
