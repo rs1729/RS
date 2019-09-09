@@ -641,7 +641,7 @@ static int get_GPSvel24(gpx_t *gpx) {
 }
 
 // LMS-X
-int get_GPSvel16_X(gpx_t *gpx) {
+static int get_GPSvel16_X(gpx_t *gpx) {
     ui8_t *gpsVel_bytes;
     short vel16;
     double vx, vy, vz;

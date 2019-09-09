@@ -1,10 +1,22 @@
 
 /*
- * big endian forest
+ *  Meisei iMS-100
  *
- * Meisei radiosondes
+ *  sync header: correlation/matched filter
+ *  files: meisei100mod.c demod_mod.c demod_mod.h bch_ecc_mod.c bch_ecc_mod.h
+ *  compile, either (a) or (b):
+ *  (a)
+ *      gcc -c demod_mod.c
+ *      gcc -DINCLUDESTATIC meisei100mod.c demod_mod.o -lm -o meisei100mod
+ *  (b)
+ *      gcc -c demod_mod.c
+ *      gcc -c bch_ecc_mod.c
+ *      gcc meisei100mod.c demod_mod.o bch_ecc_mod.o -lm -o meisei100mod
+ *
+ *  usage:
+ *      ./meisei100mod --ecc -v <audio.wav>
+ *
  * author: zilog80
- *
  */
 
 /*
@@ -83,7 +95,7 @@ e.g. -b --br 2398
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-// #include <math.h>
+#include <math.h>
 #ifdef CYGWIN
   #include <fcntl.h>  // cygwin: _setmode()
   #include <io.h>
