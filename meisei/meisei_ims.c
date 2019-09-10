@@ -64,6 +64,9 @@ Variante 2 (iMS-100 ?)
 0x1B..0x1D  HEADER  0xFB6230
 0x22..0x23  yy00..yy03 (yy00: GPS PRN?)
 
+iMS-100 GPS checksum
+049DCE[10] + 049DCE[11] + FB6230[0] + .. + FB6230[10]  ==  FB6230[11]  (mod 0x10000)
+
 
 Die 46bit-Bloecke sind BCH-Codewoerter. Es handelt sich um einen (63,51)-Code mit Generatorpolynom
 x^12+x^10+x^8+x^5+x^4+x^3+1;
@@ -439,6 +442,11 @@ ui32_t bits2val(ui8_t bits[], int len) {
     return val;
 }
 
+int get_w16(int j) {
+    if (j < 0 || j > 11) return -1;
+    return bits2val(subframe_bits+HEADLEN+46*(j/2)+17*(j%2), 16);
+}
+
 /* -------------------------------------------------------------------------- */
 
 
@@ -452,6 +460,8 @@ int main(int argc, char **argv) {
         bit, len;
     int subframe = 0;
     int err_frm = 0;
+    int gps_chk_sum = 0;
+    int gps_err = 0;
 
     int counter;
     ui32_t val;
@@ -608,6 +618,8 @@ int main(int argc, char **argv) {
 
                     biphi_s(frame_rawbits, frame_bits+HEADLEN);
 
+                    gps_chk_sum = 0;
+                    gps_err = 0;
                     err_frm = 0;
 
                     for (subframe = 0; subframe < 2; subframe++)
@@ -725,6 +737,9 @@ int main(int argc, char **argv) {
                                 ui32_t w32;
                                 float *fcfg = (float *)&w32;
 
+                                // 1st subframe
+                                for (j = 10; j < 12; j++) gps_chk_sum += get_w16(j);
+
                                 // 0x30C1, 0x31C1
                                 val = bits2val(subframe_bits+HEADLEN+46*3+17, 16);
                                 if ( (val & 0xFF) < 0xC0 && err_frm == 0) {
@@ -770,6 +785,10 @@ int main(int argc, char **argv) {
 
                             if (header_found % 2 == 0) // FB6230
                             {
+                                // 2nd subframe
+                                for (j = 0; j < 11; j++) gps_chk_sum += get_w16(j);
+                                gps_err =  (gps_chk_sum & 0xFFFF) != get_w16(11); // 1st+2nd subframe
+
                                 if ((counter % 2 == 0)) {
                                     //offset=24+16+1;
 
@@ -817,7 +836,7 @@ int main(int argc, char **argv) {
 
                                 if (counter % 2 == 0) {
                                     if (option_ecc) {
-                                    printf(" ");
+                                        if (gps_err) printf("(no)"); else printf("(ok)");
                                         if (err_frm) printf("[NO]"); else printf("[OK]");
                                     }
                                     if (option_verbose) {
@@ -832,7 +851,7 @@ int main(int argc, char **argv) {
                                     }
                                     printf("\n");
 
-                                    if (option_jsn && err_frm==0) {
+                                    if (option_jsn && err_frm==0 && gps_err==0) {
                                         char id_str[] = "xxxxxx\0\0\0\0\0\0";
                                         if (gpx.sn > 0 && gpx.sn < 1e9) {
                                             sprintf(id_str, "%.0f", gpx.sn);
