@@ -59,7 +59,7 @@ static int pcm_dec_init(pcm_t *p) {
     tbw  = (IF_sr-20e3)/*/2.0*/; if (tbw < 0) tbw = 8e3;
     taps = sr_base*4.0/tbw; if (taps%2==0) taps++;
 
-    taps = decimate_init(taps, f_lp);
+    taps = decimate_init(f_lp, taps);
 
     if (taps < 0) return -1;
     p->dectaps = (ui32_t)taps;

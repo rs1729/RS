@@ -1533,6 +1533,7 @@ int main(int argc, char *argv[]) {
 
     //int option_inv = 0;    // invertiert Signal
     int option_iq = 0;
+    int option_lp = 0;
     int option_ofs = 0;
     int option_bin = 0;
     int wavloaded = 0;
@@ -1644,6 +1645,7 @@ int main(int argc, char *argv[]) {
             dsp.xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
+        else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
         else if   (strcmp(*argv, "--ofs") == 0) { option_ofs = 1; }
         else if   (strcmp(*argv, "--rawhex") == 0) { rawhex = 2; }  // raw hex input
         else if   (strcmp(*argv, "--xorhex") == 0) { rawhex = 2; xorhex = 1; }  // raw xor input
@@ -1703,7 +1705,9 @@ int main(int argc, char *argv[]) {
             dsp.hdrlen = strlen(rs41_header);
             dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
             dsp.h = 0.6; //0.7;  // 0.7..0.8? modulation index abzgl. BT
+            dsp.lpIQ_bw = 8e3;
             dsp.opt_iq = option_iq;
+            dsp.opt_lp = option_lp;
 
             if ( dsp.sps < 8 ) {
                 fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);

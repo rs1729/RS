@@ -1550,7 +1550,9 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.hdrlen = strlen(rs41_header);
     dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
     dsp.h = 0.6; //0.7;  // 0.7..0.8? modulation index abzgl. BT
+    dsp.lpIQ_bw = 8e3;
     dsp.opt_iq = option_iq;
+    dsp.opt_lp = 1;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);

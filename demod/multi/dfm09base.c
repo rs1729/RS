@@ -863,7 +863,9 @@ void *thd_dfm09(void *targs) {
     dsp.hdrlen = strlen(dfm_rawheader);
     dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
     dsp.h = 1.8;  // 2.4 modulation index abzgl. BT
+    dsp.lpIQ_bw = 12e3;
     dsp.opt_iq = option_iq;
+    dsp.opt_lp = 1;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low\n");

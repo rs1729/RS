@@ -836,6 +836,7 @@ int main(int argc, char **argv) {
     int option_dist = 0;     // continuous pcks 0..8
     int option_auto = 0;
     int option_iq = 0;
+    int option_lp = 0;
     int option_bin = 0;
     int option_json = 0;     // JSON blob output (for auto_rx)
     int wavloaded = 0;
@@ -950,6 +951,7 @@ int main(int argc, char **argv) {
             dsp.xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
+        else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
         else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
         else {
             fp = fopen(*argv, "rb");
@@ -1010,7 +1012,9 @@ int main(int argc, char **argv) {
         dsp.hdrlen = strlen(dfm_rawheader);
         dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
         dsp.h = 1.8;  // 2.4 modulation index abzgl. BT
+        dsp.lpIQ_bw = 12e3;
         dsp.opt_iq = option_iq;
+        dsp.opt_lp = option_lp;
 
         if ( dsp.sps < 8 ) {
             fprintf(stderr, "note: sample rate low\n");

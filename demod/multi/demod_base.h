@@ -112,6 +112,7 @@ typedef struct {
     double V_signal;
     double SNRdB;
 
+    // decimate
     int decM;
     int blk_cnt;
     ui32_t sr_base;
@@ -121,6 +122,14 @@ typedef struct {
     float complex *decXbuffer;
     float complex *decMbuf;
     float complex *ex; // exp_lut
+
+    // IF: lowpass
+    int opt_lp;
+    int lpIQ_bw;
+    int lpIQtaps; // ui32_t
+    float *ws_lpIQ;
+    float complex *lpIQ_buf;
+
     thd_t thd;
 } dsp_t;
 
@@ -162,6 +171,6 @@ ui32_t get_sample(dsp_t *);
 
 int find_header(dsp_t *, float, int, int, int);
 
-int decimate_init(int taps, float f);
+int decimate_init(float f, int taps);
 int decimate_free(void);
 

@@ -882,6 +882,7 @@ int main(int argc, char **argv) {
     int option_ptu = 0;
     int option_dc = 0;
     int option_iq = 0;
+    int option_lp = 0;
     int wavloaded = 0;
     int sel_wavch = 0;     // audio channel: left
     int spike = 0;
@@ -984,6 +985,7 @@ int main(int argc, char **argv) {
             dsp.xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
+        else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
         else if   (strcmp(*argv, "--json") == 0) { gpx.option.jsn = 1; }
         else {
             fp = fopen(*argv, "rb");
@@ -1034,7 +1036,9 @@ int main(int argc, char **argv) {
     dsp.hdrlen = strlen(rawheader);
     dsp.BT = 1.8; // bw/time (ISI) // 1.0..2.0
     dsp.h = 0.9;  // 1.2 modulation index
+    dsp.lpIQ_bw = 20e3;
     dsp.opt_iq = option_iq;
+    dsp.opt_lp = option_lp;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);

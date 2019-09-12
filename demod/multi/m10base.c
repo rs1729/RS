@@ -957,7 +957,9 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.hdrlen = strlen(rawheader);
     dsp.BT = 1.8; // bw/time (ISI) // 1.0..2.0
     dsp.h = 0.9;  // 1.2 modulation index
+    dsp.lpIQ_bw = 20e3;
     dsp.opt_iq = option_iq;
+    dsp.opt_lp = 1;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
