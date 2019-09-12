@@ -1036,7 +1036,7 @@ int main(int argc, char **argv) {
     dsp.hdrlen = strlen(rawheader);
     dsp.BT = 1.8; // bw/time (ISI) // 1.0..2.0
     dsp.h = 0.9;  // 1.2 modulation index
-    dsp.lpIQ_bw = 20e3;
+    dsp.lpIQ_bw = 24e3;
     dsp.opt_iq = option_iq;
     dsp.opt_lp = option_lp;
 
