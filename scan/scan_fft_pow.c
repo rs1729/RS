@@ -610,7 +610,12 @@ int main(int argc, char **argv) {
         if ( mag < 0 ) mag = 0;
         if (1 || option_verbose) fprintf(fpout, " ; %d", mag);
 
-        if (mag0 > 0 && mag == 0) fprintf(OUT, "peak: %+9.6f = %+9.1fHz\n", bin2fq(&DFT, max_db_idx), bin2freq(&DFT, max_db_idx));
+        if (mag0 > 0 && mag == 0) {
+            if ( fabs(bin2fq(&DFT, max_db_idx)) < 0.425 ) // 85% bandwidth
+            {
+                fprintf(OUT, "peak: %+9.6f = %+9.1fHz\n", bin2fq(&DFT, max_db_idx), bin2freq(&DFT, max_db_idx));
+            }
+        }
         if (mag0 == 0 && mag > 0) {
             max_db_loc = sympeak;
             max_db_idx = j % DFT.N;

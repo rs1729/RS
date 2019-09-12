@@ -168,8 +168,6 @@ static float *ws_lpIQ[2];
 static int dsp__lpIQtaps; // ui32_t
 static float complex *lpIQ_buf;
 
-static float complex *iq_buf;
-
 
 static void dft_raw(float complex *Z) {
     int s, l, l2, i, j, k;
@@ -980,8 +978,6 @@ static int free_buffers() {
             if (WS[j]) { free(WS[j]); WS[j] = NULL; }
         }
         if (Y) { free(Y); Y = NULL; }
-
-        if (iq_buf) { free(iq_buf); iq_buf = NULL; }
 
         for (j = 0; j < 1; j++) {
             if (ws_lpIQ[j]) { free(ws_lpIQ[j]); ws_lpIQ[j] = NULL; }
