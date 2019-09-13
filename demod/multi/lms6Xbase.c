@@ -137,6 +137,7 @@ typedef struct {
     int typ;
     float frm_rate;
     int auto_detect;
+    int reset_dsp;
     option_t option;
     RS_t RS;
     VIT_t *vit;
@@ -844,7 +845,7 @@ static void proc_frame(gpx_t *gpx, int len, dsp_t *dsp) {
                 if (gpx->sf6 < 4) {
                     frmsync_X(gpx, block_bytes); // pos(frm_syncX[]) < 46: different baud not significant
                     if (gpx->sfX == 4)  {
-                        if (gpx->auto_detect) gpx->typ = 10;
+                        if (gpx->auto_detect) { gpx->typ = 10; gpx->reset_dsp = 1; }
                         break;
                     }
                 }
@@ -885,7 +886,7 @@ static void proc_frame(gpx_t *gpx, int len, dsp_t *dsp) {
                 for (j = 0; j < 4; j++) gpx->sf6 += (block_bytes[blk_pos+j] == frm_sync6[j]);
                 if (gpx->sf6 == 4)  {
                     gpx->frm_pos = 0;
-                    if (gpx->auto_detect) gpx->typ = 6;
+                    if (gpx->auto_detect) { gpx->typ = 6; gpx->reset_dsp = 1; }
                     break;
                 }
                 blk_pos++;
@@ -895,7 +896,7 @@ static void proc_frame(gpx_t *gpx, int len, dsp_t *dsp) {
             // LMS6: frm_rate = 4800.0 * FRAME_LEN/BLOCK_LEN = 4800*300/260 = 5538
             // LMSX: delta_mp = 4797.8 (longer timesync-frames possible)
             if (gpx->frm_rate > 5000.0 || gpx->frm_rate < 4000.0) { // lms6-blocklen = 260/300 sr, sync wird ueberlesen ...
-                if (gpx->auto_detect) gpx->typ = 6;
+                if (gpx->auto_detect) { gpx->typ = 6; gpx->reset_dsp = 1; }
             }
         }
         else
@@ -973,6 +974,7 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     gpx_t _gpx = {0}; gpx_t *gpx = &_gpx;
 
     gpx->auto_detect = 1;
+    gpx->reset_dsp = 0;
 
 /*
 #ifdef CYGWIN
@@ -1125,12 +1127,18 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
             pos = BLOCKSTART;
             header_found = 0;
 
-            if ( gpx->auto_detect ) {
+            if ( gpx->auto_detect && gpx->reset_dsp ) {
                 if (gpx->typ == 10) {
                     // set lmsX
                     rawbitblock_len = RAWBITBLOCK_LEN;//_X;
                     dsp.br = (float)BAUD_RATEX;
                     dsp.sps = (float)dsp.sr/dsp.br;
+
+                    // reset F1sum, F2sum
+                    for (k = 0; k < dsp.N_IQBUF; k++) dsp.rot_iqbuf[k] = 0;
+                    dsp.F1sum = 0;
+                    dsp.F2sum = 0;
+
                     bitofs = bitofsX + shift;
                 }
                 if (gpx->typ == 6) {
@@ -1138,12 +1146,20 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
                     rawbitblock_len = RAWBITBLOCK_LEN_6;
                     dsp.br = (float)BAUD_RATE6;
                     dsp.sps = (float)dsp.sr/dsp.br;
+
+                    // reset F1sum, F2sum
+                    for (k = 0; k < dsp.N_IQBUF; k++) dsp.rot_iqbuf[k] = 0;
+                    dsp.F1sum = 0;
+                    dsp.F2sum = 0;
+
                     bitofs = bitofs6 + shift;
                 }
+                gpx->reset_dsp = 0;
             }
 
         }
     }
+
 
     free_buffers(&dsp);
     if (gpx->vit) { free(gpx->vit); gpx->vit = NULL; }
