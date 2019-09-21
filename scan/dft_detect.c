@@ -411,32 +411,6 @@ static int f32read_sample(FILE *fp, float *s) {
     return 0;
 }
 
-static int f32read_csample(FILE *fp, float complex *z) {
-
-    if (bits_sample ==  32) {
-        float x = 0, y = 0;
-
-        if (fread( &x, bits_sample/8, 1, fp) != 1) return EOF;
-        if (fread( &y, bits_sample/8, 1, fp) != 1) return EOF;
-
-        *z = x + I*y;
-    }
-    else {  // bits_sample == 8,16
-        short a = 0, b = 0;
-
-        if (fread( &a, bits_sample/8, 1, fp) != 1) return EOF;
-        if (fread( &b, bits_sample/8, 1, fp) != 1) return EOF;
-
-        *z = a + I*b;
-
-        if (bits_sample ==  8) { *z -= 128 + I*128; }
-        *z /= 128.0;
-        if (bits_sample == 16) { *z /= 256.0; }
-    }
-
-    return 0;
-}
-
 // decimation
 static ui32_t dsp__sr_base;
 static ui32_t dsp__dectaps;
@@ -450,27 +424,114 @@ static ui32_t dsp__lut_len;
 static float *ws_dec;
 static double dsp__xlt_fq = 0.0;
 
+// IQ-dc
+typedef struct {
+    double sumIQx;
+    double sumIQy;
+    float avgIQx;
+    float avgIQy;
+    ui32_t cnt;
+    ui32_t maxcnt;
+} iq_dc_t;
+static iq_dc_t IQdc;
+
+static int f32read_csample(FILE *fp, float complex *z) {
+
+    float x, y;
+
+    if (bits_sample == 32) { //float32
+        float f[2];
+        if (fread( f, bits_sample/8, 2, fp) != 2) return EOF;
+        x = f[0];
+        y = f[1];
+    }
+    else if (bits_sample == 16) { //int16
+        short b[2];
+        if (fread( b, bits_sample/8, 2, fp) != 2) return EOF;
+        x = b[0]/32768.0;
+        y = b[1]/32768.0;
+    }
+    else {  // bits_sample == 8   //uint8
+        ui8_t u[2];
+        if (fread( u, bits_sample/8, 2, fp) != 2) return EOF;
+        x = (u[0]-128)/128.0;
+        y = (u[1]-128)/128.0;
+    }
+
+    *z = (x - IQdc.avgIQx) + I*(y - IQdc.avgIQy);
+
+    IQdc.sumIQx += x;
+    IQdc.sumIQy += y;
+    IQdc.cnt += 1;
+    if (IQdc.cnt == IQdc.maxcnt) {
+        IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
+        IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
+        IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
+    }
+
+    return 0;
+}
+
 static int f32read_cblock(FILE *fp) {
 
     int n;
     int len;
+    float x, y;
 
     len = dsp__decM;
 
-    if (bits_sample == 8) {
+    if (bits_sample == 8) { //uint8
         ui8_t u[2*dsp__decM];
         len = fread( u, bits_sample/8, 2*dsp__decM, fp) / 2;
-        for (n = 0; n < len; n++) dsp__decMbuf[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
+        //for (n = 0; n < len; n++) dsp__decMbuf[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
+        // u8: 0..255, 128 -> 0V
+        for (n = 0; n < len; n++) {
+            x = (u[2*n  ]-128)/128.0;
+            y = (u[2*n+1]-128)/128.0;
+            dsp__decMbuf[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
+            IQdc.sumIQx += x;
+            IQdc.sumIQy += y;
+            IQdc.cnt += 1;
+            if (IQdc.cnt == IQdc.maxcnt) {
+                IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
+                IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
+                IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
+            }
+        }
     }
-    else if (bits_sample == 16) { // bits_sample == 16
+    else if (bits_sample == 16) { //int16
         short b[2*dsp__decM];
         len = fread( b, bits_sample/8, 2*dsp__decM, fp) / 2;
-        for (n = 0; n < len; n++) dsp__decMbuf[n] = b[2*n]/32768.0 + I*b[2*n+1]/32768.0;
+        for (n = 0; n < len; n++) {
+            x = b[2*n  ]/32768.0;
+            y = b[2*n+1]/32768.0;
+            dsp__decMbuf[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
+            IQdc.sumIQx += x;
+            IQdc.sumIQy += y;
+            IQdc.cnt += 1;
+            if (IQdc.cnt == IQdc.maxcnt) {
+                IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
+                IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
+                IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
+            }
+        }
     }
     else { // bits_sample == 32   //float32
         float f[2*dsp__decM];
         len = fread( f, bits_sample/8, 2*dsp__decM, fp) / 2;
-        for (n = 0; n < len; n++) dsp__decMbuf[n] = f[2*n] + I*f[2*n+1];
+        for (n = 0; n < len; n++) {
+            x = f[2*n];
+            y = f[2*n+1];
+            dsp__decMbuf[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
+            IQdc.sumIQx += x;
+            IQdc.sumIQy += y;
+            IQdc.cnt += 1;
+            if (IQdc.cnt == IQdc.maxcnt) {
+                IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
+                IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
+                IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
+            }
+        }
     }
 
     return len;
@@ -829,6 +890,10 @@ static int init_buffers() {
         if (lpIQ_buf == NULL) return -1;
 
     }
+
+    memset(&IQdc, 0, sizeof(IQdc));
+    IQdc.maxcnt = sample_rate/32;
+    if (dsp__decM > 1) IQdc.maxcnt *= dsp__decM;
 
 
     for (j = 0; j < Nrs; j++) {
