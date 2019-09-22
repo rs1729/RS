@@ -733,6 +733,8 @@ int main(int argc, char **argv) {
 
     printf("\n");
 
+    free_buffers(&dsp);
+
     fclose(fp);
 
     return 0;
