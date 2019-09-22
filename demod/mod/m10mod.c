@@ -880,9 +880,9 @@ int main(int argc, char **argv) {
     //int option_res = 0;      // genauere Bitmessung
     int option_color = 0;
     int option_ptu = 0;
-    int option_dc = 0;
     int option_iq = 0;
     int option_lp = 0;
+    int option_dc = 0;
     int wavloaded = 0;
     int sel_wavch = 0;     // audio channel: left
     int spike = 0;
@@ -949,9 +949,6 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
             option_ptu = 1;
         }
-        else if ( (strcmp(*argv, "--dc") == 0) ) {
-            option_dc = 1;
-        }
         else if ( (strcmp(*argv, "--spike") == 0) ) {
             spike = 1;
         }
@@ -986,6 +983,7 @@ int main(int argc, char **argv) {
             option_iq = 5;
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
+        else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
         else if   (strcmp(*argv, "--json") == 0) { gpx.option.jsn = 1; }
         else {
             fp = fopen(*argv, "rb");
@@ -1036,9 +1034,11 @@ int main(int argc, char **argv) {
     dsp.hdrlen = strlen(rawheader);
     dsp.BT = 1.8; // bw/time (ISI) // 1.0..2.0
     dsp.h = 0.9;  // 1.2 modulation index
-    dsp.lpIQ_bw = 24e3;
     dsp.opt_iq = option_iq;
     dsp.opt_lp = option_lp;
+    dsp.lpIQ_bw = 24e3; // IF lowpass bandwidth
+    dsp.lpFM_bw = 10e3; // FM audio lowpass
+    dsp.opt_dc = option_dc;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
@@ -1057,8 +1057,8 @@ int main(int argc, char **argv) {
 
     while ( 1 )
     {
-
-        header_found = find_header(&dsp, thres, 2, bitofs, option_dc);
+                                                                        // FM-audio:
+        header_found = find_header(&dsp, thres, 2, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
         _mv = dsp.mv;
 
         if (header_found == EOF) break;
@@ -1067,7 +1067,6 @@ int main(int argc, char **argv) {
         if (_mv*(0.5-gpx.option.inv) < 0) {
             gpx.option.inv ^= 0x1;  // M10: irrelevant
         }
-
 
         if (header_found) {
 

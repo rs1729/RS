@@ -837,6 +837,7 @@ int main(int argc, char **argv) {
     int option_auto = 0;
     int option_iq = 0;
     int option_lp = 0;
+    int option_dc = 0;
     int option_bin = 0;
     int option_json = 0;     // JSON blob output (for auto_rx)
     int wavloaded = 0;
@@ -952,6 +953,7 @@ int main(int argc, char **argv) {
             option_iq = 5;
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
+        else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
         else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
         else {
             fp = fopen(*argv, "rb");
@@ -1012,9 +1014,11 @@ int main(int argc, char **argv) {
         dsp.hdrlen = strlen(dfm_rawheader);
         dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
         dsp.h = 1.8;  // 2.4 modulation index abzgl. BT
-        dsp.lpIQ_bw = 12e3;
         dsp.opt_iq = option_iq;
         dsp.opt_lp = option_lp;
+        dsp.lpIQ_bw = 12e3; // IF lowpass bandwidth
+        dsp.lpFM_bw = 4e3; // FM audio lowpass
+        dsp.opt_dc = option_dc;
 
         if ( dsp.sps < 8 ) {
             fprintf(stderr, "note: sample rate low\n");
@@ -1050,8 +1054,8 @@ int main(int argc, char **argv) {
                 header_found = find_binhead(fp, &hdb, &_mv); // symbols or bits?
                 hdrcnt += nfrms;
             }
-            else {
-                header_found = find_header(&dsp, thres, 2, bitofs, 0);
+            else {                                                              // FM-audio:
+                header_found = find_header(&dsp, thres, 2, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
                 _mv = dsp.mv;
             }
             if (header_found == EOF) break;

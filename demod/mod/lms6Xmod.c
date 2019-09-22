@@ -1109,9 +1109,11 @@ int main(int argc, char **argv) {
     dsp.hdrlen = strlen(rawheader);
     dsp.BT = 1.2; // bw/time (ISI) // 1.0..2.0  // BT(lmsX) < BT(lms6) ? -> init_buffers()
     dsp.h = 0.9;  // 0.95 modulation index
-    dsp.lpIQ_bw = 8e3;
     dsp.opt_iq = option_iq;
     dsp.opt_lp = option_lp;
+    dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
+    dsp.lpFM_bw = 6e3; // FM audio lowpass
+    dsp.opt_dc = option_dc;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
@@ -1160,8 +1162,8 @@ int main(int argc, char **argv) {
 
     while ( 1 )
     {
-
-        header_found = find_header(&dsp, thres, 3, bitofs, option_dc);
+                                                                        // FM-audio:
+        header_found = find_header(&dsp, thres, 3, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
         _mv = dsp.mv;
 
         if (header_found == EOF) break;
