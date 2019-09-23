@@ -93,23 +93,30 @@ typedef struct {
     int lpFM;
     int lpIQ;
     float dc;
+    float df; // Df = df*sr_base;
 } rsheader_t;
 
-#define Nrs 11
-#define idxAB 9
-#define idxRS 10
+static float lpFM_bw[2] = {  4e3, 10e3 };  // FM-audio lowpass bandwidth
+static float lpIQ_bw[3] = { 12e3, 22e3, 200e3 };  // IF iq lowpass bandwidth
+
+#define Nrs      12
+#define idxIMETs  8
+#define idxAB     9
+#define idxRS    10
+#define idxI4    11
 static rsheader_t rs_hdr[Nrs] = {
-    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9",    2 , 0, 0, 0.0}, // DFM6: -2 ?
-    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41",    3 , 0, 0, 0.0},
-    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92",    4 , 0, 0, 0.0},
-    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6",    8 , 0, 0, 0.0},
-    { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS", 10 , 1, 2, 0.0}, // Mk2a/LMS6-1680
-    { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10",     5 , 1, 1, 0.0},
-    { 2400, 0, 0, meisei_header,  1.0, 0.0, 0.70, 2, NULL, "MEISEI", 11 , 0, 1, 0.0},
-    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50",  9 , 0, 1, 0.0}, // C34/C50 2900 Hz tone
-    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET",    6 , 1, 2, 0.0}, // IMET1AB=7, IMET1RS=8
-    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 6 , 1, 2, 0.0}, // (rs_hdr[idxAB])
-    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET1RS", 7 , 0, 2, 0.0}  // (rs_hdr[idxRS]) IMET4: lpIQ=1 ...
+    { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9",     2 , 0, 0, 0.0}, // DFM6: -2 ?
+    { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41",     3 , 0, 0, 0.0},
+    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92",     4 , 0, 0, 0.0},
+    { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6",     8 , 0, 0, 0.0}, // lmsX: 7?
+    { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS",  21 , 1, 2, 0.0}, // Mk2a/LMS6-1680 , --IQ: decimate > 170kHz ...
+    { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10",      5 , 1, 1, 0.0},
+    { 2400, 0, 0, meisei_header,  1.0, 0.0, 0.70, 2, NULL, "MEISEI",   9 , 0, 1, 0.0},
+    { 5800, 0, 0, c34_preheader,  1.5, 0.0, 0.80, 2, NULL, "C34C50",  10 , 0, 1, 0.0}, // C34/C50 2900 Hz tone
+    { 9600, 0, 0, imet_preamble,  0.5, 0.0, 0.80, 4, NULL, "IMET",    15 , 1, 0, 0.0}, // IMET1AB=19, IMET1RS=18 (IQ)IMET4=16
+    { 9600, 0, 0, imet1ab_header, 1.0, 0.0, 0.80, 2, NULL, "IMET1AB", 19 , 1, 2, 0.0}, // (rs_hdr[idxAB])
+    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET1RS", 18 , 0, 2, 0.0}, // (rs_hdr[idxRS]) IMET4: lpIQ=0 ...
+    { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET4",   16 , 1, 0, 0.0}  // (rs_hdr[idxI4])
 };
 
 
@@ -134,6 +141,10 @@ static rsheader_t rs_hdr[Nrs] = {
 // ...
 */
 
+#define FM_GAIN (0.8)
+
+static int sr_base = 0;
+static int sr_if = 0;
 
 static int sample_rate = 0, bits_sample = 0, channels = 0;
 static int wav_ch = 0;  // 0: links bzw. mono; 1: rechts
@@ -149,6 +160,19 @@ static char *rawbits = NULL;
 
 /* ------------------------------------------------------------------------------------ */
 
+// decimation
+static ui32_t dsp__sr_base;
+static ui32_t dsp__dectaps;
+static ui32_t dsp__sample_dec;
+static int dsp__decM = 1;
+static float complex *dsp__decXbuffer;
+static float complex *dsp__decMbuf;
+static float complex *dsp__ex; // exp_lut
+static ui32_t dsp__lut_len;
+
+static float *ws_dec;
+static double dsp__xlt_fq = 0.0;
+
 
 static int LOG2N, N_DFT;
 
@@ -160,7 +184,7 @@ static float *db;
 
 // FM: lowpass
 static float *ws_lpFM[2];
-static int dsp__lpFMtaps[2]; // ui32_t
+static int dsp__lpFMtaps; // ui32_t
 static float complex *Y;
 static float complex *WS[2];
 // IF: lowpass
@@ -307,11 +331,14 @@ static int getCorrDFT(int K, unsigned int pos, float *maxv, unsigned int *maxvpo
 
     mx /= xnorm*N_DFT;
 
-    if (option_iq) mpos -= dsp__lpFMtaps[rshd->lpFM]/2;  // lowpass delay
+    if (option_iq) mpos -= dsp__lpFMtaps/2;  // lowpass delay
 
     *maxv = mx;
     *maxvpos = mpos;
 
+    if (option_dc) {
+        rshd->df = rshd->dc / (2.0*FM_GAIN*dsp__decM);  // freq offset estimate
+    }
 
     return mp;
 }
@@ -411,18 +438,6 @@ static int f32read_sample(FILE *fp, float *s) {
     return 0;
 }
 
-// decimation
-static ui32_t dsp__sr_base;
-static ui32_t dsp__dectaps;
-static ui32_t dsp__sample_dec;
-static int dsp__decM = 1;
-static float complex *dsp__decXbuffer;
-static float complex *dsp__decMbuf;
-static float complex *dsp__ex; // exp_lut
-static ui32_t dsp__lut_len;
-
-static float *ws_dec;
-static double dsp__xlt_fq = 0.0;
 
 // IQ-dc
 typedef struct {
@@ -594,7 +609,7 @@ static int f32buf_sample(FILE *fp, int inv) {
     static float complex z0;
     float complex z_fm0=0, z_fm1=0;
     float complex z, w;
-    double gain = 0.8;
+    double gain = FM_GAIN;
     int i;
 
     if (option_iq)
@@ -784,15 +799,19 @@ static int init_buffers() {
     int hLen = 0;
     int Lmax = 0;
 
+    sr_base = sample_rate;
+    sr_if = sample_rate;
+
 
     if (option_iq == 5)
     {
         int IF_sr = 48000; // designated IF sample rate
         int decM = 1; // decimate M:1
-        int sr_base = sample_rate;
         float f_lp; // dec_lowpass: lowpass_bw/2
         float t_bw; // dec_lowpass: transition_bw
         int taps; // dec_lowpass: taps
+
+        sr_base = sample_rate;
 
         if (IF_sr > sr_base) IF_sr = sr_base;
         if (IF_sr < sr_base) {
@@ -812,6 +831,8 @@ static int init_buffers() {
         dsp__sr_base = sr_base;
         sample_rate = IF_sr; // sr_base/decM
         dsp__decM = decM;
+
+        sr_if = IF_sr;
 
         fprintf(stderr, "IF: %d\n", IF_sr);
         fprintf(stderr, "dec: %d\n", decM);
@@ -863,28 +884,28 @@ static int init_buffers() {
     if (option_iq)
     {
         float f_lp; // lowpass_bw
-        float f_lp0, f_lp1;
         int taps; // lowpass taps: 4*sr/transition_bw
 
         // FM lowpass -> xn[] in getCorrDFT()
-        f_lp = 4e3/(float)sample_rate;  // RS41,DFM: 4kHz (FM-audio)
         taps = 4*sample_rate/2e3; if (taps%2==0) taps++; // 2kHz transition
-        taps = lowpass_init(f_lp, taps, &ws_lpFM[0]);
-        if (taps < 0) return -1;
-        dsp__lpFMtaps[0] = taps;
         //
-        f_lp = 10e3/(float)sample_rate;  // M10: 10kHz (FM-audio)
-        taps = 4*sample_rate/2e3; if (taps%2==0) taps++; // 2kHz transition
-        taps = lowpass_init(f_lp, taps, &ws_lpFM[1]);
-        if (taps < 0) return -1;
-        dsp__lpFMtaps[1] = taps;
+        f_lp = lpFM_bw[0]/(float)sample_rate;  // RS41,DFM: 4kHz (FM-audio)
+        taps = lowpass_init(f_lp, taps, &ws_lpFM[0]); if (taps < 0) return -1;
+        //
+        f_lp = lpFM_bw[1]/(float)sample_rate;  // M10: 10kHz (FM-audio)
+        taps = lowpass_init(f_lp, taps, &ws_lpFM[1]); if (taps < 0) return -1;
+        //
+        dsp__lpFMtaps = taps;
 
         // IF lowpass
         taps = 4*sample_rate/4e3; if (taps%2==0) taps++; // 4kHz transition
-        f_lp0 = 12e3/(float)sample_rate/2.0;  // RS41,DFM: 12kHz (IF/IQ)
-        taps = lowpass_init(f_lp0, taps, &ws_lpIQ[0]); if (taps < 0) return -1;
-        f_lp1 = 22e3/(float)sample_rate/2.0;  // M10: 22kHz (IF/IQ)
-        taps = lowpass_init(f_lp1, taps, &ws_lpIQ[1]); if (taps < 0) return -1;
+        //
+        f_lp = lpIQ_bw[0]/(float)sample_rate/2.0;  // RS41,DFM: 12kHz (IF/IQ)
+        taps = lowpass_init(f_lp, taps, &ws_lpIQ[0]); if (taps < 0) return -1;
+        //
+        f_lp = lpIQ_bw[1]/(float)sample_rate/2.0;  // M10: 22kHz (IF/IQ)
+        taps = lowpass_init(f_lp, taps, &ws_lpIQ[1]); if (taps < 0) return -1;
+        //
         dsp__lpIQtaps = taps;
         lpIQ_buf = calloc( dsp__lpIQtaps+3, sizeof(float complex));
         if (lpIQ_buf == NULL) return -1;
@@ -948,7 +969,7 @@ static int init_buffers() {
     m = (float *)calloc(N_DFT+1, sizeof(float));  if (m  == NULL) return -1;
 
 
-    for (j = 0; j < Nrs-1; j++)
+    for (j = 0; j < idxRS; j++)
     {
         rs_hdr[j].Fm = (float complex *)calloc(N_DFT+1, sizeof(float complex));  if (rs_hdr[j].Fm == NULL) return -1;
         bits = rs_hdr[j].header;
@@ -992,7 +1013,7 @@ static int init_buffers() {
     {
         for (j = 0; j < 2; j++) {
             WS[j] = (float complex *)calloc(N_DFT+1, sizeof(float complex));  if (WS[j] == NULL) return -1;
-            for (i = 0; i < dsp__lpFMtaps[j]; i++) m[i] = ws_lpFM[j][i];
+            for (i = 0; i < dsp__lpFMtaps; i++) m[i] = ws_lpFM[j][i];
             while (i < N_DFT) m[i++] = 0.0;
             dft(m, WS[j]);
         }
@@ -1022,7 +1043,7 @@ static int free_buffers() {
     if (Z)  { free(Z);  Z  = NULL; }
     if (cx) { free(cx); cx = NULL; }
 
-    for (j = 0; j < Nrs-1; j++) {
+    for (j = 0; j < idxRS; j++) {
         if (rs_hdr[j].Fm) { free(rs_hdr[j].Fm); rs_hdr[j].Fm = NULL; }
     }
 
@@ -1087,7 +1108,10 @@ int main(int argc, char **argv) {
         if      ( (strcmp(*argv, "-h") == 0) || (strcmp(*argv, "--help") == 0) ) {
             fprintf(stderr, "%s [options] audio.wav\n", fpname);
             fprintf(stderr, "  options:\n");
-            //fprintf(stderr, "       -v, --verbose\n");
+            fprintf(stderr, "       -v          (verbose)\n");
+            fprintf(stderr, "       -c          (continuous)\n");
+            fprintf(stderr, "       --iq        (IF iq-data)\n");
+            fprintf(stderr, "       --IQ <fq>   (baseband IQ at fq)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
@@ -1173,7 +1197,7 @@ int main(int argc, char **argv) {
         k += 1;
 
         if (k >= K-4) {
-            for (j = 0; j < Nrs-2; j++) {
+            for (j = 0; j <= idxIMETs; j++) { // incl. IMET-preamble
 #ifdef NOC34C50
                 if ( strncmp(rs_hdr[j].type, "C34C50", 6) == 0 ) continue;
 #endif
@@ -1188,7 +1212,7 @@ int main(int argc, char **argv) {
         }
 
         header_found = 0;
-        for (j = 0; j < Nrs-2; j++)
+        for (j = 0; j <= idxIMETs; j++) // incl. IMET-preamble
         {
             if (mp[j] > 0 && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
                 if (mv_pos[j] > mv0_pos[j]) {
@@ -1196,7 +1220,7 @@ int main(int argc, char **argv) {
                     herrs = headcmp(1, mv_pos[j], mv[j]<0, rs_hdr+j);
                     if (herrs < rs_hdr[j].herrs) {  // max bit-errors in header
 
-                        if ( strncmp(rs_hdr[j].type, "IMET", 4) == 0 )
+                        if ( strncmp(rs_hdr[j].type, "IMET", 4) == 0 ) // ? j == idxIMETs
                         {
                             int n, m;
                             int D = N_DFT/2 - 3;
@@ -1243,16 +1267,19 @@ int main(int argc, char **argv) {
                                 int bin800 = freq2bin(800);
                                 float pow800 = 0.0;
                                 for (n = 0; n < m; n++) pow800 += db[ bin800 - m/4 + n ];
-                                if (pow2200 > pow800) {
-                                    mv[idxRS] = mv[j];
-                                    mv[j] = 0;     // IMET1 -> IMET1RS
-                                    mv_pos[idxRS] = mv_pos[j];
-                                    j = idxRS;
+                                if (pow2200 > pow800) { // IMET -> IMET1RS/IMET4
+                                    int _j0 = j;
+                                    if (option_iq) j = idxI4; else j = idxRS;
+                                    mv[j] = mv[_j0];
+                                    mv_pos[j] = mv_pos[_j0];
+                                    rs_hdr[j].dc = rs_hdr[_j0].dc;
+                                    rs_hdr[j].df = rs_hdr[_j0].df;
+                                    mv[_j0] = 0;
                                     header_found = 1;
                                 }
                                 else mv[j] = 0.0;
                             }
-                            else {                    // IMET1AB
+                            else { // IMET -> IMET1AB ?
                                 mv[j] = 0;
                                 j = idxAB;
                                 mv_pos[j] = sample_out;
@@ -1278,20 +1305,25 @@ int main(int argc, char **argv) {
                                     if (mp[j] > 0 && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
                                         header_found = 1;
                                         if (mv[j] < 0) header_found = -1;
-                                        break;
+                                        break; // IMET -> IMET1AB
                                     }
                                     mv[j] = 0.0;
                                 }
                             }
                         }
-                        else {
+                        else { // if not IMET
                             header_found = 1;
                         }
 
                         if (header_found) {
                             if (!option_silent && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
                                 if (option_verbose) fprintf(stdout, "sample: %d\n", mv_pos[j]);
-                                fprintf(stdout, "%s: %.4f\n", rs_hdr[j].type, mv[j]);
+                                fprintf(stdout, "%s: %.4f", rs_hdr[j].type, mv[j]);
+                                if (option_dc && option_iq) {
+                                    fprintf(stdout, "   [ fq-ofs: %+.6f", rs_hdr[j].df);
+                                    fprintf(stdout, " = %+.1fHz ]", rs_hdr[j].df*sr_base);
+                                }
+                                fprintf(stdout, "\n");
                             }
                             // if ((j < 3) && mv[j] < 0) header_found = -1;
 
