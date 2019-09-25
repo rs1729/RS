@@ -15,6 +15,8 @@
 
 #include "demod_mod.h"
 
+#define FM_GAIN (0.8)
+
 /* ------------------------------------------------------------------------------------ */
 
 
@@ -227,7 +229,7 @@ static int getCorrDFT(dsp_t *dsp) {
 // FM: s = gain * carg(w)/M_PI = gain * dphi / PI // gain=0.8
 // FM audio gain? dc relative to FM-envelope?!
 //
-    dsp->dDf = dsp->sr * dsp->dc * 0.5;  // remaining freq offset
+    dsp->dDf = dsp->sr * dsp->dc / (2.0*FM_GAIN);  // remaining freq offset
 
     return mp;
 }
@@ -579,7 +581,7 @@ int f32buf_sample(dsp_t *dsp, int inv) {
     float xneu, xalt;
 
     float complex z, w, z0;
-    double gain = 0.8;
+    double gain = FM_GAIN;
 
     double t = dsp->sample_in / (double)dsp->sr;
 
@@ -1193,12 +1195,12 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
         if (dsp->mv > thres || dsp->mv < -thres) {
 
             if (dsp->opt_dc) {  // Problem: FM-gain
-                if (dsp->opt_iq < 2) dsp->Df += dsp->dDf/2.0 *0.8;
+                if (dsp->opt_iq < 2) dsp->Df += dsp->dDf*FM_GAIN / 2.0;
                 else {
                     double ofs = fabs(dsp->dDf);  // (iq-decode controls FM-gain)
                     if (ofs > 200.0)
                     {
-                        dsp->Df += dsp->dDf/1.2 *0.8;
+                        dsp->Df += dsp->dDf*FM_GAIN / 1.2;
                     }
                     if (ofs > 1000.0) {  //dsp->opt_lp
                         if (dsp->locked) {
