@@ -70,8 +70,6 @@ typedef struct {
     int K;
     float *match;
     float *bufs;
-    float dc_ofs;
-    float dc;
     float mv;
     ui32_t mv_pos;
     //
@@ -85,7 +83,6 @@ typedef struct {
     // IQ-data
     int opt_iq;
     int N_IQBUF;
-    float complex *raw_iqbuf;
     float complex *rot_iqbuf;
     float complex F1sum;
     float complex F2sum;
@@ -102,8 +99,12 @@ typedef struct {
     // DFT
     dft_t DFT;
 
-    double df;
-    int len_sq;
+    // dc offset
+    int opt_dc;
+    int locked;
+    double dc;
+    double Df;
+    double dDf;
 
     ui32_t sample_posframe;
     ui32_t sample_posnoise;
@@ -126,9 +127,19 @@ typedef struct {
     // IF: lowpass
     int opt_lp;
     int lpIQ_bw;
+    float lpIQ_fbw;
     int lpIQtaps; // ui32_t
+    float *ws_lpIQ0;
+    float *ws_lpIQ1;
     float *ws_lpIQ;
     float complex *lpIQ_buf;
+
+    // FM: lowpass
+    int lpFM_bw;
+    int lpFMtaps; // ui32_t
+    float *ws_lpFM;
+    float *lpFM_buf;
+	float *fm_buffer;
 
     thd_t thd;
 } dsp_t;
@@ -152,6 +163,7 @@ typedef struct {
     pcm_t pcm;
     thd_t thd;
     int option_jsn;
+    int option_dc;
 } thargs_t;
 
 
@@ -159,10 +171,6 @@ typedef struct {
 float read_wav_header(pcm_t *);
 int f32buf_sample(dsp_t *, int);
 int read_slbit(dsp_t *, int*, int, int, int, float, int);
-
-int get_fqofs_rs41(dsp_t *, ui32_t, float *, float *);
-float get_bufvar(dsp_t *, int);
-float get_bufmu(dsp_t *, int);
 
 int init_buffers(dsp_t *);
 int free_buffers(dsp_t *);
@@ -173,4 +181,5 @@ int find_header(dsp_t *, float, int, int, int);
 
 int decimate_init(float f, int taps);
 int decimate_free(void);
+int iq_dc_init(pcm_t *);
 

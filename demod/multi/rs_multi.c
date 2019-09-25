@@ -67,6 +67,7 @@ static int pcm_dec_init(pcm_t *p) {
     p->sr = IF_sr; // sr_base/decM
     p->decM = decM;
 
+    iq_dc_init(p);
 
     fprintf(stderr, "IF: %d\n", IF_sr);
     fprintf(stderr, "dec: %d\n", decM);
@@ -88,7 +89,8 @@ int main(int argc, char **argv) {
     double base_fqs[MAX_FQ];
     void *rstype[MAX_FQ];
     int option_pcmraw = 0,
-        option_jsn = 0;
+        option_jsn = 0,
+        option_dc  = 0;
 
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _fileno(stdin)
@@ -157,6 +159,9 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--json") == 0) {
             option_jsn = 1;
         }
+        else if   (strcmp(*argv, "--dc") == 0) {
+            option_dc = 1;
+        }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
             ++argv;
@@ -220,6 +225,7 @@ int main(int argc, char **argv) {
         tharg[k].pcm = pcm;
 
         tharg[k].option_jsn = option_jsn;
+        tharg[k].option_dc  = option_dc;
 
         rbf1 |= tharg[k].thd.tn_bit;
     }

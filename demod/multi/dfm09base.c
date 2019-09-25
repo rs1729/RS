@@ -878,9 +878,11 @@ void *thd_dfm09(void *targs) {
     dsp.hdrlen = strlen(dfm_rawheader);
     dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
     dsp.h = 1.8;  // 2.4 modulation index abzgl. BT
-    dsp.lpIQ_bw = 12e3;
     dsp.opt_iq = option_iq;
     dsp.opt_lp = 1;
+    dsp.lpIQ_bw = 12e3; // IF lowpass bandwidth
+    dsp.lpFM_bw = 4e3; // FM audio lowpass
+    dsp.opt_dc = tharg->option_dc;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low\n");
@@ -900,7 +902,7 @@ void *thd_dfm09(void *targs) {
     bitQ = 0;
     while ( 1 && bitQ != EOF )
     {
-        header_found = find_header(&dsp, thres, 2, bitofs, 0);
+        header_found = find_header(&dsp, thres, 2, bitofs, dsp.opt_dc);
         _mv = dsp.mv;
 
         if (header_found == EOF) break;

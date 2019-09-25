@@ -957,9 +957,11 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.hdrlen = strlen(rawheader);
     dsp.BT = 1.8; // bw/time (ISI) // 1.0..2.0
     dsp.h = 0.9;  // 1.2 modulation index
-    dsp.lpIQ_bw = 24e3;
     dsp.opt_iq = option_iq;
     dsp.opt_lp = 1;
+    dsp.lpIQ_bw = 24e3; // IF lowpass bandwidth
+    dsp.lpFM_bw = 10e3; // FM audio lowpass
+    dsp.opt_dc = tharg->option_dc;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
@@ -980,7 +982,7 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     bitQ = 0;
     while ( 1 && bitQ != EOF )
     {
-        header_found = find_header(&dsp, thres, 2, bitofs, option_dc);
+        header_found = find_header(&dsp, thres, 2, bitofs, dsp.opt_dc);
         _mv = dsp.mv;
 
         if (header_found == EOF) break;

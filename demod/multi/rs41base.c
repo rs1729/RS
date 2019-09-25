@@ -1550,9 +1550,11 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.hdrlen = strlen(rs41_header);
     dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
     dsp.h = 0.6; //0.7;  // 0.7..0.8? modulation index abzgl. BT
-    dsp.lpIQ_bw = 8e3;
     dsp.opt_iq = option_iq;
     dsp.opt_lp = 1;
+    dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
+    dsp.lpFM_bw = 6e3; // FM audio lowpass
+    dsp.opt_dc = tharg->option_dc;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
@@ -1572,7 +1574,7 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     bitQ = 0;
     while ( 1 && bitQ != EOF )
     {
-        header_found = find_header(&dsp, thres, 3, bitofs, 0);
+        header_found = find_header(&dsp, thres, 3, bitofs, dsp.opt_dc);
         _mv = dsp.mv;
 
         if (header_found == EOF) break;
