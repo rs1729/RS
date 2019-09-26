@@ -768,6 +768,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
             if (csOK) {
                 int j;
                 char sn_id[4+12] = "M10-";
+                ui8_t aprs_id[4];
                 // UTC = GPS - UTC_OFS  (ab 1.1.2017: UTC_OFS=18sec)
                 int utc_s = gpx->gpssec - gpx->utc_ofs;
                 int utc_week = gpx->week;
@@ -789,6 +790,13 @@ static int print_pos(gpx_t *gpx, int csOK) {
 
                 fprintf(stdout, "{ \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
                                sn_id, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
+                // APRS id, 9 characters
+                aprs_id[0] = gpx->frame_bytes[pos_SN+2];
+                aprs_id[1] = gpx->frame_bytes[pos_SN] & 0xF;
+                aprs_id[2] = gpx->frame_bytes[pos_SN+4];
+                aprs_id[3] = gpx->frame_bytes[pos_SN+3];
+                fprintf(stdout, ", \"aprsid\": \"ME%02X%1X%02X%02X\"", aprs_id[0], aprs_id[1], aprs_id[2], aprs_id[3]);
+                // temperature
                 if (gpx->option.ptu) {
                     float t = get_Temp(gpx, 0);
                     if (t > -273.0) fprintf(stdout, ", \"temp\": %.1f", t);
