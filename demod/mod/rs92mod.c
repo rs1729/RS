@@ -1483,15 +1483,15 @@ int main(int argc, char *argv[]) {
     dsp.hdr = rs92_rawheader;
     dsp.hdrlen = strlen(rs92_rawheader);
     dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
-    dsp.h = 0.8; // 1.0? modulation index abzgl. BT
+    dsp.h = 0.8; // 1.0 modulation index abzgl. BT
     dsp.opt_iq = option_iq;
     dsp.opt_lp = option_lp;
     dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 6e3; // FM audio lowpass
     dsp.opt_dc = option_dc;
     if (gpx.option.ngp) { // L-band rs92-ngp
-        dsp.h *= 4.5;
-        dsp.lpIQ_bw = 32e3; // IF lowpass bandwidth // 36=4.5*8, 27=4.5*6
+        dsp.h = 3.8;        // RS92-NGP: 1680/400=4.2, 4.2*0.9=3.8=4.75*0.8
+        dsp.lpIQ_bw = 32e3; // IF lowpass bandwidth // 32e3=4.2*7.6e3
     }
 
     if ( dsp.sps < 8 ) {
