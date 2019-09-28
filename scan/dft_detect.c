@@ -98,6 +98,7 @@ typedef struct {
 
 static float lpFM_bw[2] = {  4e3, 10e3 };  // FM-audio lowpass bandwidth
 static float lpIQ_bw[3] = { 12e3, 22e3, 200e3 };  // IF iq lowpass bandwidth
+static float set_lpIQ = 0.0;
 
 #define Nrs      12
 #define idxIMETs  8
@@ -107,7 +108,7 @@ static float lpIQ_bw[3] = { 12e3, 22e3, 200e3 };  // IF iq lowpass bandwidth
 static rsheader_t rs_hdr[Nrs] = {
     { 2500, 0, 0, dfm_header,     1.0, 0.0, 0.65, 2, NULL, "DFM9",     2 , 0, 0, 0.0}, // DFM6: -2 ?
     { 4800, 0, 0, rs41_header,    0.5, 0.0, 0.70, 2, NULL, "RS41",     3 , 0, 0, 0.0},
-    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92",     4 , 0, 0, 0.0},
+    { 4800, 0, 0, rs92_header,    0.5, 0.0, 0.70, 3, NULL, "RS92",     4 , 0, 0, 0.0}, // RS92NGP: 1680/400=4.2
     { 4800, 0, 0, lms6_header,    1.0, 0.0, 0.70, 2, NULL, "LMS6",     8 , 0, 0, 0.0}, // lmsX: 7?
     { 9616, 0, 0, mk2a_header,    1.0, 0.0, 0.70, 2, NULL, "MK2LMS",  21 , 1, 2, 0.0}, // Mk2a/LMS6-1680 , --IQ: decimate > 170kHz ...
     { 9616, 0, 0, m10_header,     1.0, 0.0, 0.76, 2, NULL, "M10",      5 , 1, 1, 0.0},
@@ -811,6 +812,8 @@ static int init_buffers() {
         float t_bw; // dec_lowpass: transition_bw
         int taps; // dec_lowpass: taps
 
+        if (set_lpIQ > IF_sr) IF_sr = set_lpIQ;
+
         sr_base = sample_rate;
 
         if (IF_sr > sr_base) IF_sr = sr_base;
@@ -899,6 +902,10 @@ static int init_buffers() {
 
         // IF lowpass
         taps = 4*sample_rate/4e3; if (taps%2==0) taps++; // 4kHz transition
+        if (set_lpIQ > 100.0) { // set_lpIQ > 100Hz: overwrite lpIQ_bw[]
+            lpIQ_bw[0] = set_lpIQ;
+            lpIQ_bw[1] = set_lpIQ;
+        }
         //
         f_lp = lpIQ_bw[0]/(float)sample_rate/2.0;  // RS41,DFM: 12kHz (IF/IQ)
         taps = lowpass_init(f_lp, taps, &ws_lpIQ[0]); if (taps < 0) return -1;
@@ -1112,6 +1119,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "       -c          (continuous)\n");
             fprintf(stderr, "       --iq        (IF iq-data)\n");
             fprintf(stderr, "       --IQ <fq>   (baseband IQ at fq)\n");
+            fprintf(stderr, "       --bw <kHz>  (set IQ filter bw/kHz)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
@@ -1128,12 +1136,25 @@ int main(int argc, char **argv) {
             dsp__xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
+        else if   (strcmp(*argv, "--bw") == 0) { // set IQ filter bandwidth / kHz
+            double bw_kHz = 0.0;
+            ++argv;
+            if (*argv) bw_kHz = atof(*argv); else return -1;
+            if (bw_kHz < 1.0) bw_kHz = 0.0; // min. 1kHz
+            set_lpIQ = bw_kHz * 1e3;
+        }
         else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
-        else if ( (strcmp(*argv, "-s") == 0) || (strcmp(*argv, "--silent") == 0) ) {
-            option_silent = 1;
+        else if ( (strcmp(*argv, "-L") == 0) ) {
+            // L-band 1680kHz (IQ: decimation not limited)
+            lpIQ_bw[0] = 32e3;
+            lpIQ_bw[1] = 200e3;
+            lpIQ_bw[2] = 400e3;
         }
         else if ( (strcmp(*argv, "-c") == 0) || (strcmp(*argv, "--cnt") == 0) ) {
             option_cont = 1;
+        }
+        else if ( (strcmp(*argv, "-s") == 0) || (strcmp(*argv, "--silent") == 0) ) {
+            option_silent = 1;
         }
         else if ( (strcmp(*argv, "-t") == 0) || (strcmp(*argv, "--time") == 0) ) {
             ++argv;
@@ -1269,7 +1290,7 @@ int main(int argc, char **argv) {
                                 for (n = 0; n < m; n++) pow800 += db[ bin800 - m/4 + n ];
                                 if (pow2200 > pow800) { // IMET -> IMET1RS/IMET4
                                     int _j0 = j;
-                                    if (option_iq) j = idxI4; else j = idxRS;
+                                    if (option_iq && set_lpIQ > 50e3) j = idxRS; else j = idxI4;
                                     mv[j] = mv[_j0];
                                     mv_pos[j] = mv_pos[_j0];
                                     rs_hdr[j].dc = rs_hdr[_j0].dc;
