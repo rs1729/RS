@@ -15,6 +15,7 @@ typedef int   i32_t;
 
 static int option_verbose = 0,  // ausfuehrliche Anzeige
            option_inv = 0,      // invertiert Signal
+           option_min = 0,
            option_iq = 0,
            option_dc = 0,
            option_silent = 0,
@@ -754,6 +755,8 @@ static int headcmp(int symlen, unsigned int mvp, int inv, rsheader_t *rshd) {
 
 /* -------------------------------------------------------------------------- */
 
+#define IF_SAMPLE_RATE      48000
+#define IF_SAMPLE_RATE_MIN  32000
 
 #define SQRT2 1.4142135624   // sqrt(2)
 // sigma = sqrt(log(2)) / (2*PI*BT):
@@ -806,7 +809,7 @@ static int init_buffers() {
 
     if (option_iq == 5)
     {
-        int IF_sr = 48000; // designated IF sample rate
+        int IF_sr = IF_SAMPLE_RATE; // designated IF sample rate
         int decM = 1; // decimate M:1
         float f_lp; // dec_lowpass: lowpass_bw/2
         float t_bw; // dec_lowpass: transition_bw
@@ -816,6 +819,7 @@ static int init_buffers() {
 
         sr_base = sample_rate;
 
+        if (option_min) IF_sr = IF_SAMPLE_RATE_MIN;
         if (IF_sr > sr_base) IF_sr = sr_base;
         if (IF_sr < sr_base) {
             while (sr_base % IF_sr) IF_sr += 1;
@@ -823,7 +827,11 @@ static int init_buffers() {
         }
 
         f_lp = (IF_sr+20e3)/(4.0*sr_base);
-        t_bw = (IF_sr-20e3)/*/2.0*/; if (t_bw < 0) t_bw = 8e3;
+        t_bw = (IF_sr-20e3)/*/2.0*/;
+        if (option_min) {
+            t_bw = (IF_sr-12e3);
+        }
+        if (t_bw < 0) t_bw = 10e3;
         t_bw /= sr_base;
         taps = 4.0/t_bw; if (taps%2==0) taps++;
 
@@ -1144,6 +1152,9 @@ int main(int argc, char **argv) {
             set_lpIQ = bw_kHz * 1e3;
         }
         else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
         else if ( (strcmp(*argv, "-L") == 0) ) {
             // L-band 1680kHz (IQ: decimation not limited)
             lpIQ_bw[0] = 32e3;

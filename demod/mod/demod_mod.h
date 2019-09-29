@@ -94,6 +94,7 @@ typedef struct {
     double SNRdB;
 
     // decimate
+    int opt_IFmin;
     int decM;
     ui32_t sr_base;
     ui32_t dectaps;

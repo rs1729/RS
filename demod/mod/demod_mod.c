@@ -841,6 +841,9 @@ int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spi
 
 /* -------------------------------------------------------------------------- */
 
+#define IF_SAMPLE_RATE      48000
+#define IF_SAMPLE_RATE_MIN  32000
+
 #define IF_TRANSITION_BW (4e3)  // 4kHz transition width
 #define FM_TRANSITION_BW (2e3)  // 2kHz transition width
 
@@ -882,13 +885,14 @@ int init_buffers(dsp_t *dsp) {
 
     if (dsp->opt_iq == 5)
     {
-        int IF_sr = 48000; // designated IF sample rate
+        int IF_sr = IF_SAMPLE_RATE; // designated IF sample rate
         int decM = 1; // decimate M:1
         int sr_base = dsp->sr;
         float f_lp; // dec_lowpass: lowpass_bandwidth/2
         float t_bw; // dec_lowpass: transition_bandwidth
         int taps; // dec_lowpass: taps
 
+        if (dsp->opt_IFmin) IF_sr = IF_SAMPLE_RATE_MIN;
         if (IF_sr > sr_base) IF_sr = sr_base;
         if (IF_sr < sr_base) {
             while (sr_base % IF_sr) IF_sr += 1;
@@ -896,7 +900,11 @@ int init_buffers(dsp_t *dsp) {
         }
 
         f_lp = (IF_sr+20e3)/(4.0*sr_base);
-        t_bw = (IF_sr-20e3)/*/2.0*/; if (t_bw < 0) t_bw = 8e3;
+        t_bw = (IF_sr-20e3)/*/2.0*/;
+        if (dsp->opt_IFmin) {
+            t_bw = (IF_sr-12e3);
+        }
+        if (t_bw < 0) t_bw = 10e3;
         t_bw /= sr_base;
         taps = 4.0/t_bw; if (taps%2==0) taps++;
 

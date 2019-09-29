@@ -1231,6 +1231,7 @@ int main(int argc, char *argv[]) {
     char *fpname = NULL;
 
     int option_der = 0;    // linErr
+    int option_min = 0;
     int option_iq = 0;
     int option_lp = 0;
     int option_dc = 0;
@@ -1413,6 +1414,9 @@ int main(int argc, char *argv[]) {
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
         else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
         else if   (strcmp(*argv, "--ngp") == 0) { gpx.option.ngp = 1; }  // RS92-NGP, RS92-D: 1680 MHz
         else {
             fp = fopen(*argv, "rb");
@@ -1489,6 +1493,7 @@ int main(int argc, char *argv[]) {
     dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 6e3; // FM audio lowpass
     dsp.opt_dc = option_dc;
+    dsp.opt_IFmin = option_min;
     if (gpx.option.ngp) { // L-band rs92-ngp
         dsp.h = 3.8;        // RS92-NGP: 1680/400=4.2, 4.2*0.9=3.8=4.75*0.8
         dsp.lpIQ_bw = 32e3; // IF lowpass bandwidth // 32e3=4.2*7.6e3

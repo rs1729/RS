@@ -850,6 +850,7 @@ int main(int argc, char **argv) {
     int option_ptu = 0;
     int option_dist = 0;     // continuous pcks 0..8
     int option_auto = 0;
+    int option_min = 0;
     int option_iq = 0;
     int option_lp = 0;
     int option_dc = 0;
@@ -969,6 +970,9 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
         else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
         else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
         else {
             fp = fopen(*argv, "rb");
@@ -1034,6 +1038,7 @@ int main(int argc, char **argv) {
         dsp.lpIQ_bw = 12e3; // IF lowpass bandwidth
         dsp.lpFM_bw = 4e3; // FM audio lowpass
         dsp.opt_dc = option_dc;
+        dsp.opt_IFmin = option_min;
 
         if ( dsp.sps < 8 ) {
             fprintf(stderr, "note: sample rate low\n");

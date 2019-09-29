@@ -208,11 +208,12 @@ int main(int argc, char **argv) {
         option_inv = 0,
         option_ecc = 0,    // BCH(63,51)
         option_jsn = 0;    // JSON output (auto_rx)
-    int wavloaded = 0;
+    int option_min = 0;
     int option_iq = 0;
     int option_lp = 0;
     int option_dc = 0;
     int sel_wavch = 0;
+    int wavloaded = 0;
 
     int option1 = 0,
         option2 = 0;
@@ -337,6 +338,9 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
         else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
         else if   (strcmp(*argv, "--json") == 0) {
             option_jsn = 1;
             option_ecc = 1;
@@ -387,6 +391,7 @@ int main(int argc, char **argv) {
     dsp.lpIQ_bw = 16e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 4e3; // FM audio lowpass
     dsp.opt_dc = option_dc;
+    dsp.opt_IFmin = option_min;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);

@@ -151,6 +151,7 @@ typedef struct {
     int nch;      // channels
     int sel_ch;   // select wav channel
 //
+    int opt_IFmin;
     int sr_base;
     int decM;
     int dectaps;

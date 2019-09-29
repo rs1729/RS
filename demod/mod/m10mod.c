@@ -892,6 +892,7 @@ int main(int argc, char **argv) {
     //int option_res = 0;      // genauere Bitmessung
     int option_color = 0;
     int option_ptu = 0;
+    int option_min = 0;
     int option_iq = 0;
     int option_lp = 0;
     int option_dc = 0;
@@ -996,6 +997,9 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
         else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
         else if   (strcmp(*argv, "--json") == 0) { gpx.option.jsn = 1; }
         else {
             fp = fopen(*argv, "rb");
@@ -1051,6 +1055,7 @@ int main(int argc, char **argv) {
     dsp.lpIQ_bw = 24e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 10e3; // FM audio lowpass
     dsp.opt_dc = option_dc;
+    dsp.opt_IFmin = option_min;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
