@@ -1367,8 +1367,11 @@ int main(int argc, char **argv) {
                                 if (option_verbose) fprintf(stdout, "sample: %d\n", mv_pos[j]);
                                 fprintf(stdout, "%s: %.4f", rs_hdr[j].type, mv[j]);
                                 if (option_dc && option_iq) {
-                                    fprintf(stdout, "   [ fq-ofs: %+.6f", rs_hdr[j].df);
-                                    fprintf(stdout, " = %+.1fHz ]", rs_hdr[j].df*sr_base);
+                                    fprintf(stdout, " , %+.1fHz", rs_hdr[j].df*sr_base);
+                                    if (option_verbose) {
+                                        fprintf(stdout, "   [ fq-ofs: %+.6f", rs_hdr[j].df);
+                                        fprintf(stdout, " = %+.1fHz ]", rs_hdr[j].df*sr_base);
+                                    }
                                 }
                                 fprintf(stdout, "\n");
                             }
