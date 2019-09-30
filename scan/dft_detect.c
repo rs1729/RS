@@ -20,6 +20,7 @@ static int option_verbose = 0,  // ausfuehrliche Anzeige
            option_dc = 0,
            option_silent = 0,
            option_cont = 0,
+           option_pcmraw = 0,
            wavloaded = 0;
 static int wav_channel = 0;     // audio channel: left
 
@@ -1181,6 +1182,18 @@ int main(int argc, char **argv) {
             }
             else return -50;
         }
+        else if (strcmp(*argv, "-") == 0) {
+            ++argv;
+            if (*argv) sample_rate = atoi(*argv); else return -1;
+            ++argv;
+            if (*argv) bits_sample = atoi(*argv); else return -1;
+            channels = 2;
+            if (sample_rate < 1 || (bits_sample != 8 && bits_sample != 16 && bits_sample != 32)) {
+                fprintf(stderr, "- <sr> <bs>\n");
+                return -1;
+            }
+            option_pcmraw = 1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -1194,11 +1207,13 @@ int main(int argc, char **argv) {
     if (!wavloaded) fp = stdin;
 
 
-    j = read_wav_header(fp, wav_channel);
-    if ( j < 0 ) {
-        fclose(fp);
-        fprintf(stderr, "error: wav header\n");
-        return -50;
+    if (option_pcmraw == 0) {
+        j = read_wav_header(fp, wav_channel);
+        if ( j < 0 ) {
+            fclose(fp);
+            fprintf(stderr, "error: wav header\n");
+            return -50;
+        }
     }
 
     if (option_iq && channels < 2) {
