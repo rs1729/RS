@@ -464,11 +464,12 @@ int bits2bytes(char *bitstr, ui8_t *bytes) {
 typedef struct {
     int frnr;
     int sn;
-    int week; int gpstow;
+    int week;
+    double gpstow;
     int jahr; int monat; int tag;
     int wday;
     int std; int min; float sek;
-    double lat; double lon; double h;
+    double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vE; double vN; double vU;
     //int freq;
@@ -482,7 +483,7 @@ gpx_t gpx0 = { 0 };
 #define pos_SondeSN  (OFS+0x00)  // ?4 byte 00 7A....
 #define pos_FrameNb  (OFS+0x04)  // 2 byte
 //GPS Position
-#define pos_GPSTOW   (OFS+0x06)  // 4 byte
+#define pos_GPSTOW   (OFS+0x06)  // 8 byte
 #define pos_GPSlat   (OFS+0x0E)  // 4 byte
 #define pos_GPSlon   (OFS+0x12)  // 4 byte
 #define pos_GPSalt   (OFS+0x16)  // 4 byte
@@ -522,30 +523,33 @@ int get_FrameNb() {
 }
 
 
-char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
-//char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+//char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 int get_GPStime() {
     int i;
     unsigned byte;
     ui8_t gpstime_bytes[4];
-    int gpstime = 0, // 32bit
-        day;
+    ui32_t gpstime, tow_u4;
+    ui32_t w[2]; // 64bit float
+    int day;
     float ms;
+    double *f64 = (double*)w;
 
+    w[0] = 0;
     for (i = 0; i < 4; i++) {
         byte = p_frame[pos_GPSTOW + i];
-        gpstime_bytes[i] = byte;
+        w[0] |= byte << (8*(3-i));
     }
-    gpstime = 0;
+    w[1] = 0;
     for (i = 0; i < 4; i++) {
-        gpstime |= gpstime_bytes[i] << (8*(3-i));
+        byte = p_frame[pos_GPSTOW+4 + i];
+        w[1] |= byte << (8*(3-i));
     }
 
-    gpx.gpstow = gpstime;
-
-    ms = gpstime % 1000;
-    gpstime /= 1000;
+    gpx.gpstow = *f64;
+    tow_u4 = (ui32_t)gpx.gpstow;
+    gpstime = tow_u4;
 
     day = gpstime / (24 * 3600);
     gpstime %= (24*3600);
@@ -555,7 +559,7 @@ int get_GPStime() {
     gpx.wday = day;
     gpx.std = gpstime / 3600;
     gpx.min = (gpstime % 3600) / 60;
-    gpx.sek = gpstime % 60 + ms/1000.0;
+    gpx.sek = (gpstime % 60) + gpx.gpstow - tow_u4;
 
     return 0;
 }
@@ -626,7 +630,7 @@ int get_GPSalt() {
         gpsheight |= gpsheight_bytes[i] << (8*(3-i));
     }
     height = gpsheight / 100.0;
-    gpx.h = height;
+    gpx.alt = height;
 
     if (height < -100 || height > 60000) return -1;
     return 0;
@@ -755,18 +759,19 @@ void print_frame(int crc_err, int len) {
             get_SondeSN();
             if (option_verbose) printf(" (%7d) ", gpx.sn);
             printf(" [%5d] ", gpx.frnr);
-            //
+            printf("%s ", weekday[gpx.wday]);
+            printf("(%02d:%02d:%06.3f) ", gpx.std, gpx.min, gpx.sek);
             get_GPSlat();
             get_GPSlon();
             err = get_GPSalt();
             if (!err) {
-                printf(" lat: %.6f° ", gpx.lat);
-                printf(" lon: %.6f° ", gpx.lon);
-                printf(" alt: %.2fm ", gpx.h);
+                printf(" lat: %.6f ", gpx.lat);
+                printf(" lon: %.6f ", gpx.lon);
+                printf(" alt: %.2fm ", gpx.alt);
                 //if (option_verbose)
                 {
                     get_GPSvel16();
-                    printf("  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
+                    printf("  vH: %.1fm/s  D: %.1f  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
                 }
             }
             if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
@@ -892,8 +897,10 @@ int main(int argc, char **argv) {
 
     float thres = 0.76;
 
-    int bitofs = 0;
     int symlen = 1;
+    int bitofs = 1; // +1 .. +2
+    int shift = 0;
+
     unsigned int bc = 0;
 
     float sb = 0.0;
@@ -950,6 +957,15 @@ int main(int argc, char **argv) {
             }
             else return -1;
         }
+        else if ( (strcmp(*argv, "-d") == 0) ) {
+            ++argv;
+            if (*argv) {
+                shift = atoi(*argv);
+                if (shift >  4) shift =  4;
+                if (shift < -4) shift = -4;
+            }
+            else return -1;
+        }
         else if ( (strcmp(*argv, "--level") == 0) ) {
             ++argv;
             if (*argv) {
@@ -992,8 +1008,9 @@ int main(int argc, char **argv) {
 
 
     symlen = 1;
+    bitofs += shift;
+
     headerlen = strlen(rawheader);
-    bitofs = 1; // +1 .. +2
     K = init_buffers(rawheader, headerlen, 2); // shape=2 (alt. shape=1)
     if ( K < 0 ) {
         fprintf(stderr, "error: init buffers\n");
@@ -1002,14 +1019,15 @@ int main(int argc, char **argv) {
 
     level = ll;
     k = 0;
-    mv = -1; mv_pos = 0;
+    mv = 0;
+    mv_pos = 0;
 
-    while ( f32buf_sample(fp, option_inv, 1) != EOF ) {
+    while ( f32buf_sample(fp, option_inv) != EOF ) {
 
         k += 1;
         if (k >= K-4) {
             mv0_pos = mv_pos;
-            mp = getCorrDFT(-1, K, 0, &mv, &mv_pos);
+            mp = getCorrDFT(K, 0, &mv, &mv_pos);
             k = 0;
         }
         else {
@@ -1044,8 +1062,8 @@ int main(int argc, char **argv) {
 
                     while ( pos < RAWBITBLOCK_LEN ) {
                         header_found = !(pos>=RAWBITBLOCK_LEN-10);
-                        //bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
-                        bitQ = read_softbit(fp, symlen, &rbit, &sb, level, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
+                        //bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0); // symlen=1
+                        bitQ = read_softbit(fp, symlen, &rbit, &sb, level, option_inv, bitofs, bitpos==0); // symlen=1
                         if (bitQ == EOF) { break; }
 
                         bit = rbit ^ (bc%2);  // (c0,inv(c1))
