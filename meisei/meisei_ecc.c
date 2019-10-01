@@ -16,19 +16,22 @@ Variante 1 (RS-11G ?)
 049DCE1C667FDD8F537C8100004F20764630A20000000010040436 FB623080801F395FFE08A76540000FE01D0C2C1E75025006DE0A07
 049DCE1C67008C73D7168200004F0F764B31A2FFFF000010270B14 FB6230000000000000000000000000000000000000000000001D59
 
-0x00..0x02 HEADER  0x049DCE
-0x03..0x04 16 bit  0.5s-counter, count%2=0:
-0x1B..0x1D HEADER  0xFB6230
-0x20..0x23 32 bit  GPS-lat * 1e7 (DD.dddddd)
-0x24..0x27 32 bit  GPS-lon * 1e7 (DD.dddddd)
-0x28..0x2B 32 bit  GPS-alt * 1e2 (m)
-0x32..0x35 32 bit  date jjJJMMTT
+0x00..0x02  HEADER  0x049DCE
+0x03..0x04  16 bit  0.5s-counter, count%2=0:
+0x1B..0x1D  HEADER  0xFB6230
+0x20..0x23  32 bit  GPS-lat * 1e7 (DD.dddddd)
+0x24..0x27  32 bit  GPS-lon * 1e7 (DD.dddddd)
+0x28..0x2B  32 bit  GPS-alt * 1e2 (m)
+0x2C..0x2D  16 bit  GPS-vH  * 1e2 (m/s)
+0x2E..0x2F  16 bit  GPS-vD  * 1e2 (degree) (0..360 unsigned)
+0x30..0x31  16 bit  GPS-vU  * 1e2 (m/s)
+0x32..0x35  32 bit  date jjJJMMTT
 
-0x00..0x02 HEADER  0x049DCE
-0x03..0x04 16 bit  0.5s-counter, count%2=1:
-0x17..0x18 16 bit  time ms xxyy, 00.000-59.000
-0x19..0x1A 16 bit  time hh:mm
-0x1B..0x1D HEADER  0xFB6230
+0x00..0x02  HEADER  0x049DCE
+0x03..0x04  16 bit  0.5s-counter, count%2=1:
+0x17..0x18  16 bit  time ms xxyy, 00.000-59.000
+0x19..0x1A  16 bit  time hh:mm
+0x1B..0x1D  HEADER  0xFB6230
 
 
 0x049DCE ^ 0xFB6230 = 0xFFFFFE
@@ -48,6 +51,8 @@ Variante 2 (iMS-100 ?)
 0x20..0x23  32 bit  GPS-lat * 1e4 (NMEA DDMM.mmmm)
 0x24..0x27  32 bit  GPS-lon * 1e4 (NMEA DDMM.mmmm)
 0x28..0x2A  24 bit  GPS-alt * 1e2 (m)
+0x30..0x31  16 bit  GPS-vD  * 1e2 (degree)
+0x32..0x33  16 bit  GPS-vH  * 1.944e2 (knots)
 
 0x00..0x02  HEADER  0x049DCE
 0x03..0x04  16 bit  0.5s-counter, count%2=1:
@@ -63,6 +68,13 @@ Die 34 Nachrichtenbits sind aufgeteilt in 16+1+16+1, d.h. nach einem 16 bit Bloc
 dass 1 ist, wenn die Anzahl 1en in den 16 bit davor gerade ist, und sonst 0.
 */
 
+/*
+2 "raw" symbols -> 1 biphase-symbol (bit): 2400 (raw) baud
+ecc: option_b, exact symbol rate; if necessary, adjust --br <baud>
+e.g.
+./meisei_ecc -1 --ecc -v -b --br 2398 audio.wav
+*/
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -76,6 +88,7 @@ dass 1 ist, wenn die Anzahl 1en in den 16 bit davor gerade ist, und sonst 0.
 typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
 typedef unsigned int   ui32_t;
+typedef short i16_t;
 
 typedef struct {
     int jahr; int monat; int tag;
@@ -92,8 +105,11 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_res = 0,      // genauere Bitmessung
     option1 = 0,
     option2 = 0,
+    option_b = 0,
     option_ecc = 0,      // BCH(63,51)
     wavloaded = 0;
+
+float baudrate = -1;
 
 /* -------------------------------------------------------------------------- */
 // Fehlerkorrektur (noch?) nicht sehr effektiv... (t zu klein)
@@ -109,7 +125,7 @@ int block, check_err;
 
 /* -------------------------------------------------------------------------- */
 
-#define BAUD_RATE 2400
+#define BAUD_RATE 2400  // raw symbol rate; bit=biphase_symbol, bitrate=1200
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
 float samples_per_bit = 0;
@@ -181,6 +197,7 @@ int read_wav_header(FILE *fp) {
 
 
 #define EOF_INT  0x1000000
+unsigned long sample_count = 0;
 
 int read_signed_sample(FILE *fp) {  // int = i32_t
     int byte, i, ret;         //  EOF -> 0x1000000
@@ -199,6 +216,8 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
 
     }
 
+    sample_count++;
+
     if (bits_sample ==  8) return ret-128;   // 8bit: 00..FF, centerpoint 0x80=128
     if (bits_sample == 16) return (short)ret;
 
@@ -206,7 +225,6 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
 }
 
 int par=1, par_alt=1;
-unsigned long sample_count = 0;
 
 int read_bits_fsk(FILE *fp, int *bit, int *len) {
     int n, sample, y0;
@@ -218,7 +236,7 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
         y0 = sample;
         sample = read_signed_sample(fp);
         if (sample == EOF_INT) return EOF;
-        sample_count++;
+        //sample_count++; // in read_signed_sample()
         par_alt = par;
         par =  (sample > 0) ? 1 : -1;
         n++;
@@ -237,6 +255,39 @@ int read_bits_fsk(FILE *fp, int *bit, int *len) {
     else             *bit = (1-par_alt)/2;  // sdr#<rev1381?, invers: unten 1, oben -1
 
     /* Y-offset ? */
+
+    return 0;
+}
+
+int bitstart = 0;
+double bitgrenze = 0;
+/*unsigned*/ long scount = 0;
+int read_rawbit(FILE *fp, int *bit) {
+    int sample;
+    int sum;
+
+    sum = 0;
+
+    if (bitstart) {
+        scount = 0;    // eigentlich scount = 1
+        bitgrenze = 0; //   oder bitgrenze = -1
+        bitstart = 0;
+    }
+    bitgrenze += samples_per_bit;
+
+    do {
+        sample = read_signed_sample(fp);
+        if (sample == EOF_INT) return EOF;
+        //sample_count++; // in read_signed_sample()
+        //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
+        sum += sample;
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
+
+    if (sum >= 0) *bit = 1;
+    else          *bit = 0;
+
+    if (option_inv) *bit ^= 1;
 
     return 0;
 }
@@ -394,6 +445,9 @@ int main(int argc, char **argv) {
     int lat, lat1, lat2,
         lon, lon1, lon2,
         alt, alt1, alt2;
+    ui16_t vH, vD;
+     i16_t vU;
+    double velH, velD, velU;
     int latdeg,londeg;
     double latmin, lonmin;
     ui32_t t1, t2, ms, min, std, tt, mm, jj;
@@ -430,9 +484,18 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-1") == 0) ) {
             option1 = 1;
         }
+        else if   (strcmp(*argv, "-b") == 0) { option_b = 1; }
         else if   (strcmp(*argv, "--ecc") == 0) { option_ecc = 1; }
         else if ( (strcmp(*argv, "-v") == 0) ) {
             option_verbose = 1;
+        }
+        else if ( (strcmp(*argv, "--br") == 0) ) {
+            ++argv;
+            if (*argv) {
+                baudrate = atof(*argv);
+                if (baudrate < 2200 || baudrate > 2400) baudrate = 2400; // default: 2400
+            }
+            else return -1;
         }
         else {
             if ((option1 == 1  && option2 == 1) || (!option_raw && option1 == 0  && option2 == 0)) goto help_out;
@@ -452,6 +515,10 @@ int main(int argc, char **argv) {
     if (i) {
         fclose(fp);
         return -1;
+    }
+    if (baudrate > 0) {
+        samples_per_bit = sample_rate/baudrate; // default baudrate: 2400
+        fprintf(stderr, "sps corr: %.4f\n", samples_per_bit);
     }
 
     if (option_ecc) {
@@ -497,6 +564,19 @@ int main(int argc, char **argv) {
                 frame_rawbits[bit_count] = 0x30 + bit;
                 bit_count++;
 
+                if (option_b) {
+                    while (++i < len) {
+                        frame_rawbits[bit_count] = 0x30 + bit;
+                        bit_count++;
+                    }
+                    bitstart = 1;
+                    while (bit_count < RAWBITFRAME_LEN/4-RAWHEADLEN) {
+                        if (read_rawbit(fp, &bit) == EOF) break;
+                        frame_rawbits[bit_count] = 0x30 + bit;
+                        bit_count++;
+                    }
+                }
+
                 if (bit_count >= RAWBITFRAME_LEN/4-RAWHEADLEN) {  // 600-48
                     frame_rawbits[bit_count] = '\0';
 
@@ -514,12 +594,12 @@ int main(int argc, char **argv) {
                             // check parity,padding
                             if (errors >= 0) {
                                 check_err = 0;
-                                for (i = 46; i < 63; i++) { if (cw[i] != 0) check_err = 0x1; }
+                                for (j = 46; j < 63; j++) { if (cw[j] != 0) check_err = 0x1; }
                                 par = 1;
-                                for (i = 13; i < 13+16; i++) par ^= cw[i];
+                                for (j = 13; j < 13+16; j++) par ^= cw[j];
                                 if (cw[12] != par) check_err |= 0x100;
                                 par = 1;
-                                for (i = 30; i < 30+16; i++) par ^= cw[i];
+                                for (j = 30; j < 30+16; j++) par ^= cw[j];
                                 if (cw[29] != par) check_err |= 0x10;
                                 if (check_err) errors = -3;
                             }
@@ -562,19 +642,28 @@ int main(int argc, char **argv) {
                             if ((counter % 2 == 0))  { //  (val & 0xFFFF) > 0)  {// == 0x8080
                                 //offset=24+16+1;
 
-                                lat1 = bits2val(frame_bits+HEADLEN+17, 16);
-                                lat2 = bits2val(frame_bits+HEADLEN+46, 16);
-                                lon1 = bits2val(frame_bits+HEADLEN+46+17, 16);
-                                lon2 = bits2val(frame_bits+HEADLEN+46+46, 16);
-                                alt1 = bits2val(frame_bits+HEADLEN+46+46+17, 16);
-                                alt2 = bits2val(frame_bits+HEADLEN+46+46+46, 16);
+                                lat1 = bits2val(frame_bits+HEADLEN+46*0+17, 16);
+                                lat2 = bits2val(frame_bits+HEADLEN+46*1   , 16);
+                                lon1 = bits2val(frame_bits+HEADLEN+46*1+17, 16);
+                                lon2 = bits2val(frame_bits+HEADLEN+46*2   , 16);
+                                alt1 = bits2val(frame_bits+HEADLEN+46*2+17, 16);
+                                alt2 = bits2val(frame_bits+HEADLEN+46*3   , 16);
 
                                 lat = (lat1 << 16) | lat2;
                                 lon = (lon1 << 16) | lon2;
                                 alt = (alt1 << 16) | alt2;
                                 //printf("%08X %08X %08X :  ", lat, lon, alt);
                                 printf("  ");
-                                printf("%.6f  %.6f  %.2f", (double)lat/1e7, (double)lon/1e7, (double)alt/1e2);
+                                printf("lat: %.5f  lon: %.5f  alt: %.2f", (double)lat/1e7, (double)lon/1e7, (double)alt/1e2);
+                                printf("  ");
+
+                                vH = bits2val(frame_bits+HEADLEN+46*3+17, 16);
+                                vD = bits2val(frame_bits+HEADLEN+46*4   , 16);
+                                vU = bits2val(frame_bits+HEADLEN+46*4+17, 16);
+                                velH = (double)vH/1e2;
+                                velD = (double)vD/1e2;
+                                velU = (double)vU/1e2;
+                                printf(" vH: %.2fm/s  D: %.1f  vV: %.2fm/s", velH, velD, velU);
                                 printf("  ");
 
                                 jj = bits2val(frame_bits+HEADLEN+5*46+ 8, 8) + 0x0700;
@@ -617,15 +706,17 @@ int main(int argc, char **argv) {
                                 //offset=24+16+1;
 
                                 dat2 = bits2val(frame_bits+HEADLEN, 16);
-                                printf("%05u (?%02d-%02d-%02d) ", dat2, dat2/1000,(dat2/10)%100, (dat2%10)+10);
+                                if (option_verbose) printf("%05u  ", dat2);
+                                printf("(%02d-%02d-%02d) ", dat2/1000,(dat2/10)%100, (dat2%10)+10); // 2020: +20 ?
 
-                                lat1 = bits2val(frame_bits+HEADLEN+17, 16);
-                                lat2 = bits2val(frame_bits+HEADLEN+46, 16);
-                                lon1 = bits2val(frame_bits+HEADLEN+46+17, 16);
-                                lon2 = bits2val(frame_bits+HEADLEN+46+46, 16);
-                                alt1 = bits2val(frame_bits+HEADLEN+46+46+17, 16);
-                                alt2 = bits2val(frame_bits+HEADLEN+46+46+46,  8);
+                                lat1 = bits2val(frame_bits+HEADLEN+46*0+17, 16);
+                                lat2 = bits2val(frame_bits+HEADLEN+46*1   , 16);
+                                lon1 = bits2val(frame_bits+HEADLEN+46*1+17, 16);
+                                lon2 = bits2val(frame_bits+HEADLEN+46*2   , 16);
+                                alt1 = bits2val(frame_bits+HEADLEN+46*2+17, 16);
+                                alt2 = bits2val(frame_bits+HEADLEN+46*3   ,  8);
 
+                                // NMEA?
                                 lat = (lat1 << 16) | lat2;
                                 lon = (lon1 << 16) | lon2;
                                 alt = (alt1 <<  8) | alt2;
@@ -635,7 +726,14 @@ int main(int argc, char **argv) {
                                 lonmin = (double)(lon/1e6-londeg)*100/60.0;
                                 //printf("%08X %08X %08X :  ", lat, lon, alt);
                                 printf("  ");
-                                printf("%.6f  %.6f  %.2f", (double)latdeg+latmin, (double)londeg+lonmin, (double)alt/1e2);
+                                printf("lat: %.5f  lon: %.5f  alt: %.2f", (double)latdeg+latmin, (double)londeg+lonmin, (double)alt/1e2);
+                                printf("  ");
+
+                                vD = bits2val(frame_bits+HEADLEN+46*4+17, 16);
+                                vH = bits2val(frame_bits+HEADLEN+46*5   , 16);
+                                velD = (double)vD/1e2;       // course, true
+                                velH = (double)vH/1.94384e2; // speed: knots -> m/s
+                                printf(" (vH: %.1fm/s  D: %.2f)", velH, velD);
                                 printf("  ");
                             }
                             //else { printf("\n"); }

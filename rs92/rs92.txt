@@ -2,11 +2,11 @@
 RS92-SGP
 
 Modulation: GFSK
-raw: 4800 bit/s
+raw: 4800 baud
 SGP: 1 frame/s
-raw-frame: 4800 bit
+raw-frame: 4800 symbols
 
-RS92-SGP: manchester -> 2400 bit
+RS92-SGP: manchester -> 2400 bit/s
 8N1, startbit, 8 bit, stopbit (-> 10bit/byte)
 
 Frame: 240 byte, little endian

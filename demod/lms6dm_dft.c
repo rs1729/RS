@@ -466,7 +466,7 @@ typedef struct {
     int jahr; int monat; int tag;
     int wday;
     int std; int min; float sek;
-    double lat; double lon; double h;
+    double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vE; double vN; double vU;
     //int freq;
@@ -624,7 +624,7 @@ int get_GPSalt() {
         gpsheight |= gpsheight_bytes[i] << (8*(3-i));
     }
     height = gpsheight / 1000.0;
-    gpx.h = height;
+    gpx.alt = height;
 
     if (height < -100 || height > 60000) return -1;
     return 0;
@@ -722,14 +722,14 @@ void print_frame(int crc_err, int len) {
             get_GPSlon();
             err = get_GPSalt();
             if (!err) {
-                printf(" lat: %.6f° ", gpx.lat);
-                printf(" lon: %.6f° ", gpx.lon);
-                printf(" alt: %.2fm ", gpx.h);
+                printf(" lat: %.6f ", gpx.lat);
+                printf(" lon: %.6f ", gpx.lon);
+                printf(" alt: %.2fm ", gpx.alt);
                 //if (option_verbose)
                 {
                     get_GPSvel24();
                     //if (option_verbose == 2) printf("  (%.1f ,%.1f,%.1f) ", gpx.vE, gpx.vN, gpx.vU);
-                    printf("  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
+                    printf("  vH: %.1fm/s  D: %.1f  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
                 }
             }
             if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
@@ -873,8 +873,10 @@ int main(int argc, char **argv) {
 
     float thres = 0.76;
 
-    int bitofs = 0;
     int symlen = 1;
+    int bitofs = 1; // +1 .. +2
+    int shift = 0;
+
     unsigned int bc = 0;
 
     float sb = 0.0;
@@ -931,6 +933,15 @@ int main(int argc, char **argv) {
             }
             else return -1;
         }
+        else if ( (strcmp(*argv, "-d") == 0) ) {
+            ++argv;
+            if (*argv) {
+                shift = atoi(*argv);
+                if (shift >  4) shift =  4;
+                if (shift < -4) shift = -4;
+            }
+            else return -1;
+        }
         else if ( (strcmp(*argv, "--level") == 0) ) {
             ++argv;
             if (*argv) {
@@ -973,8 +984,9 @@ int main(int argc, char **argv) {
 
 
     symlen = 1;
+    bitofs += shift;
+
     headerlen = strlen(rawheader);
-    bitofs = 1; // +1 .. +2
     K = init_buffers(rawheader, headerlen, 2); // shape=2 (alt. shape=1)
     if ( K < 0 ) {
         fprintf(stderr, "error: init buffers\n");
@@ -983,14 +995,15 @@ int main(int argc, char **argv) {
 
     level = ll;
     k = 0;
-    mv = -1; mv_pos = 0;
+    mv = 0;
+    mv_pos = 0;
 
-    while ( f32buf_sample(fp, option_inv, 1) != EOF ) {
+    while ( f32buf_sample(fp, option_inv) != EOF ) {
 
         k += 1;
         if (k >= K-4) {
             mv0_pos = mv_pos;
-            mp = getCorrDFT(-1, K, 0, &mv, &mv_pos);
+            mp = getCorrDFT(K, 0, &mv, &mv_pos);
             k = 0;
         }
         else {
@@ -1024,9 +1037,9 @@ int main(int argc, char **argv) {
                     if (mv > 0) bc = 0; else bc = 1;
 
                     while ( pos < RAWBITBLOCK_LEN ) {
-                        header_found = !(pos>=RAWBITBLOCK_LEN-10);
-                        //bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
-                        bitQ = read_softbit(fp, symlen, &rbit, &sb, level, option_inv, bitofs, bitpos==0, !header_found); // symlen=1, return: zeroX/bit
+
+                        //bitQ = read_sbit(fp, symlen, &rbit, option_inv, bitofs, bitpos==0); // symlen=1
+                        bitQ = read_softbit(fp, symlen, &rbit, &sb, level, option_inv, bitofs, bitpos==0); // symlen=1
                         if (bitQ == EOF) { break; }
 
                         bit = rbit ^ (bc%2);  // (c0,inv(c1))

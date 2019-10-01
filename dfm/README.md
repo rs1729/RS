@@ -1,6 +1,9 @@
 
 ## Radiosonde DFM-06/DFM-09
 
+Based on information already available at<br />
+https://www.amateurfunk.uni-kl.de/projekte-aktivitaeten/decoder-wettersonden/
+
 #### Files
 
   * `dfm06ptu.c`
@@ -12,8 +15,8 @@
   `./dfm06ptu [options] <audio.wav>` <br />
   * `<audio.wav>`: FM-demodulated signal, recorded as wav audio file
   * `options`: <br />
-      `-i`: invert signal/polarity (DFM-09)<br />
-      `-b`, `-b2`: integrate rawbit-/bit-samples<br />
+      `-i`: invert signal/polarity (DFM-09) <br />
+      `-b`, `-b2`: integrate rawbit-/bit-samples <br />
       `-r`: output raw data <br />
      `-v`: additional info <br />
      `--ecc`: Hamming code error correction <br />

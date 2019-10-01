@@ -4,7 +4,7 @@ Dropsonde RD94
 GPS: ublox TIM-5H
 
 
-FSK 4800 bit/sec
+FSK 4800 baud
 Manchester, 8N1: 240 bytes/sec
 
 2 frames/sec

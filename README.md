@@ -17,7 +17,7 @@ RS
   `RS/mk2a`: MkIIa (LMS6-1680MHz) <br />
   `RS/meisei`: Meisei <br />
 
-  `RS/demod`: alternative decoders using cross-correlation for header-synchronization <br />
+  `RS/demod/mod`: alternative decoders using cross-correlation for header-synchronization <br />
 
   `RS/ecc`: error correction codes (Reed-Solomon/BCH) <br />
 
@@ -57,6 +57,7 @@ wird DFT verwendet). Je nach Empfangsgeraet oder SDR-Software kann das Signal in
   http://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2300#p193107  
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2325#p196322  
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2400#p198064  
+  https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2400#p198380  
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2425#p203315  
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2825#p235868  
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2875#p245177  

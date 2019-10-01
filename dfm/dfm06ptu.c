@@ -12,9 +12,10 @@
  *   -v, -vv  verbose/velocity, SN
  *   -r, -R   raw frames
  *   -i       invertiert Signal (DFM-06 / DFM-09)
- *   -b       alternative Demodulation
- *   --avg    moving average
+ *   -b,-b2   alternative Demodulation (symbol/bit integration)
  *   --ecc    Hamming Error Correction
+ *   --ptu    PTU: temperature
+ *   --auto   detect polarity/SN
  */
 
 #include <stdio.h>
@@ -45,6 +46,7 @@ typedef struct {
     double dir; double horiV; double vertV;
     float meas24[5];
     float status[2];
+    char sonde_id[16]; // "ID__:xxxxxxxx\0\0"
 } gpx_t;
 
 gpx_t gpx;
@@ -514,7 +516,7 @@ int dat_out(ui8_t *dat_bits) {
     fr_id = bits2val(dat_bits+48, 4);
 
 
-    if (fr_id >= 0  && fr_id <= 8) {
+    if (fr_id >= 0 && fr_id <= 8) {
         for (i = 0; i < 13; i++) {
             nib = bits2val(dat_bits+4*i, 4);
             dat_str[fr_id][i] = nib2chr(nib);
@@ -558,10 +560,10 @@ int dat_out(ui8_t *dat_bits) {
     if (fr_id == 5) {
     }
 
-    if (fr_id == 6) {
+    if (fr_id == 6) { // sat data
     }
 
-    if (fr_id == 7) {
+    if (fr_id == 7) { // sat data
     }
 
     if (fr_id == 8) {
@@ -623,6 +625,7 @@ float get_Temp(float *meas) { // meas[0..4]
     float g = meas[4]/Rf;
     float R = (meas[0]-meas[3]) / g; // meas[0,3,4] > 0 ?
     float T = 0;                     // T/Kelvin
+    if (meas[0]*meas[3]*meas[4] == 0) R = 0;
     if (R > 0)  T = 1/(1/T0 + 1/B0 * log(R/R0));
     return  T - 273.15; // Celsius
 //  DFM-06: meas20 * 16 = meas24
@@ -707,117 +710,202 @@ float get_Temp4(float *meas) { // meas[0..4]
 }
 
 
-#define RSNbit 0x0100  // radiosonde DFM-06,DFM-09
-#define PSNbit 0x0200  // pilotsonde PS-15
+#define SNbit 0x0100
 int conf_out(ui8_t *conf_bits) {
-    int conf_id;
     int ret = 0;
-    int val, hl;
+    int val;
+    ui8_t conf_id;
+    ui8_t hl;
     ui32_t SN6, SN;
     static int chAbit, chA[2];
     static int chCbit, chC[2];
     static int chDbit, chD[2];
     static int ch7bit, ch7[2];
     static ui32_t SN_A, SN_C, SN_D, SN_7;
+    static ui8_t max_ch;
+    static ui8_t nul_ch;
+    static ui8_t sn2_ch, sn_ch;
+    static ui32_t SN_X;
+    static int chXbit, chX[2];
+    static ui8_t dfm6typ;
 
     conf_id = bits2val(conf_bits, 4);
 
-    // gibt es Kanaele > 6 (2-teilige ID)?
-    // if (conf_id > 6) gpx.SN6 = 0;  // -> DFM-09,PS-15  // SNbit?
-    //
-    // SN/ID immer im letzten Kanal?
-    if ((gpx.sonde_typ & 0xF) < 7  &&  conf_id == 6) {
-        SN6 = bits2val(conf_bits+4, 4*6);    // DFM-06: Kanal 6
-        if ( SN6 == gpx.SN6  &&  SN6 != 0) { // nur Nibble-Werte 0..9
-            gpx.sonde_typ = RSNbit | 6;
-            ptu_out = 6;
-            ret = 6;
-        }
-        else {
-            gpx.sonde_typ = 0;
-        }
-        gpx.SN6 = SN6;
+    if (conf_id > 4 && bits2val(conf_bits+8, 4*5) == 0) nul_ch = bits2val(conf_bits, 8);
+
+    dfm6typ = ((nul_ch & 0xF0)==0x50) && (nul_ch & 0x0F);
+    if (dfm6typ) ptu_out = 6;
+    if (dfm6typ  && (gpx.sonde_typ & 0xF) > 6)
+    {   // reset if 0x5A, 0x5B (DFM-06)
+        gpx.sonde_typ = 0;
+        max_ch = conf_id;
     }
-    if (conf_id == 0xA) {  // 0xACxxxxy
-        val = bits2val(conf_bits+8, 4*5);
-        hl =  (val & 1);  // val&0xF 0,1?
-        chA[hl] = (val >> 4) & 0xFFFF;
-        chAbit |= 1 << hl;
-        if (chAbit == 3) {  // DFM-09: Kanal A
-            SN = (chA[0] << 16) | chA[1];
-            if ( SN == SN_A ) {
-                gpx.sonde_typ = RSNbit | 0xA;
-                gpx.SN = SN;
-                ptu_out = 9;
-                ret = 9;
+
+    if (conf_id > 4 && conf_id > max_ch) max_ch = conf_id; // mind. 5 Kanaele // reset? lower 0xsCaaaab?
+
+    if (conf_id > 4 && conf_id == (nul_ch>>4)+1)
+    {
+        sn2_ch = bits2val(conf_bits, 8);
+
+        if (option_auto)
+        {
+            sn_ch = ((sn2_ch>>4) & 0xF);
+            if (conf_id == sn_ch)
+            {
+                if ( (nul_ch & 0x58) == 0x58 ) { // 0x5A, 0x5B
+                    SN6 = bits2val(conf_bits+4, 4*6);   // DFM-06: Kanal 6
+                    if (SN6 == gpx.SN6  &&  SN6 != 0) { // nur Nibble-Werte 0..9
+                        gpx.sonde_typ = SNbit | 6;
+                        ptu_out = 6;
+                        sprintf(gpx.sonde_id, "ID06:%6X", gpx.SN6);
+                    }
+                    else { // reset
+                        gpx.sonde_typ = 0;
+                    }
+                    gpx.SN6 = SN6;
+                }
+                else if (   (sn2_ch & 0xF) == 0xC    // 0xsCaaaab, s==sn_ch , s: 0xA=DFM-09 , 0xC/0xD=DFM-17?
+                         || (sn2_ch & 0xF) == 0x0 )  // 0xs0aaaab, s==sn_ch , s: 0x7,0x8: pilotsonde PS-15?
+                {
+                    val = bits2val(conf_bits+8, 4*5);
+                    hl =  (val & 1);
+                    chX[hl] = (val >> 4) & 0xFFFF;
+                    chXbit |= 1 << hl;
+                    if (chXbit == 3) {
+                        SN = (chX[0] << 16) | chX[1];
+                        if ( SN == SN_X || SN_X == 0 ) {
+
+                            gpx.sonde_typ = SNbit | sn_ch;
+                            gpx.SN = SN;
+
+                            if (sn_ch == 0xA /*&& (sn2_ch & 0xF) == 0xC*/) ptu_out = 9; else ptu_out = 0;
+                            // PS-15 ? (sn2_ch & 0xF) == 0x0 :  ptu_out = 0
+                            // DFM-17? (sn_ch == 0xC) ptu_out = 9 ? // test 0xD ...?
+
+                            if ( (gpx.sonde_typ & 0xF) == 0xA) {
+                                sprintf(gpx.sonde_id, "ID09:%6u", gpx.SN);
+                            }
+                            else {
+                                sprintf(gpx.sonde_id, "ID-%1X:%6u", gpx.sonde_typ & 0xF, gpx.SN);
+                            }
+                        }
+                        else { // reset
+                            gpx.sonde_typ = 0;
+                        }
+                        SN_X = SN;
+                        chXbit = 0;
+                    }
+                }
+                ret = (gpx.sonde_typ & 0xF);
+            }
+        }
+    }
+
+    if (option_auto == 0) {
+
+        // gibt es Kanaele > 6 (2-teilige ID)?
+        // if (conf_id > 6) gpx.SN6 = 0;  // -> DFM-09,PS-15  // SNbit?
+        //
+        // SN/ID immer im letzten Kanal? davor xy00000-Kanal? (mind. 1)
+        if ((gpx.sonde_typ & 0xF) < 7  &&  conf_id == 6) {
+            SN6 = bits2val(conf_bits+4, 4*6);   // DFM-06: Kanal 6
+            if (SN6 == gpx.SN6  &&  SN6 != 0) { // nur Nibble-Werte 0..9
+                gpx.sonde_typ = SNbit | 6;
+                ptu_out = 6;
+                ret = 6;
+                sprintf(gpx.sonde_id, "ID06:%6X", gpx.SN6);
             }
             else {
                 gpx.sonde_typ = 0;
             }
-            SN_A = SN;
-            chAbit = 0;
+            gpx.SN6 = SN6;
+        }
+        if (conf_id == 0xA) {  // 0xACxxxxy ,  DFM-09
+            val = bits2val(conf_bits+8, 4*5);
+            hl =  (val & 1);  // val&0xF 0,1?
+            chA[hl] = (val >> 4) & 0xFFFF;
+            chAbit |= 1 << hl;
+            if (chAbit == 3) {  // DFM-09: Kanal A
+                SN = (chA[0] << 16) | chA[1];
+                if ( SN == SN_A ) {
+                    gpx.sonde_typ = SNbit | 0xA;
+                    gpx.SN = SN;
+                    ptu_out = 9;
+                    ret = 9;
+                    sprintf(gpx.sonde_id, "ID09:%6u", gpx.SN);
+                }
+                else {
+                    gpx.sonde_typ = 0;
+                }
+                SN_A = SN;
+                chAbit = 0;
+            }
+        }
+        if (conf_id == 0xC) {  // 0xCCxxxxy ,  DFM-17?
+            val = bits2val(conf_bits+8, 4*5);
+            hl =  (val & 1);
+            chC[hl] = (val >> 4) & 0xFFFF;
+            chCbit |= 1 << hl;
+            if (chCbit == 3) {  // DFM-17? Kanal C
+                SN = (chC[0] << 16) | chC[1];
+                if ( SN == SN_C ) {
+                    gpx.sonde_typ = SNbit | 0xC;
+                    gpx.SN = SN;
+                    ptu_out = 9;
+                    ret = 17;
+                    sprintf(gpx.sonde_id, "ID-%1X:%6u", gpx.sonde_typ & 0xF, gpx.SN);
+                }
+                else {
+                    gpx.sonde_typ = 0;
+                }
+                SN_C = SN;
+                chCbit = 0;
+            }
+        }
+        if (conf_id == 0xD) {  // 0xDCxxxxy ,  DFM-17?
+            val = bits2val(conf_bits+8, 4*5);
+            hl =  (val & 1);
+            chD[hl] = (val >> 4) & 0xFFFF;
+            chDbit |= 1 << hl;
+            if (chDbit == 3) {  // DFM-17? Kanal D
+                SN = (chD[0] << 16) | chD[1];
+                if ( SN == SN_D ) {
+                    gpx.sonde_typ = SNbit | 0xD;
+                    gpx.SN = SN;
+                    ptu_out = 9;
+                    ret = 18;
+                    sprintf(gpx.sonde_id, "ID-%1X:%6u", gpx.sonde_typ & 0xF, gpx.SN);
+                }
+                else {
+                    gpx.sonde_typ = 0;
+                }
+                SN_D = SN;
+                chDbit = 0;
+            }
+        }
+        if (conf_id == 0x7) {  // 0x70xxxxy ,  pilotsonde PS-15?
+            val = bits2val(conf_bits+8, 4*5);
+            hl =  (val & 1);
+            ch7[hl] = (val >> 4) & 0xFFFF;
+            ch7bit |= 1 << hl;
+            if (ch7bit == 3) {  // PS-15: Kanal 7
+                SN = (ch7[0] << 16) | ch7[1];
+                if ( SN == SN_7 ) {
+                    gpx.sonde_typ = SNbit | 0x7;
+                    gpx.SN = SN;
+                    ptu_out = 0;
+                    ret = 15;
+                    sprintf(gpx.sonde_id, "ID15:%6u", gpx.SN);
+                }
+                else {
+                    gpx.sonde_typ = 0;
+                }
+                SN_7 = SN;
+                ch7bit = 0;
+            }
         }
     }
-    if (conf_id == 0xC) {  // 0xCCxxxxy
-        val = bits2val(conf_bits+8, 4*5);
-        hl =  (val & 1);
-        chC[hl] = (val >> 4) & 0xFFFF;
-        chCbit |= 1 << hl;
-        if (chCbit == 3) {  // DFM-17? Kanal C
-            SN = (chC[0] << 16) | chC[1];
-            if ( SN == SN_C ) {
-                gpx.sonde_typ = RSNbit | 0xC;
-                gpx.SN = SN;
-                ptu_out = 9;
-                ret = 17;
-            }
-            else {
-                gpx.sonde_typ = 0;
-            }
-            SN_C = SN;
-            chCbit = 0;
-        }
-    }
-    if (conf_id == 0xD) {  // 0xDCxxxxy
-        val = bits2val(conf_bits+8, 4*5);
-        hl =  (val & 1);
-        chD[hl] = (val >> 4) & 0xFFFF;
-        chDbit |= 1 << hl;
-        if (chDbit == 3) {  // DFM-17? Kanal D
-            SN = (chD[0] << 16) | chD[1];
-            if ( SN == SN_D ) {
-                gpx.sonde_typ = RSNbit | 0xD;
-                gpx.SN = SN;
-                ptu_out = 9;
-                ret = 18;
-            }
-            else {
-                gpx.sonde_typ = 0;
-            }
-            SN_D = SN;
-            chDbit = 0;
-        }
-    }
-    if (conf_id == 0x7) {  // 0x70xxxxy
-        val = bits2val(conf_bits+8, 4*5);
-        hl =  (val & 1);
-        ch7[hl] = (val >> 4) & 0xFFFF;
-        ch7bit |= 1 << hl;
-        if (ch7bit == 3) {  // PS-15: Kanal 7
-            SN = (ch7[0] << 16) | ch7[1];
-            if ( SN == SN_7 ) {
-                gpx.sonde_typ = PSNbit | 0x7;
-                gpx.SN = SN;
-                ptu_out = 0;
-                ret = 15;
-            }
-            else {
-                gpx.sonde_typ = 0;
-            }
-            SN_7 = SN;
-            ch7bit = 0;
-        }
-    }
+
 
     if (conf_id >= 0 && conf_id <= 4) {
         val = bits2val(conf_bits+4, 4*6);
@@ -887,29 +975,13 @@ void print_gpx() {
               printf("  U: %.2fV ", gpx.status[0]);
               printf("  Ti: %.1fK ", gpx.status[1]);
           }
-          if ( option_verbose )
-          {
-              if (gpx.sonde_typ & RSNbit)
-              {
-                  if ((gpx.sonde_typ & 0xF) == 6) { // DFM-06
-                      printf(" (ID6:%06X) ", gpx.SN6);
-                  }
-                  if ((gpx.sonde_typ & 0xF) == 0xA) { // DFM-09
-                      printf(" (ID9:%06u) ", gpx.SN);
-                  }
-                  if ((gpx.sonde_typ & 0xF) == 0xC || // DFM-17?
-                      (gpx.sonde_typ & 0xF) == 0xD ) {
-                      printf(" (ID-%1X:%06u) ", gpx.sonde_typ & 0xF, gpx.SN);
-                  }
-                  gpx.sonde_typ ^= RSNbit;
-              }
-              if (gpx.sonde_typ & PSNbit) {
-                  if ((gpx.sonde_typ & 0xF) == 0x7) { // PS-15?
-                      printf(" (ID15:%06u) ", gpx.SN);
-                  }
-                  gpx.sonde_typ ^= PSNbit;
-              }
-          }
+            if (option_verbose)
+            {
+                if (gpx.sonde_typ & SNbit) {
+                    printf(" (%s) ", gpx.sonde_id);
+                    gpx.sonde_typ ^= SNbit;
+                }
+            }
       }
       printf("\n");
 
@@ -1052,7 +1124,8 @@ int main(int argc, char **argv) {
             option_ecc = 1;
         }
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
-            option_ptu = 1; ptu_out = 1;
+            option_ptu = 1;
+            //ptu_out = 1; // force ptu (non PS-15)
         }
         else if   (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
         else {

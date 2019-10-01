@@ -1,7 +1,7 @@
 
 /*
    Sippican MkIIa
-   (1680 MHz)
+   LMS-6 (1680 MHz)
 */
 
 #include <stdio.h>
@@ -20,6 +20,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_crc = 0,      // check CRC
     option_res = 0,      // genauere Bitmessung
     option_b = 0,
+    option_jsn = 0,      // JSON output (auto_rx)
     wavloaded = 0;
 
 
@@ -327,32 +328,35 @@ int crc16_0(ui8_t frame[], int len) {
 
 typedef struct {
     int frnr;
-    ui8_t id[9];
+    int prev_frnr;
+    ui32_t id;
     int week; int gpstow;
     int jahr; int monat; int tag;
     int wday;
     int std; int min; float sek;
-    double lat; double lon; double h;
+    double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vE; double vN; double vU;
-    int freq;
+    //int freq;
 } gpx_t;
 
 gpx_t gpx;
 
 
-#define OFS 2
-#define pos_SondeID  (OFS+0x02)  // ? 2 byte
+#define OFS 2  // (0x2452 ..)
+#define pos_SondeID  (OFS+0x02)  // 2 byte (LSB)
 #define pos_FrameNb  (OFS+0x04)  // 2 byte
 //GPS Position
-#define pos_GPSTOW   (OFS+0x08)  // 4 byte
-#define pos_GPSlat   (OFS+0x10)  // 4 byte
-#define pos_GPSlon   (OFS+0x14)  // 4 byte
-#define pos_GPSalt   (OFS+0x18)  // 4 byte
+#define pos_GPSTOW   (OFS+0x08)  // 4 byte, subframe 0x(2452)54
+#define pos_GPSlat   (OFS+0x10)  // 4 byte, subframe 0x(2452)54
+#define pos_GPSlon   (OFS+0x14)  // 4 byte, subframe 0x(2452)54
+#define pos_GPSalt   (OFS+0x18)  // 4 byte, subframe 0x(2452)54
 //GPS Velocity East-North-Up (ENU)
-#define pos_GPSvO  (OFS+0x1C)  // 3 byte
-#define pos_GPSvN  (OFS+0x1F)  // 3 byte
-#define pos_GPSvV  (OFS+0x22)  // 3 byte
+#define pos_GPSvO    (OFS+0x1C)  // 3 byte, subframe 0x(2452)54
+#define pos_GPSvN    (OFS+0x1F)  // 3 byte, subframe 0x(2452)54
+#define pos_GPSvV    (OFS+0x22)  // 3 byte, subframe 0x(2452)54
+// full 1680MHz-ID, config-subblock:sonde_id
+#define pos_FullID   (OFS+0x30)  // 2+2 byte (LSB,MSB), subframe 0x(2452)4D
 
 
 int check_CRC(int len) {
@@ -492,7 +496,7 @@ int get_GPSalt() {
         gpsheight |= gpsheight_bytes[i] << (8*(3-i));
     }
     height = gpsheight / 1000.0;
-    gpx.h = height;
+    gpx.alt = height;
 
     if (height < -100 || height > 60000) return -1;
     return 0;
@@ -582,6 +586,17 @@ void print_frame(int len) {
     }
     else {
 
+        if (frame_bytes[OFS] == 0x4D  &&  len/BITS > pos_FullID+4) {
+            if ( !crc_err ) {
+                if (frame_bytes[pos_SondeID]   == frame_bytes[pos_FullID]  &&
+                    frame_bytes[pos_SondeID+1] == frame_bytes[pos_FullID+1]) {
+                    ui32_t __id =  (frame_bytes[pos_FullID+2]<<24) | (frame_bytes[pos_FullID+3]<<16)
+                                 | (frame_bytes[pos_FullID]  << 8) |  frame_bytes[pos_FullID+1];
+                    gpx.id = __id;
+                }
+            }
+        }
+
         if (frame_bytes[OFS] == 0x54  &&  len/BITS > pos_GPSalt+4) {
 
             get_FrameNb();
@@ -590,25 +605,46 @@ void print_frame(int len) {
             get_GPSlon();
             get_GPSalt();
 
-            //printf(" %02X%02X ", frame_bytes[pos_SondeID], frame_bytes[pos_SondeID+1]);
+            if ( !crc_err ) {
+                ui32_t _id = (frame_bytes[pos_SondeID]<<8) | frame_bytes[pos_SondeID+1];
+                if ((gpx.id & 0xFFFF) != _id) gpx.id = _id;
+            }
+            if (option_verbose && !crc_err) {
+                if (gpx.id & 0xFFFF0000) printf(" (%u)", gpx.id);
+                else if (gpx.id) printf(" (0x%04X)", gpx.id);
+            }
 
             printf(" [%5d] ", gpx.frnr);
 
             printf("%s ", weekday[gpx.wday]);
-            printf("(%02d:%02d:%06.3f) ", gpx.std, gpx.min, gpx.sek); // falls Rundung auf 60s: Ueberlauf
-            printf(" lat: %.5f° ", gpx.lat);
-            printf(" lon: %.5f° ", gpx.lon);
-            printf(" alt: %.2fm ", gpx.h);
+            printf("%02d:%02d:%06.3f ", gpx.std, gpx.min, gpx.sek); // falls Rundung auf 60s: Ueberlauf
+            printf(" lat: %.5f ", gpx.lat);
+            printf(" lon: %.5f ", gpx.lon);
+            printf(" alt: %.2fm ", gpx.alt);
 
             get_GPSvel24();
-            printf("  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
-            if (option_verbose == 2) printf("  (%.1f ,%.1f,%.1f) ", gpx.vE, gpx.vN, gpx.vU);
+            printf("  vH: %.1fm/s  D: %.1f  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
+            //if (option_verbose == 2) printf("  (%.1f ,%.1f,%.1f) ", gpx.vE, gpx.vN, gpx.vU);
 
             if (option_crc) {
                 if (crc_err==0) printf(" [OK]"); else printf(" [NO]");
             }
 
             printf("\n");
+
+            if (option_jsn) {
+                // Print JSON output required by auto_rx.
+                if (crc_err==0 && (gpx.id & 0xFFFF0000)) { // CRC-OK and FullID
+                    if (gpx.prev_frnr != gpx.frnr) { //|| gpx.id != _id0
+                        // UTC oder GPS?
+                        printf("{ \"frame\": %d, \"id\": \"LMS6-%d\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f }\n",
+                               gpx.frnr, gpx.id, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vV );
+                        printf("\n");
+                        gpx.prev_frnr = gpx.frnr;
+                    }
+                }
+            }
+
         }
 
     }
@@ -638,7 +674,7 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
             option_verbose = 1;
         }
-        else if ( (strcmp(*argv, "-vv") == 0) ) option_verbose = 2;
+        //else if ( (strcmp(*argv, "-vv") == 0) ) option_verbose = 2;
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
             option_raw = 1;
         }
@@ -648,6 +684,11 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "--crc") == 0) { option_crc = 1; }
         else if   (strcmp(*argv, "--res") == 0) { option_res = 1; }
+        else if   (strcmp(*argv, "--json") == 0) {
+            option_jsn = 1;
+            option_crc = 1;
+            option_verbose = 1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {

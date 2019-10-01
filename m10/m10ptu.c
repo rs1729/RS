@@ -817,7 +817,9 @@ int checkM10(ui8_t *msg, int len) {
 
 /* -------------------------------------------------------------------------- */
 
-// Temperatur Sensor
+// https://www.gruan.org/gruan/editor/documents/meetings/icm-6/pres/pres_306_Haeffelin.pdf
+//
+// Temperature Sensor
 // NTC-Thermistor Shibaura PB5-41E
 //
 float get_Temp(int csOK) {
@@ -966,33 +968,63 @@ float get_Tntc2(int csOK) {
 #define LN2         0.693147181
 #define ADR_108A    1000.0       // 0x3E8=1000
 
+float get_count_55() { // CalRef 55%RH , T=20C ?
+    ui32_t TBCREF_1000 = frame_bytes[0x32] | (frame_bytes[0x33]<<8) | (frame_bytes[0x34]<<16);
+    return TBCREF_1000 / ADR_108A;
+}
 float get_count_RH() {  // capture 1000 rising edges
     ui32_t TBCCR1_1000 = frame_bytes[0x35] | (frame_bytes[0x36]<<8) | (frame_bytes[0x37]<<16);
     return TBCCR1_1000 / ADR_108A;
 }
-float get_TLC555freq() {
-    return FREQ_CAPCLK / get_count_RH();
+float get_TLC555freq(float count) {
+    return FREQ_CAPCLK / count;
 }
-/*
-double get_C_RH() {  // TLC555 astable: R_A=3.65k, R_B=338k
-    double R_B = 338e3;
-    double R_A = 3.65e3;
-    double C_RH = 1/get_TLC555freq() / (LN2 * (R_A + 2*R_B));
+
+float get_C_RH(float freq, float T) {  // TLC555 astable: R_A=3.65k, R_B=338k
+    float R_B = 338e3;
+    float R_A = 3.65e3;
+    float td = 0;
+    float C_RH = (1/freq - 2*td) / (LN2 * (R_A + 2*R_B));
+    // freq/T compensation ...
     return C_RH;
 }
-double get_RH(int csOK) {
+
+float cRHc55_RH(float cRHc55) {  // C_RH / C_55
 // U.P.S.I.
 // C_RH/C_55 = 0.8955 + 0.002*RH , T=20C
 // C_RH = C_RH(RH,T) , RH = RH(C_RH,T)
 // C_RH/C_55 approx.eq. count_RH/count_ref
-// c55=270pF? diff=C_55-c55, T=20C
-    ui32_t c = frame_bytes[0x32] | (frame_bytes[0x33]<<8) | (frame_bytes[0x34]<<16); // CalRef 55%RH , T=20C ?
-    double count_ref = c / ADR_108A; // CalRef 55%RH , T=20C ?
-    double C_RH = get_C_RH();
-    double T = get_Tntc2(csOK);
-    return 0;
+    float TH = get_Tntc2(0);
+    float Tc = get_Temp(0);
+    float rh = (cRHc55-0.8955)/0.002; // UPSI linear transfer function
+    // temperature compensation
+    float T0 = 0.0, T1 = -30.0; // T/C
+    float T = Tc; // TH, TH-Tc (sensorT - T)
+    if (T < T0) rh += T0 - T/5.5;        // approx/empirical
+    if (T < T1) rh *= 1.0 + (T1-T)/75.0; // approx/empirical
+    if (rh < 0.0) rh = 0.0;
+    if (rh > 100.0) rh = 100.0;
+    return rh;
 }
-*/
+
+float get_RHc(int csOK) { // experimental/raw, errors~10%
+    float Tc = get_Temp(0);
+    float count_ref = get_count_55(); // CalRef 55%RH , T=20C ?
+    float count_RH = get_count_RH();
+    float C_55 = get_C_RH(get_TLC555freq(count_ref), 20.0); // CalRef 55%RH , T=20C ?
+    float C_RH = get_C_RH(get_TLC555freq(count_RH), Tc); // Tc == T_555 ?
+    float  cRHc55 = C_RH / C_55;
+    return cRHc55_RH(cRHc55);
+}
+
+float get_RH(int csOK) { // experimental/raw, errors~10%
+    //ui32_t TBCREF_1000 = frame_bytes[0x32] | (frame_bytes[0x33]<<8) | (frame_bytes[0x34]<<16); // CalRef 55%RH , T=20C ?
+    //ui32_t TBCCR1_1000 = frame_bytes[0x35] | (frame_bytes[0x36]<<8) | (frame_bytes[0x37]<<16); // FrqCnt TLC555
+    //float  cRHc55 = TBCCR1_1000 / (float)TBCREF_1000; // CalRef 55%RH , T=20C ?
+    float  cRHc55 = get_count_RH() / get_count_55(); // CalRef 55%RH , T=20C ?
+    return cRHc55_RH(cRHc55);
+}
+
 /* -------------------------------------------------------------------------- */
 
 int print_pos(int csOK) {
@@ -1022,7 +1054,7 @@ int print_pos(int csOK) {
                 err |= get_GPSvel();
                 if (!err) {
                     //if (option_verbose == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", datum.vx, datum.vy, datum.vD2);
-                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"°  vV: "col_GPSvel"%.1f"col_TXT" ", datum.vH, datum.vD, datum.vV);
+                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", datum.vH, datum.vD, datum.vV);
                 }
                 if (option_verbose >= 2) {
                     get_SN();
@@ -1036,11 +1068,15 @@ int print_pos(int csOK) {
             }
             if (option_ptu) {
                 float t = get_Temp(csOK);
-                if (t > -270.0) fprintf(stdout, "  T=%.1fC ", t);
+                float rh = get_RH(csOK);
+                fprintf(stdout, "  ");
+                if (t > -270.0) fprintf(stdout, "T=%.1fC ", t);
+                if (option_verbose >= 3) { if (rh > -0.5) fprintf(stdout, "_RH=%.0f%% ", rh); }
                 if (option_verbose >= 3) {
                     float t2 = get_Tntc2(csOK);
-                    float fq555 = get_TLC555freq();
+                    float fq555 = get_TLC555freq(get_count_RH());
                     if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz) ", t2, fq555/1e3);
+                    fprintf(stdout, "(cRH=%.1f%%) ", get_RHc(csOK));
                 }
             }
             fprintf(stdout, ANSI_COLOR_RESET"");
@@ -1056,8 +1092,8 @@ int print_pos(int csOK) {
             if (option_verbose) {
                 err |= get_GPSvel();
                 if (!err) {
-                    //if (option_verbose == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f°) ", datum.vx, datum.vy, datum.vD2);
-                    fprintf(stdout, "  vH: %.1f  D: %.1f°  vV: %.1f ", datum.vH, datum.vD, datum.vV);
+                    //if (option_verbose == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f) ", datum.vx, datum.vy, datum.vD2);
+                    fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", datum.vH, datum.vD, datum.vV);
                 }
                 if (option_verbose >= 2) {
                     get_SN();
@@ -1070,11 +1106,15 @@ int print_pos(int csOK) {
             }
             if (option_ptu) {
                 float t = get_Temp(csOK);
-                if (t > -270.0) fprintf(stdout, "  T=%.1fC ", t);
+                float rh = get_RH(csOK);
+                fprintf(stdout, "  ");
+                if (t > -270.0) fprintf(stdout, "T=%.1fC ", t);
+                if (option_verbose >= 3) { if (rh > -0.5) fprintf(stdout, "_RH=%.0f%% ", rh); }
                 if (option_verbose >= 3) {
                     float t2 = get_Tntc2(csOK);
-                    float fq555 = get_TLC555freq();
+                    float fq555 = get_TLC555freq(get_count_RH());
                     if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz) ", t2, fq555/1e3);
+                    fprintf(stdout, "(cRH=%.1f%%) ", get_RHc(csOK));
                 }
             }
         }

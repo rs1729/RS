@@ -34,7 +34,7 @@ my $line;
 
 my $hms;
 my $lat; my $lon; my $alt;
-my $sign;
+my $sign = 1;
 my $NS; my $EW;
 my $str;
 
@@ -71,7 +71,9 @@ while ($line = <$fpi>) {
             $date = $3*10000+$2*100+($1%100);
         }
 
-        if ($line =~ /vH:\ *(\d+\.\d+)\ +D:\ *(\d+\.\d+).*/) {
+        if ( ($line =~ /vH:\ *(\d+\.\d+)\ +D:\ *(\d+\.\d+).*/)
+          or ($line =~ /vH:\ *(\d+\.\d+)m\/s\ +D:\ *(\d+\.\d+).*/) )
+        {
             $speed = $1*3.6/1.852;  ## m/s -> knots
             $course = $2;
         }
