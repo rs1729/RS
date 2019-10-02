@@ -28,6 +28,7 @@ typedef struct {
     int max_fq;
     double xlt_fq;
     float complex *blk;
+    int used;
 } thd_t;
 
 
@@ -72,6 +73,7 @@ typedef struct {
     float *bufs;
     float mv;
     ui32_t mv_pos;
+    ui32_t last_detect;
     //
     int N_norm;
     int Nvar;
@@ -141,7 +143,9 @@ typedef struct {
     float *lpFM_buf;
 	float *fm_buffer;
 
-    thd_t thd;
+    int opt_cnt;
+
+    thd_t *thd;
 } dsp_t;
 
 
@@ -165,6 +169,7 @@ typedef struct {
     thd_t thd;
     int option_jsn;
     int option_dc;
+    int option_cnt;
 } thargs_t;
 
 
@@ -183,4 +188,7 @@ int find_header(dsp_t *, float, int, int, int);
 int decimate_init(float f, int taps);
 int decimate_free(void);
 int iq_dc_init(pcm_t *);
+
+int reset_blockread(dsp_t *);
+
 

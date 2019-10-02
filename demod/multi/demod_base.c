@@ -397,9 +397,9 @@ static int f32read_csample(dsp_t *dsp, float complex *z) {
 }
 
 
-static volatile int bufeof = 0;      // threads exit
+volatile int bufeof = 0;      // threads exit
+volatile int rbf1;
 static volatile int rbf;
-extern int rbf1;
 
 
 static int __f32read_cblock_nocond(dsp_t *dsp) { // blk
@@ -410,136 +410,165 @@ static int __f32read_cblock_nocond(dsp_t *dsp) { // blk
 
     if (bufeof) return 0;
 
-    pthread_mutex_lock( dsp->thd.mutex );
+    pthread_mutex_lock( dsp->thd->mutex );
 
     if (rbf == 0)
     {
         if (dsp->bps == 8) { //uint8
             ui8_t u[2*BL];
             len = fread( u, dsp->bps/8, 2*BL, dsp->fp) / 2;
-            for (n = 0; n < len; n++) dsp->thd.blk[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
+            for (n = 0; n < len; n++) dsp->thd->blk[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
         }
         else if (dsp->bps == 16) { //int16
             short b[2*BL];
             len = fread( b, dsp->bps/8, 2*BL, dsp->fp) / 2;
-            for (n = 0; n < len; n++) dsp->thd.blk[n] = b[2*n]/32768.0 + I*b[2*n+1]/32768.0;
+            for (n = 0; n < len; n++) dsp->thd->blk[n] = b[2*n]/32768.0 + I*b[2*n+1]/32768.0;
         }
         else { // dsp->bps == 32   //float32
             float f[2*BL];
             len = fread( f, dsp->bps/8, 2*BL, dsp->fp) / 2;
-            for (n = 0; n < len; n++) dsp->thd.blk[n] = f[2*n] + I*f[2*n+1];
+            for (n = 0; n < len; n++) dsp->thd->blk[n] = f[2*n] + I*f[2*n+1];
         }
         if (len < BL) bufeof = 1;
 
         rbf = rbf1; // set all bits
     }
-    pthread_mutex_unlock( dsp->thd.mutex );
+    pthread_mutex_unlock( dsp->thd->mutex );
 
-    while ((rbf & dsp->thd.tn_bit) == 0) ;  // only if #{fqs} leq #{cores} ...
+    while ((rbf & dsp->thd->tn_bit) == 0) ;  // only if #{fqs} leq #{cores} ...
 
-    for (n = 0; n < dsp->decM; n++) dsp->decMbuf[n] = dsp->thd.blk[dsp->decM*dsp->blk_cnt + n];
+    for (n = 0; n < dsp->decM; n++) dsp->decMbuf[n] = dsp->thd->blk[dsp->decM*dsp->blk_cnt + n];
 
     dsp->blk_cnt += 1;
     if (dsp->blk_cnt == blk_sz) {
-        pthread_mutex_lock( dsp->thd.mutex );
-        rbf &= ~(dsp->thd.tn_bit); // clear bit(tn)
+        pthread_mutex_lock( dsp->thd->mutex );
+        rbf &= ~(dsp->thd->tn_bit); // clear bit(tn)
         dsp->blk_cnt = 0;
-        pthread_mutex_unlock( dsp->thd.mutex );
+        pthread_mutex_unlock( dsp->thd->mutex );
     }
 
     return len;
 }
 
-static int f32read_cblock(dsp_t *dsp) { // blk_cond
+static int f32_cblk(dsp_t *dsp) {
 
     int n;
     int BL = dsp->decM * blk_sz;
     int len = BL;
     float x, y;
 
-    if (bufeof) return 0;
+    if (dsp->bps == 8) { //uint8
+        ui8_t u[2*BL];
+        len = fread( u, dsp->bps/8, 2*BL, dsp->fp) / 2;
+        //for (n = 0; n < len; n++) dsp->thd->blk[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
+        // u8: 0..255, 128 -> 0V
+        for (n = 0; n < len; n++) {
+            x = (u[2*n  ]-128)/128.0;
+            y = (u[2*n+1]-128)/128.0;
+            dsp->thd->blk[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
+            IQdc.sumIQx += x;
+            IQdc.sumIQy += y;
+            IQdc.cnt += 1;
+            if (IQdc.cnt == IQdc.maxcnt) {
+                IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
+                IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
+                IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
+                if (IQdc.maxcnt < IQdc.maxlim) IQdc.maxcnt *= 2;
+            }
+        }
+    }
+    else if (dsp->bps == 16) { //int16
+        short b[2*BL];
+        len = fread( b, dsp->bps/8, 2*BL, dsp->fp) / 2;
+        for (n = 0; n < len; n++) {
+            x = b[2*n  ]/32768.0;
+            y = b[2*n+1]/32768.0;
+            dsp->thd->blk[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
+            IQdc.sumIQx += x;
+            IQdc.sumIQy += y;
+            IQdc.cnt += 1;
+            if (IQdc.cnt == IQdc.maxcnt) {
+                IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
+                IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
+                IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
+                if (IQdc.maxcnt < IQdc.maxlim) IQdc.maxcnt *= 2;
+            }
+        }
+    }
+    else { // dsp->bps == 32   //float32
+        float f[2*BL];
+        len = fread( f, dsp->bps/8, 2*BL, dsp->fp) / 2;
+        for (n = 0; n < len; n++) {
+            x = f[2*n];
+            y = f[2*n+1];
+            dsp->thd->blk[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
+            IQdc.sumIQx += x;
+            IQdc.sumIQy += y;
+            IQdc.cnt += 1;
+            if (IQdc.cnt == IQdc.maxcnt) {
+                IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
+                IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
+                IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
+                if (IQdc.maxcnt < IQdc.maxlim) IQdc.maxcnt *= 2;
+            }
+        }
+    }
+    if (len < BL) bufeof = 1;
 
-    pthread_mutex_lock( dsp->thd.mutex );
+    return len;
+}
+static int f32read_cblock(dsp_t *dsp) { // blk_cond
+
+    int n;
+    int len = dsp->decM;
+
+    if (bufeof) return 0;
+    //if (dsp->thd->used == 0) { }
+
+    pthread_mutex_lock( dsp->thd->mutex );
 
     if (rbf == 0)
     {
-        if (dsp->bps == 8) { //uint8
-            ui8_t u[2*BL];
-            len = fread( u, dsp->bps/8, 2*BL, dsp->fp) / 2;
-            //for (n = 0; n < len; n++) dsp->thd.blk[n] = (u[2*n]-128)/128.0 + I*(u[2*n+1]-128)/128.0;
-            // u8: 0..255, 128 -> 0V
-            for (n = 0; n < len; n++) {
-                x = (u[2*n  ]-128)/128.0;
-                y = (u[2*n+1]-128)/128.0;
-                dsp->thd.blk[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
-                IQdc.sumIQx += x;
-                IQdc.sumIQy += y;
-                IQdc.cnt += 1;
-                if (IQdc.cnt == IQdc.maxcnt) {
-                    IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
-                    IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
-                    IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
-                    if (IQdc.maxcnt < IQdc.maxlim) IQdc.maxcnt *= 2;
-                }
-            }
-        }
-        else if (dsp->bps == 16) { //int16
-            short b[2*BL];
-            len = fread( b, dsp->bps/8, 2*BL, dsp->fp) / 2;
-            for (n = 0; n < len; n++) {
-                x = b[2*n  ]/32768.0;
-                y = b[2*n+1]/32768.0;
-                dsp->thd.blk[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
-                IQdc.sumIQx += x;
-                IQdc.sumIQy += y;
-                IQdc.cnt += 1;
-                if (IQdc.cnt == IQdc.maxcnt) {
-                    IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
-                    IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
-                    IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
-                    if (IQdc.maxcnt < IQdc.maxlim) IQdc.maxcnt *= 2;
-                }
-            }
-        }
-        else { // dsp->bps == 32   //float32
-            float f[2*BL];
-            len = fread( f, dsp->bps/8, 2*BL, dsp->fp) / 2;
-            for (n = 0; n < len; n++) {
-                x = f[2*n];
-                y = f[2*n+1];
-                dsp->thd.blk[n] = (x-IQdc.avgIQx) + I*(y-IQdc.avgIQy);
-                IQdc.sumIQx += x;
-                IQdc.sumIQy += y;
-                IQdc.cnt += 1;
-                if (IQdc.cnt == IQdc.maxcnt) {
-                    IQdc.avgIQx = IQdc.sumIQx/(float)IQdc.maxcnt;
-                    IQdc.avgIQy = IQdc.sumIQy/(float)IQdc.maxcnt;
-                    IQdc.sumIQx = 0; IQdc.sumIQy = 0; IQdc.cnt = 0;
-                    if (IQdc.maxcnt < IQdc.maxlim) IQdc.maxcnt *= 2;
-                }
-            }
-        }
-        if (len < BL) bufeof = 1;
+        len = f32_cblk(dsp);
 
         rbf = rbf1; // set all bits
-        pthread_cond_broadcast( dsp->thd.cond );
+        pthread_cond_broadcast( dsp->thd->cond );
     }
 
-    while ((rbf & dsp->thd.tn_bit) == 0) pthread_cond_wait( dsp->thd.cond, dsp->thd.mutex );
+    while ((rbf & dsp->thd->tn_bit) == 0) pthread_cond_wait( dsp->thd->cond, dsp->thd->mutex );
 
-    for (n = 0; n < dsp->decM; n++) dsp->decMbuf[n] = dsp->thd.blk[dsp->decM*dsp->blk_cnt + n];
+    for (n = 0; n < dsp->decM; n++) dsp->decMbuf[n] = dsp->thd->blk[dsp->decM*dsp->blk_cnt + n];
 
     dsp->blk_cnt += 1;
     if (dsp->blk_cnt == blk_sz) {
-        rbf &= ~(dsp->thd.tn_bit); // clear bit(tn)
+        rbf &= ~(dsp->thd->tn_bit); // clear bit(tn)
         dsp->blk_cnt = 0;
     }
 
-    pthread_mutex_unlock( dsp->thd.mutex );
+    pthread_mutex_unlock( dsp->thd->mutex );
 
     return len;
 }
 
+int reset_blockread(dsp_t *dsp) {
+
+    int len = 0;
+
+    pthread_mutex_lock( dsp->thd->mutex );
+
+    rbf1 &= ~(dsp->thd->tn_bit);
+
+    if ( (rbf & dsp->thd->tn_bit) == dsp->thd->tn_bit )
+    {
+        len = f32_cblk(dsp);
+
+        rbf = rbf1; // set all bits
+        pthread_cond_broadcast( dsp->thd->cond );
+    }
+    pthread_mutex_unlock( dsp->thd->mutex );
+
+    return len;
+}
 
 // decimate lowpass
 static float *ws_dec;
@@ -627,6 +656,7 @@ int f32buf_sample(dsp_t *dsp, int inv) {
             ui32_t s_reset = dsp->dectaps*dsp->lut_len;
             int j;
             if ( f32read_cblock(dsp) < dsp->decM ) return EOF;
+            //if ( f32read_cblock(dsp) < dsp->decM * blk_sz) return EOF;
             for (j = 0; j < dsp->decM; j++) {
                 dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % dsp->lut_len];
                 dsp->sample_dec += 1;
@@ -925,7 +955,7 @@ int init_buffers(dsp_t *dsp) {
         // lookup table, exp-rotation
         int W = 2*8; // 16 Hz window
         int d = 1; // 1..W , groesster Teiler d <= W von sr_base
-        int freq = (int)( dsp->thd.xlt_fq * (double)dsp->sr_base + 0.5);
+        int freq = (int)( dsp->thd->xlt_fq * (double)dsp->sr_base + 0.5);
         int freq0 = freq; // init
         double f0 = freq0 / (double)dsp->sr_base; // init
 
@@ -1010,6 +1040,7 @@ int init_buffers(dsp_t *dsp) {
 
     dsp->delay = L/16;
     dsp->sample_in = 0;
+    dsp->last_detect = 0;
 
     p2 = 1;
     while (p2 < M) p2 <<= 1;
@@ -1169,6 +1200,7 @@ ui32_t get_sample(dsp_t *dsp) {
 
 /* ------------------------------------------------------------------------------------ */
 
+#define SEC_NO_SIGNAL 10
 
 int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
     ui32_t k = 0;
@@ -1185,6 +1217,16 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
             mp = getCorrDFT(dsp); // correlation score -> dsp->mv
             //if (option_auto == 0 && dsp->mv < 0) mv = 0;
             k = 0;
+
+            // signal lost
+            if ( dsp->thd->used == 0 ||
+                 (!dsp->opt_cnt  &&  dsp->mv_pos - dsp->last_detect > SEC_NO_SIGNAL*dsp->sr) )
+            {
+                pthread_mutex_lock( dsp->thd->mutex );
+                fprintf(stdout, "<%d: close>\n", dsp->thd->tn);
+                pthread_mutex_unlock( dsp->thd->mutex );
+                return EOF;
+            }
         }
         else {
             dsp->mv = 0.0;
@@ -1221,6 +1263,8 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
                 header_found = 0;
                 herrs = headcmp(dsp, opt_dc);
                 if (herrs <= hdmax) header_found = 1; // max bitfehler in header
+
+                dsp->last_detect = dsp->mv_pos;
 
                 if (header_found) return 1;
             }

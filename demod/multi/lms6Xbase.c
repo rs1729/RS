@@ -747,11 +747,16 @@ static int print_frame(gpx_t *gpx, int crc_err, int len) {
 
 static int print_thd_frame(gpx_t *gpx, int crc_err, int len, dsp_t *dsp) {
     int ret = 0;
-    pthread_mutex_lock( dsp->thd.mutex );
-    printf("<%d> ", dsp->thd.tn);
+    pthread_mutex_lock( dsp->thd->mutex );
+    //printf("<%d> ", dsp->thd->tn);
+    fprintf(stdout, "<%d: ", dsp->thd->tn);
+    fprintf(stdout, "s=%+.4f, ", dsp->mv);
+    fprintf(stdout, "f=%+.4f", -dsp->thd->xlt_fq);
+    if (dsp->opt_dc) fprintf(stdout, "%+.6f", dsp->Df/(double)dsp->sr);
+    fprintf(stdout, ">  ");
     ret = print_frame(gpx, crc_err, len);
-    if (ret==0) printf("\n");
-    pthread_mutex_unlock( dsp->thd.mutex );
+    if (ret==0) fprintf(stdout, "\n");
+    pthread_mutex_unlock( dsp->thd->mutex );
     return ret;
 }
 
@@ -1014,7 +1019,7 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.dectaps = pcm->dectaps;
     dsp.decM = pcm->decM;
 
-    dsp.thd = tharg->thd;
+    dsp.thd = &(tharg->thd);
 
     dsp.bps = pcm->bps;
     dsp.nch = pcm->nch;
@@ -1035,20 +1040,22 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.opt_dc = tharg->option_dc;
 
     if ( dsp.sps < 8 ) {
-        fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
+        //fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
     }
 
 
     k = init_buffers(&dsp);  // baud difference not significant
     if ( k < 0 ) {
         fprintf(stderr, "error: init buffers\n");
-        return NULL;
+        goto exit_thread;
     };
 
 
     if (gpx->option.vit) {
         k = vit_initCodes(gpx);
-        if (k < 0) return NULL;
+        if (k < 0) {
+            goto exit_thread;
+        }
     }
     if (gpx->option.ecc) {
         rs_init_RS255ccsds(&gpx->RS); // bch_ecc.c
@@ -1161,10 +1168,12 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
         }
     }
 
-
     free_buffers(&dsp);
     if (gpx->vit) { free(gpx->vit); gpx->vit = NULL; }
 
+exit_thread:
+    reset_blockread(&dsp);
+    (dsp.thd)->used = 0;
 
     return NULL;
 }
