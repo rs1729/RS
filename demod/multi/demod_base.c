@@ -1194,12 +1194,12 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
         if (dsp->mv > thres || dsp->mv < -thres) {
 
             if (dsp->opt_dc) {  // Problem: FM-gain
-                if (dsp->opt_iq < 2) dsp->Df += dsp->dDf*FM_GAIN / 2.0;
+                if (dsp->opt_iq < 2) dsp->Df += dsp->dDf*0.4;
                 else {
                     double ofs = fabs(dsp->dDf);  // (iq-decode controls FM-gain)
                     if (ofs > 200.0)
                     {
-                        dsp->Df += dsp->dDf*FM_GAIN / 1.2;
+                        dsp->Df += dsp->dDf * 2/3.0;
                     }
                     if (ofs > 1000.0) {  //dsp->opt_lp
                         if (dsp->locked) {
