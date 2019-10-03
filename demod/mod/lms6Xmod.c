@@ -477,7 +477,7 @@ static int get_GPStime(gpx_t *gpx, int crc_err) {
         gpstow_start = gpstime; // time elapsed since start-up?
         if (gpx->week > 0 && gpstime/1000.0 < time_elapsed_sec) gpx->week += 1;
     }
-    gpx->gpstow = gpstime;
+    gpx->gpstow = gpstime; // tow/ms
 
     ms = gpstime % 1000;
     gpstime /= 1000;
@@ -517,6 +517,7 @@ static int get_GPStime_X(gpx_t *gpx) {
     }
 
     gpx->gpstowX = *f64;
+    gpx->gpstow = (ui32_t)(gpx->gpstowX*1e3); // tow/ms
     tow_u4 = (ui32_t)gpx->gpstowX;
     gpstime = tow_u4;
     gpx->gpssec = tow_u4;
