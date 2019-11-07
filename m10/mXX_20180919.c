@@ -2,7 +2,9 @@
 /* big endian forest
  *
  * gcc mXX_20180919.c -lm
- * 2018-09-19 Ury?
+ *
+ * 2018-09-19 Ury: (len=0x43)
+ * 2019-11-06 Ury: (len=0x45) ./a.out -b -c -v --br 9600 new_rs_48k.wav
  *
  */
 
@@ -504,7 +506,8 @@ int get_GPSweek() {
     return 0;
 }
 
-char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+//char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 int get_GPStime() {
     int i;
@@ -728,8 +731,8 @@ void print_frame(int pos) {
         if (auxlen < 0 || auxlen > AUX_LEN) auxlen = 0;
     }
 
-    cs1 = (frame_bytes[pos_Check] << 8) | frame_bytes[pos_Check+1];
-    cs2 = checkM10(frame_bytes, pos_Check);
+    cs1 = (frame_bytes[pos_Check+auxlen] << 8) | frame_bytes[pos_Check+auxlen+1];
+    cs2 = checkM10(frame_bytes, pos_Check+auxlen);
 
     if (option_raw) {
 
@@ -745,7 +748,7 @@ void print_frame(int pos) {
                 if ((i >= pos_GPSvE)    &&  (i < pos_GPSvE+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_GPSvN)    &&  (i < pos_GPSvN+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_GPSvU)    &&  (i < pos_GPSvU+2))    fprintf(stdout, col_GPSvel);
-                if ((i >= pos_Check)    &&  (i < pos_Check+2))    fprintf(stdout, col_Check);
+                if ((i >= pos_Check+auxlen)  &&  (i < pos_Check+auxlen+2))  fprintf(stdout, col_Check);
                 fprintf(stdout, "%02x", byte);
                 fprintf(stdout, col_FRTXT);
             }
@@ -784,6 +787,7 @@ int main(int argc, char **argv) {
     int bit, bit0;
     int pos;
     int header_found = 0;
+    float baudrate = -1;
 
 
 #ifdef CYGWIN
@@ -820,6 +824,14 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "-b2") == 0) { option_b = 2; }
         else if   (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
+        else if ( (strcmp(*argv, "--br") == 0) ) {
+            ++argv;
+            if (*argv) {
+                baudrate = atof(*argv);
+                if (baudrate < 9000 || baudrate > 10000) baudrate = BAUD_RATE; // default: 9615
+            }
+            else return -1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -837,6 +849,10 @@ int main(int argc, char **argv) {
     if (i) {
         fclose(fp);
         return -1;
+    }
+    if (baudrate > 0) {
+        samples_per_bit = sample_rate/baudrate;
+        fprintf(stderr, "sps corr: %.4f\n", samples_per_bit);
     }
 
 
