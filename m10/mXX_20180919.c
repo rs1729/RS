@@ -69,7 +69,7 @@ void Gps2Date(long GpsWeek, long GpsSeconds, int *Year, int *Month, int *Day) {
 }
 /* -------------------------------------------------------------------------- */
 
-#define BAUD_RATE   9616 //2*4800
+#define BAUD_RATE   9600  //9616 //2*4800
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
 float samples_per_bit = 0;
@@ -297,6 +297,7 @@ dduudduudduudduu duduudduuduudduu  ddududuudduduudd uduuddududududud uudduduuddu
                                                     //"011101101001111100100000"; // M10: 76 9F 20 , aux-data?
                                                     //"011001000100100100001001"; // M10-dop: 64 49 09
                                                     //"011001001010111100000010"; // M10gtop: 64 AF 02
+                                                    // M20?: 45 20
 char header[] =  "10011001100110010100110010011001";
 
 #define FRAME_LEN       (0x43+1)   //(100+1)   // 0x64+1
