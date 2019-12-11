@@ -1,7 +1,9 @@
 
 ## Radiosonde decoders
 
-alternative decoders using cross-correlation for better header-synchronization
+alternative decoders using cross-correlation for better header-synchronization <br />
+NOTE: more recent decoders are here: [RS/demod/mod/](https://github.com/rs1729/RS/tree/master/demod/mod)
+
 
 #### Files
 
