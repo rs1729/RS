@@ -3,6 +3,10 @@
  *  sync header: correlation/matched filter
  *  compile:
  *      gcc -c demod_mod.c
+ *  speedup:
+ *      gcc -O2 -c demod_mod.c
+ *   or
+ *      gcc -Ofast -c demod_mod.c
  *
  *  author: zilog80
  */
@@ -509,7 +513,7 @@ static int lowpass_init(float f, int taps, float **pws) {
 
     h = (double*)calloc( taps+1, sizeof(double)); if (h == NULL) return -1;
     w = (double*)calloc( taps+1, sizeof(double)); if (w == NULL) return -1;
-    ws = (float*)calloc( taps+1, sizeof(float)); if (ws == NULL) return -1;
+    ws = (float*)calloc( 2*taps+1, sizeof(float)); if (ws == NULL) return -1;
 
     for (n = 0; n < taps; n++) {
         w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(taps-1)) + 1430/18608.0*cos(4*M_PI*n/(taps-1)); // Blackmann
@@ -520,6 +524,9 @@ static int lowpass_init(float f, int taps, float **pws) {
     for (n = 0; n < taps; n++) {
         ws[n] /= norm; // 1-norm
     }
+
+    for (n = 0; n < taps; n++) ws[taps+n] = ws[n]; // duplicate/unwrap
+
     *pws = ws;
 
     free(h); h = NULL;
@@ -551,13 +558,15 @@ static int lowpass_update(float f, int taps, float *ws) {
         ws[n] /= norm; // 1-norm
     }
 
+    for (n = 0; n < taps; n++) ws[taps+n] = ws[n];
+
     free(h); h = NULL;
     free(w); w = NULL;
 
     return taps;
 }
 
-static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+static float complex lowpass0(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
     double complex w = 0;
     for (n = 0; n < taps; n++) {
@@ -565,12 +574,31 @@ static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps,
     }
     return (float complex)w;
 }
+static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
+    ui32_t s = sample % taps;
+    double complex w = 0;
+    for (n = 0; n < taps; n++) {
+        w += buffer[n]*ws[taps+s-n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
+    }
+    return (float complex)w;
+// symmetry: ws[n] == ws[taps-1-n]
+}
 
-static float re_lowpass(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
+static float re_lowpass0(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
     double w = 0;
     for (n = 0; n < taps; n++) {
         w += buffer[(sample+n+1)%taps]*ws[taps-1-n];
+    }
+    return (float)w;
+}
+static float re_lowpass(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
+    ui32_t s = sample % taps;
+    double w = 0;
+    for (n = 0; n < taps; n++) {
+        w += buffer[n]*ws[taps+s-n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
     }
     return (float)w;
 }
