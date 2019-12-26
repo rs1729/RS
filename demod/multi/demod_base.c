@@ -3,6 +3,10 @@
  *  sync header: correlation/matched filter
  *  compile:
  *      gcc -c demod_base.c
+ *  speedup:
+ *      gcc -O2 -c demod_base.c
+ *   or
+ *      gcc -Ofast -c demod_base.c
  *
  *  author: zilog80
  */
@@ -592,7 +596,7 @@ static int lowpass_init(float f, int taps, float **pws) {
 
     h = (double*)calloc( taps+1, sizeof(double)); if (h == NULL) return -1;
     w = (double*)calloc( taps+1, sizeof(double)); if (w == NULL) return -1;
-    ws = (float*)calloc( taps+1, sizeof(float)); if (ws == NULL) return -1;
+    ws = (float*)calloc( 2*taps+1, sizeof(float)); if (ws == NULL) return -1;
 
     for (n = 0; n < taps; n++) {
         w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(taps-1)) + 1430/18608.0*cos(4*M_PI*n/(taps-1)); // Blackmann
@@ -603,6 +607,9 @@ static int lowpass_init(float f, int taps, float **pws) {
     for (n = 0; n < taps; n++) {
         ws[n] /= norm; // 1-norm
     }
+
+    for (n = 0; n < taps; n++) ws[taps+n] = ws[n]; // duplicate/unwrap
+
     *pws = ws;
 
     free(h); h = NULL;
@@ -616,13 +623,11 @@ int decimate_init(float f, int taps) {
 }
 
 int decimate_free() {
-
     if (ws_dec) { free(ws_dec); ws_dec = NULL; }
-
     return 0;
 }
 
-static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+static float complex lowpass0(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
     double complex w = 0;
     for (n = 0; n < taps; n++) {
@@ -630,12 +635,31 @@ static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps,
     }
     return (float complex)w;
 }
+static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
+    ui32_t s = sample % taps;
+    double complex w = 0;
+    for (n = 0; n < taps; n++) {
+        w += buffer[n]*ws[taps+s-n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
+    }
+    return (float complex)w;
+// symmetry: ws[n] == ws[taps-1-n]
+}
 
-static float re_lowpass(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
+static float re_lowpass0(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
     double w = 0;
     for (n = 0; n < taps; n++) {
         w += buffer[(sample+n+1)%taps]*ws[taps-1-n];
+    }
+    return (float)w;
+}
+static float re_lowpass(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
+    ui32_t s = sample % taps;
+    double w = 0;
+    for (n = 0; n < taps; n++) {
+        w += buffer[n]*ws[taps+s-n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
     }
     return (float)w;
 }
@@ -752,14 +776,14 @@ int f32buf_sample(dsp_t *dsp, int inv) {
 
     if (inv) s = -s;
     dsp->bufs[dsp->sample_in % dsp->M] = s;
-
+/*
     xneu = dsp->bufs[(dsp->sample_in  ) % dsp->M];
     xalt = dsp->bufs[(dsp->sample_in+dsp->M - dsp->Nvar) % dsp->M];
     dsp->xsum +=  xneu - xalt;                 // + xneu - xalt
     dsp->qsum += (xneu - xalt)*(xneu + xalt);  // + xneu*xneu - xalt*xalt
     dsp->xs[dsp->sample_in % dsp->M] = dsp->xsum;
     dsp->qs[dsp->sample_in % dsp->M] = dsp->qsum;
-
+*/
 
     dsp->sample_out = dsp->sample_in - dsp->delay;
 
@@ -1063,10 +1087,10 @@ int init_buffers(dsp_t *dsp) {
 
     dsp->bufs  = (float *)calloc( M+1, sizeof(float)); if (dsp->bufs  == NULL) return -100;
     dsp->match = (float *)calloc( L+1, sizeof(float)); if (dsp->match == NULL) return -100;
-
+/*
     dsp->xs = (float *)calloc( M+1, sizeof(float)); if (dsp->xs == NULL) return -100;
     dsp->qs = (float *)calloc( M+1, sizeof(float)); if (dsp->qs == NULL) return -100;
-
+*/
     dsp->rawbits = (char *)calloc( 2*dsp->hdrlen+1, sizeof(char)); if (dsp->rawbits == NULL) return -100;
 
 
@@ -1147,10 +1171,11 @@ int free_buffers(dsp_t *dsp) {
 
     if (dsp->match) { free(dsp->match); dsp->match = NULL; }
     if (dsp->bufs)  { free(dsp->bufs);  dsp->bufs  = NULL; }
+    if (dsp->rawbits) { free(dsp->rawbits); dsp->rawbits = NULL; }
+/*
     if (dsp->xs)  { free(dsp->xs);  dsp->xs  = NULL; }
     if (dsp->qs)  { free(dsp->qs);  dsp->qs  = NULL; }
-    if (dsp->rawbits) { free(dsp->rawbits); dsp->rawbits = NULL; }
-
+*/
     if (dsp->DFT.xn) { free(dsp->DFT.xn); dsp->DFT.xn = NULL; }
     if (dsp->DFT.ew) { free(dsp->DFT.ew); dsp->DFT.ew = NULL; }
     if (dsp->DFT.Fm) { free(dsp->DFT.Fm); dsp->DFT.Fm = NULL; }

@@ -77,10 +77,12 @@ typedef struct {
     //
     int N_norm;
     int Nvar;
+/*
     float xsum;
     float qsum;
     float *xs;
     float *qs;
+*/
 
     // IQ-data
     int opt_iq;
