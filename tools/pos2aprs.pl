@@ -65,7 +65,7 @@ sub encodecall{
 	return $encoded;
 }
 
-# kissmkhead: input: list of callsigns (src, dest, repeater list); output: raw kiss frame header data
+# kissmkhead: input: list of callsigns (dest, src, repeater list); output: raw kiss frame header data
 sub kissmkhead {
 	my @calllist = @_;
 	my $last = pop @calllist;
@@ -98,8 +98,8 @@ if($udp) {
 	my ($udpserver,$udpport)=split ':',$udp;
 	$udpserver = "127.0.0.1" unless $udpserver;
 	$sock = new IO::Socket::INET(PeerAddr => $udpserver, PeerPort => $udpport, Proto => "udp", Timeout => 1) or die "Error creating socket";
-	# $kissheader = kissmkhead(uc($mycallsign),"APRS","TCPIP*");
-	$kissheader = kissmkhead(uc($mycallsign),"APRS");
+	# $kissheader = kissmkhead("APRS",uc($mycallsign),"TCPIP*");
+	$kissheader = kissmkhead("APRS",uc($mycallsign));
 }
 
 print $fpo "user $mycallsign pass $passcode vers \"RS decoder\"\n";
@@ -108,7 +108,7 @@ while ($line = <$fpi>) {
 
     print STDERR $line; ## entweder: alle Zeilen ausgeben
 
-    if ($line =~ /(\d\d):(\d\d):(\d\d\.?\d?\d?\d?).*\ +lat:\ *(-?\d*)(\.\d*)\ +lon:\ *(-?\d*)(\.\d*)\ +alt:\ *(-?\d*\.\d*).*/) {
+    if ($line =~ /(\d\d):(\d\d):(\d\d\.?\d?\d?\d?).*\ +lat:\ *(-?\d*)(\.\d*).*\ +lon:\ *(-?\d*)(\.\d*).*\ +alt:\ *(-?\d*\.\d*).*/) {
 
     #print STDERR $line; ## oder: nur Zeile mit Koordinaten ausgeben
 
@@ -135,7 +135,8 @@ while ($line = <$fpi>) {
             $course = $2;
         }
 
-	    if ($line =~ /\(([\w]+)\)/) {
+	    # match either (id) or (type:id) and return id
+	    if ($line =~ /\(.*?([\w]+)\)/) {
 	        $callsign = $1;
 	    }
 
