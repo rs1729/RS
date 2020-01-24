@@ -14,6 +14,9 @@
 #include <math.h>
 #include <complex.h>
 
+#ifndef M_PI
+    #define M_PI  (3.1415926535897932384626433832795)
+#endif
 
 typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
