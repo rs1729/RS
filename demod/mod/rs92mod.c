@@ -2,7 +2,7 @@
 /*
  *  rs92
  *  sync header: correlation/matched filter
- *  files: rs92mod.c nav_gps_vel.c bch_ecc_mod.c demod_mod.c demod_mod.h
+ *  files: rs92mod.c nav_gps_vel.c bch_ecc_mod.c bch_ecc_mod.h demod_mod.c demod_mod.h
  *  compile:
  *  (a)
  *      gcc -c demod_mod.c

@@ -2,7 +2,7 @@
 /*
  *  rs41
  *  sync header: correlation/matched filter
- *  files: rs41mod.c bch_ecc_mod.c demod_mod.c demod_mod.h
+ *  files: rs41mod.c bch_ecc_mod.c bch_ecc_mod.h demod_mod.c demod_mod.h
  *  compile, either (a) or (b):
  *  (a)
  *      gcc -c demod_mod.c
