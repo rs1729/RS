@@ -596,6 +596,33 @@ int get_GPSvel() {
 }
 
 /* -------------------------------------------------------------------------- */
+
+static float get_Tntc0(ui8_t *frame, int csOK) {
+// SMD ntc
+    float Rs = 22.1e3;          // P5.6=Vcc
+  float R25 = 2.2e3;// 0.119e3; //2.2e3;
+  float b = 3650.0;           // B/Kelvin
+  float T25 = 25.0 + 273.15;  // T0=25C, R0=R25=5k
+// -> Steinhart–Hart coefficients (polyfit):
+    float p0 =  4.42606809e-03,
+          p1 = -6.58184309e-04,
+          p2 =  8.95735557e-05,
+          p3 = -2.84347503e-06;
+    float T = 0.0;              // T/Kelvin
+    ui16_t ADC_ntc0;            // M10: ADC12 P6.4(A4)
+    float x, R;
+    if (csOK)
+    {
+        ADC_ntc0  = (frame[0x07] << 8) | frame[0x06]; // M10: 0x40,0x3F
+        x = (4095.0 - ADC_ntc0)/ADC_ntc0;  // (Vcc-Vout)/Vout
+        R = Rs / x;
+        if (R > 0)  T = 1/(1/T25 + 1/b * log(R/R25));
+        //if (R > 0)  T =  1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
+    }
+    return T - 273.15;
+}
+
+/* -------------------------------------------------------------------------- */
 /*
 g : F^n -> F^16      // checksum, linear
 g(m||b) = f(g(m),b)
@@ -671,6 +698,9 @@ int print_pos(int csOK) {
 
         Gps2Date(datum.week, datum.gpssec, &datum.jahr, &datum.monat, &datum.tag);
 
+        // counter
+        fprintf(stdout, "[%3d]", frame_bytes[0x15]);
+
         if (option_color) {
             fprintf(stdout, col_TXT);
 
@@ -690,6 +720,12 @@ int print_pos(int csOK) {
                 if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                 else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
+
+            if (option_verbose >= 2) {
+                float t0 = get_Tntc0(frame_bytes, csOK);
+                if (t0 > -270.0) fprintf(stdout, "  (T0:%.1fC)", t0);
+            }
+
             fprintf(stdout, ANSI_COLOR_RESET"");
         }
         else {
@@ -708,9 +744,15 @@ int print_pos(int csOK) {
                 fprintf(stdout, "  # ");
                 if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
+
+            if (option_verbose >= 2) {
+                float t0 = get_Tntc0(frame_bytes, csOK);
+                if (t0 > -270.0) fprintf(stdout, "  (T0:%.1fC)", t0);
+            }
         }
+
+        fprintf(stdout, "\n");
     }
-    fprintf(stdout, "\n");
 
     return err;
 }
