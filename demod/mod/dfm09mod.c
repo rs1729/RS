@@ -197,8 +197,8 @@ static int check(int opt_ecc, hsbit_t code[8]) {
         float maxsum = 0.0;
         /*
         sum = 0.0;                 // s<0: h=0 , s>0: h=1
-        for (i = 0; i < 8; i++) {  // s\in[-1,+1] , h\in{0,1} -> 2h-1\in{-1,+1}
-            sum += (2*code[i].hb-1)*code[i].sb;  // i.e. sum_i |sb_i|
+        for (i = 0; i < 8; i++) {  // h\in{0,1} -> 2h-1\in{-1,+1}
+            sum += (2*code[i].hb-1)*code[i].sb;  // i.e. sum_i |s_i|
         } // original score
         */
         for (n = 0; n < 16; n++) {
