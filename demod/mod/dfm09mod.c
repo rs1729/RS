@@ -195,9 +195,12 @@ static int check(int opt_ecc, hsbit_t code[8]) {
         int d = 0;
         float sum = 0.0;
         float maxsum = 0.0;
-        for (i = 0; i < 8; i++) {
-            sum += (2*code[i].hb-1) * code[i].sb;
-        }
+        /*
+        sum = 0.0;                 // s<0: h=0 , s>0: h=1
+        for (i = 0; i < 8; i++) {  // s\in[-1,+1] , h\in{0,1} -> 2h-1\in{-1,+1}
+            sum += (2*code[i].hb-1)*code[i].sb;  // i.e. sum_i |sb_i|
+        } // original score
+        */
         for (n = 0; n < 16; n++) {
             d = 0;
             sum = 0.0;
@@ -211,7 +214,7 @@ static int check(int opt_ecc, hsbit_t code[8]) {
                 for (i = 0; i < 8; i++) {
                     sum += (2*codewords[n][i]-1) * code[i].sb;
                 }
-                if (sum*sum >= maxsum*maxsum) {
+                if (sum >= maxsum) { // best match
                     maxsum = sum;
                     maxn = n;
                 }
