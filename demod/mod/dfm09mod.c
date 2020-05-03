@@ -183,13 +183,13 @@ static int check(int opt_ecc, hsbit_t code[8]) {
 
     if (ret > 0) code[ret-1].hb ^= 0x1; // d=1: 1-bit-error
     else if (ret < 0 && opt_ecc == 2) { // d=2: 2-bit-error: soft decision
-        // Hamming [8,4]
+        // Hamming(8,4)
         // 256 words:
         //   16 codewords
         //   16*8=128 1-error words (dist=1)
         //   16*7=112 2-error words (dist=2)
-        //     each 2-error word has 4 codewords w/ dist=2
-        //     choose best "correlation"
+        //     each 2-error word has 4 codewords w/ dist=2,
+        //     choose best match/correlation
         int n;
         int maxn = -1;
         int d = 0;
@@ -203,14 +203,14 @@ static int check(int opt_ecc, hsbit_t code[8]) {
         */
         for (n = 0; n < 16; n++) {
             d = 0;
-            sum = 0.0;
             for (i = 0; i < 8; i++) { // d(a,b) = sum_i a[i]^b[i]
                 if (code[i].hb != codewords[n][i]) d++;
             }
-            if (d == 2) { // dist=2
+            if (d == 2) { // check dist=2 codewords - in principle, all codewords could be tested
                 // softbits correlation:
                 //      - interleaving
                 //      + no pulse-shaping -> sum
+                sum = 0.0;
                 for (i = 0; i < 8; i++) {
                     sum += (2*codewords[n][i]-1) * code[i].sb;
                 }
@@ -1077,6 +1077,11 @@ int main(int argc, char **argv) {
     }
     if (!wavloaded) fp = stdin;
 
+    // ecc2-soft_decision accepts also 2-error words,
+    // so the probability for 3 errors is high and will
+    // produce wrong codewords. hence ecc2 is not recommended
+    // for reliable frame decoding.
+    //
     if ( option_dist || option_json ) option_ecc = 1;
 
 
