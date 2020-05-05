@@ -1246,6 +1246,12 @@ int main(int argc, char **argv) {
                 bitQ = read_softbit(&dsp, &rhsbit, 0, bitofs, bitpos, -1, 0); // symlen=1
                 if (bitQ == EOF) { break; }
 
+                // optional:
+                // normalize soft bit s_j by
+                //   rhsbit.sb /= dsp._spb+1; // all samples in [-1,+1]
+                // or at the end by max|s_j| over all bits in rawframe
+                // (only if |sj| >> 1 by factor 100)
+
                 hsbit.hb = rhsbit.hb ^ (bc%2);  // (c0,inv(c1))
                 int sgn = -2*(((unsigned int)bc)%2)+1;
                 hsbit.sb = sgn * rhsbit.sb;

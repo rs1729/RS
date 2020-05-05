@@ -1242,11 +1242,15 @@ int main(int argc, char **argv) {
                         if (option_iq >= 2) {
                             float bl = -1;
                             if (option_iq > 2) bl = 4.0;
-                            bitQ = read_softbit(&dsp, &hsbit, 0/*gpx.option.inv*/, bitofs, bitpos, bl, 0);
+                            bitQ = read_softbit(&dsp, &hsbit, 0, bitofs, bitpos, bl, 0);
                         }
                         else {
-                            bitQ = read_softbit(&dsp, &hsbit, 0/*gpx.option.inv*/, bitofs, bitpos, -1, spike);
+                            bitQ = read_softbit(&dsp, &hsbit, 0, bitofs, bitpos, -1, spike);
                         }
+                        // optional:
+                        // normalize soft bit s_j by
+                        //   rhsbit.sb /= dsp._spb+1; // all samples in [-1,+1]
+
                     }
                     if ( bitQ == EOF ) { frm = nfrms; break; } // liest 2x EOF
 

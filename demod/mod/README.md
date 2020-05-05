@@ -40,3 +40,23 @@ alternative decoders using cross-correlation for better header-synchronization
   &nbsp;&nbsp;&nbsp;&nbsp; `<sr>`: sample rate <br />
   &nbsp;&nbsp;&nbsp;&nbsp; `<bs>=8,16,32`: bits per (real) sample (u8, s16 or f32)
 
+#### Remarks
+  FM-demodulation is sensitive to noise at higher frequencies. A narrow low-pass filter is needed before demodulation.
+  For weak signals and higher modulation indices IQ-decoding is usually better.
+  <br />
+
+  DFM:<br />
+  The high modulation index has advantages in IQ-decoding. <br />
+  `--ecc2` uses soft decision for 2-error words. If weak signals frequently produce errors, it is likely that
+  more than 2 errors occur in a received word. Since there is no additional frame protection (e.g. CRC), the
+  frames will not be decoded reliably in weak conditions. The `--dist` option has a thredshold for the number
+  of errors per packet.
+  <br />
+
+  LMS6-403:<br />
+  `lms6Xmod_soft.c` (testing) provides a soft viterbi decoding option `--vit2`;
+  IQ-decoding is recommended for soft decoding (noisy/spikey FM-signals don't always help soft decision).
+  The difference between hard and soft viterbi becomes only apparent at lower SNR. The inner convolutional
+  code does most of the error correction. The concatenated outer Reed-Solomon code kicks in only at low SNR.
+
+
