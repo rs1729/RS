@@ -327,8 +327,8 @@ static void printJSON() {
     if (gpx.sn) {
         sprintf(json_sonde_id, "C50-%u", gpx.sn);
     }
-    printf("{ ");
-    printf("\"id\": \"%s\", ", json_sonde_id);
+    printf("{ \"type\": \"%s\"", "C50");
+    printf(", \"id\": \"%s\", ", json_sonde_id);
     printf("\"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.1f",
            gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt);
     if (option_ptu && (gpx.T > -273.0 || gpx.RH > -0.5)) {
