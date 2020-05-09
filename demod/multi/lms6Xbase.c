@@ -730,11 +730,13 @@ static int print_frame(gpx_t *gpx, int crc_err, int len) {
                     // UTC oder GPS?
                     char sntyp[] = "LMS6-";
                     if (gpx->typ == 10) sntyp[3] = 'X';
-                    printf("{ \"frame\": %d, \"id\": \"%s%d\", \"datetime\": \"", gpx->frnr, sntyp, gpx->sn );
+                    printf("{ \"type\": \"%s\"", "LMS6");
+                    printf(", \"frame\": %d, \"id\": \"%s%d\", \"datetime\": \"", gpx->frnr, sntyp, gpx->sn );
                     //if (gpx->week > 0) printf("%04d-%02d-%02dT", gpx->jahr, gpx->monat, gpx->tag );
                     printf("%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                            gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV );
                     printf(", \"gpstow\": %d", gpx->gpstow );
+                    printf(", \"subtype\": \"%c\"", sntyp[3]);
                     printf(" }\n");
                     printf("\n");
                 }

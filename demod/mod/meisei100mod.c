@@ -212,6 +212,7 @@ int main(int argc, char **argv) {
     int option_iq = 0;
     int option_lp = 0;
     int option_dc = 0;
+    int option_pcmraw = 0;
     int sel_wavch = 0;
     int wavloaded = 0;
 
@@ -307,6 +308,7 @@ int main(int argc, char **argv) {
             }
             else return -1;
         }
+        else if ( (strcmp(*argv, "--ch2") == 0) ) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if ( (strcmp(*argv, "--ths") == 0) ) {
             ++argv;
             if (*argv) {
@@ -345,12 +347,28 @@ int main(int argc, char **argv) {
             option_jsn = 1;
             option_ecc = 1;
         }
+        else if (strcmp(*argv, "-") == 0) {
+            int sample_rate = 0, bits_sample = 0, channels = 0;
+            ++argv;
+            if (*argv) sample_rate = atoi(*argv); else return -1;
+            ++argv;
+            if (*argv) bits_sample = atoi(*argv); else return -1;
+            channels = 2;
+            if (sample_rate < 1 || (bits_sample != 8 && bits_sample != 16 && bits_sample != 32)) {
+                fprintf(stderr, "- <sr> <bs>\n");
+                return -1;
+            }
+            pcm.sr  = sample_rate;
+            pcm.bps = bits_sample;
+            pcm.nch = channels;
+            option_pcmraw = 1;
+        }
         else {
             if (option1 == 1 && option2 == 1) goto help_out;
             if (!option_raw && option1 == 0 && option2 == 0) option2 = 1;
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
-                fprintf(stderr, "%s konnte nicht geoeffnet werden\n", *argv);
+                fprintf(stderr, "error: open %s\n", *argv);
                 return -1;
             }
             wavloaded = 1;
@@ -360,12 +378,21 @@ int main(int argc, char **argv) {
     if (!wavloaded) fp = stdin;
 
 
-    pcm.sel_ch = sel_wavch;
-    k = read_wav_header(&pcm, fp);
-    if ( k < 0 ) {
+    if (option_iq == 0 && option_pcmraw) {
         fclose(fp);
-        fprintf(stderr, "error: wav header\n");
+        fprintf(stderr, "error: raw data not IQ\n");
         return -1;
+    }
+    if (option_iq) sel_wavch = 0;
+
+    pcm.sel_ch = sel_wavch;
+    if (option_pcmraw == 0) {
+        k = read_wav_header(&pcm, fp);
+        if ( k < 0 ) {
+            fclose(fp);
+            fprintf(stderr, "error: wav header\n");
+            return -1;
+        }
     }
 
     symlen = 1;
@@ -693,7 +720,8 @@ int main(int argc, char **argv) {
                                     if (gpx.sn > 0 && gpx.sn < 1e9) {
                                         sprintf(id_str, "%.0f", gpx.sn);
                                     }
-                                    printf("{ \"frame\": %d, \"id\": \"IMS100-%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f }\n",
+                                    printf("{ \"type\": \"%s\"", "IMS100");
+                                    printf(", \"frame\": %d, \"id\": \"IMS100-%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f }\n",
                                            gpx.frnr, id_str, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD );
                                     printf("\n");
                                 }

@@ -322,6 +322,56 @@ int read_rawbit3(FILE *fp, int *bit) {
     return 0;
 }
 
+
+typedef struct {
+    ui8_t hb;
+    float sb;
+} hsbit_t;
+
+int soft_read_rawbit2(FILE *fp, hsbit_t *shb) {
+    int sample;
+    int sum;
+    ui8_t bit = 0;
+
+    sum = 0;
+
+    if (bitstart) {
+        scount = 0;    // eigentlich scount = 1
+        bitgrenze = 0; //   oder bitgrenze = -1
+        bitstart = 0;
+    }
+
+    bitgrenze += samples_per_bit;
+    do {
+        sample = read_signed_sample(fp);
+        if (sample == EOF_INT) return EOF;
+        //sample_count++; // in read_signed_sample()
+        //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
+        sum += sample;
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
+
+    bitgrenze += samples_per_bit;
+    do {
+        sample = read_signed_sample(fp);
+        if (sample == EOF_INT) return EOF;
+        //sample_count++; // in read_signed_sample()
+        //par =  (sample >= 0) ? 1 : -1;    // 8bit: 0..127,128..255 (-128..-1,0..127)
+        sum -= sample;
+        scount++;
+    } while (scount < bitgrenze);  // n < samples_per_bit
+
+    if (option_inv) sum = -sum;  // sum=0 bleibt bit=1
+                                 // jedoch sb und hb werden zusammen invertiert
+    if (sum >= 0) bit = 1;
+    else          bit = 0;
+
+    shb->hb = bit;
+    shb->sb = sum;
+
+    return 0;
+}
+
 /* -------------------------------------------------------------------------- */
 
 //#define BITS (2*8)  // 16
@@ -340,6 +390,8 @@ int bufpos = -1;
 
 char frame_rawbits[RAWBITFRAME_LEN+8] = "01100101011001101010010110101010"; //->"0100010111001111";
 char frame_bits[BITFRAME_LEN+4];
+
+hsbit_t frm[BITFRAME_LEN+4];
 
 
 void inc_bufpos() {
@@ -417,6 +469,16 @@ void manchester1(char* frame_rawbits, char *frame_bits, int pos) {
 #define DAT2 (16+160) // 104 bit
                // frame: 280 bit
 
+ui8_t G[8][4] =  // Generator
+             {{ 1, 0, 0, 0},
+              { 0, 1, 0, 0},
+              { 0, 0, 1, 0},
+              { 0, 0, 0, 1},
+              { 0, 1, 1, 1},
+              { 1, 0, 1, 1},
+              { 1, 1, 0, 1},
+              { 1, 1, 1, 0}};
+
 ui8_t H[4][8] =  // Parity-Check
              {{ 0, 1, 1, 1, 1, 0, 0, 0},
               { 1, 0, 1, 1, 0, 1, 0, 0},
@@ -431,6 +493,33 @@ ui8_t hamming_dat2[13*B];
 ui8_t block_conf[ 7*S];  //  7*4=28
 ui8_t block_dat1[13*S];  // 13*4=52
 ui8_t block_dat2[13*S];
+
+hsbit_t soft_hamming_conf[ 7*B];  //  7*8=56
+hsbit_t soft_hamming_dat1[13*B];  // 13*8=104
+hsbit_t soft_hamming_dat2[13*B];
+
+ui8_t codewords[16][8];
+
+int nib4bits(ui8_t nib, ui8_t *bits) { // big endian
+    int j;
+
+    nib &= 0xF;
+    for (j = 0; j < 4; j++) {
+        bits[j] = (nib>>(3-j)) & 0x1;
+    }
+    return 0;
+}
+
+int gencode(ui8_t msg[4], ui8_t code[8]) {
+    int i, j;                  // Gm=c
+    for (i = 0; i < 8; i++) {
+        code[i] = 0;
+        for (j = 0; j < 4; j++) {
+            code[i] ^= G[i][j] & msg[j];
+        }
+    }
+    return 0;
+}
 
 ui32_t bits2val(ui8_t *bits, int len) { // big endian
     int j;
@@ -450,6 +539,15 @@ void deinterleave(char *str, int L, ui8_t *block) {
             if (str[L*j+i] >= 0x30 && str[L*j+i] <= 0x31) {
                 block[B*i+j] = str[L*j+i] - 0x30; // ASCII -> bit
             }
+        }
+    }
+}
+
+void soft_deinterleave(hsbit_t *str, int L, hsbit_t *block) {
+    int i, j;
+    for (j = 0; j < B; j++) {  // L = 7, 13
+        for (i = 0; i < L; i++) {
+            block[B*i+j] = str[L*j+i];
         }
     }
 }
@@ -489,6 +587,82 @@ int hamming(ui8_t *ham, int L, ui8_t *sym) {
         if (option_ecc) ret |= check(ham+B*i);
         for (j = 0; j < S; j++) {  // systematic: bits 0..S-1 data
             sym[S*i+j] = ham[B*i+j];
+        }
+    }
+    return ret;
+}
+
+int soft_check(hsbit_t code[8]) {
+    int i, j;               // Bei Demodulierung durch Nulldurchgaenge, wenn durch Fehler ausser Takt,
+    ui32_t synval = 0;      // verschieben sich die bits. Fuer Hamming-Decode waere es besser,
+    ui8_t syndrom[4];       // sync zu Beginn mit Header und dann Takt beibehalten fuer decision.
+    int ret=0;
+
+    for (i = 0; i < 4; i++) { // S = 4
+        syndrom[i] = 0;
+        for (j = 0; j < 8; j++) { // B = 8
+            syndrom[i] ^= H[i][j] & code[j].hb;
+        }
+    }
+    synval = bits2val(syndrom, 4);
+    if (synval) {
+        ret = -1;
+        for (j = 0; j < 8; j++) {   // 1-bit-error
+            if (synval == He[j]) {  // reicht auf databits zu pruefen, d.h.
+                ret = j+1;          // (systematischer Code) He[0..3]
+                break;
+            }
+        }
+    }
+    else ret = 0; // d=0: valid codeword
+
+    if (ret > 0) code[ret-1].hb ^= 0x1;    // d=1: 1-bit-error
+    else if (ret < 0 && option_ecc == 2) { // d=2: 2-bit-error: soft decision
+        int n;
+        int count = 0;
+        int maxn = -1;
+        int d = 0;
+        float sum = 0.0;
+        float maxsum = 0.0;
+        for (n = 0; n < 16; n++) {
+            d = 0;
+            for (i = 0; i < 8; i++) { // d(a,b) = sum_i a[i]^b[i]
+                if (code[i].hb != codewords[n][i]) d++;
+            }
+            if (d == 2) { // dist=2
+                count++;
+                // sum softbits
+                // correlation: - interleaving
+                //              + no pulse-shaping -> sum
+                //
+                sum = 0.0;
+                for (i = 0; i < 8; i++) {
+                    sum += (2*codewords[n][i]-1) * code[i].sb;
+                }
+                if (sum >= maxsum) {
+                    maxsum = sum;
+                    maxn = n;
+                }
+            }
+        }
+        if (maxn >= 0) {
+            for (i = 0; i < 8; i++) {
+                if (code[i].hb = codewords[maxn][i]);
+            }
+            //ret = 0x100;
+        }
+    }
+
+    return ret;
+}
+
+int soft_hamming(hsbit_t *ham, int L, ui8_t *sym) {
+    int i, j;
+    int ret = 0;               // L = 7, 13
+    for (i = 0; i < L; i++) {  // L * 2 nibble (data+parity)
+        if (option_ecc) ret |= soft_check(ham+B*i);
+        for (j = 0; j < S; j++) {  // systematic: bits 0..S-1 data
+            sym[S*i+j] = ham[B*i+j].hb;
         }
     }
     return ret;
@@ -998,13 +1172,27 @@ void print_frame() {
         manchester1(frame_rawbits, frame_bits, RAWBITFRAME_LEN);
     }
 
-    deinterleave(frame_bits+CONF,  7, hamming_conf);
-    deinterleave(frame_bits+DAT1, 13, hamming_dat1);
-    deinterleave(frame_bits+DAT2, 13, hamming_dat2);
 
-    ret0 = hamming(hamming_conf,  7, block_conf);
-    ret1 = hamming(hamming_dat1, 13, block_dat1);
-    ret2 = hamming(hamming_dat2, 13, block_dat2);
+    if (option_ecc == 2) {
+        soft_deinterleave(frm+CONF,  7, soft_hamming_conf);
+        soft_deinterleave(frm+DAT1, 13, soft_hamming_dat1);
+        soft_deinterleave(frm+DAT2, 13, soft_hamming_dat2);
+
+        ret0 = soft_hamming(soft_hamming_conf,  7, block_conf);
+        ret1 = soft_hamming(soft_hamming_dat1, 13, block_dat1);
+        ret2 = soft_hamming(soft_hamming_dat2, 13, block_dat2);
+    }
+    else {
+        deinterleave(frame_bits+CONF,  7, hamming_conf);
+        deinterleave(frame_bits+DAT1, 13, hamming_dat1);
+        deinterleave(frame_bits+DAT2, 13, hamming_dat2);
+
+        ret0 = hamming(hamming_conf,  7, block_conf);
+        ret1 = hamming(hamming_dat1, 13, block_dat1);
+        ret2 = hamming(hamming_dat2, 13, block_dat2);
+    }
+
+
 
     if (option_raw == 1) {
 
@@ -1042,14 +1230,14 @@ void print_frame() {
     }
     else if (option_ecc) {
 
-        if (ret0 == 0 || ret0 > 0) {
+        if (ret0 == 0 || ret0 > 0 || option_ecc == 2) {
             conf_out(block_conf);
         }
-        if (ret1 == 0 || ret1 > 0) {
+        if (ret1 == 0 || ret1 > 0 || option_ecc == 2) {
             frid = dat_out(block_dat1);
             if (frid == 8) print_gpx();
         }
-        if (ret2 == 0 || ret2 > 0) {
+        if (ret2 == 0 || ret2 > 0 || option_ecc == 2) {
             frid = dat_out(block_dat2);
             if (frid == 8) print_gpx();
         }
@@ -1120,9 +1308,8 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "-b2") == 0) { option_b = 2; }
         else if   (strcmp(*argv, "-b3") == 0) { option_b = 3; }
-        else if ( (strcmp(*argv, "--ecc") == 0) ) {
-            option_ecc = 1;
-        }
+        else if ( (strcmp(*argv, "--ecc" ) == 0) ) { option_ecc = 1; }
+        else if ( (strcmp(*argv, "--ecc2") == 0) ) { option_ecc = 2; }
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
             option_ptu = 1;
             //ptu_out = 1; // force ptu (non PS-15)
@@ -1140,6 +1327,7 @@ int main(int argc, char **argv) {
     }
     if (!wavloaded) fp = stdin;
 
+    if (option_ecc == 2) option_b = 2;
 
     i = read_wav_header(fp);
     if (i) {
@@ -1152,6 +1340,16 @@ int main(int argc, char **argv) {
         for (i = 0; i < 2*samples_per_bit; i++) wc[i] =  (i < samples_per_bit) ? 1 : -1; // wie -b2
         //for (i = 0; i < 2*samples_per_bit; i++) wc[i] = sin(2*M_PI*i/(2*samples_per_bit));
         //for (i = 0; i < 2*samples_per_bit; i++) wc[i] = cos(M_PI*i/(2*samples_per_bit));
+    }
+
+
+    if (option_ecc == 2) {
+        ui8_t nib, msg[4], code[8];
+        for (nib = 0; nib < 16; nib++) {
+            nib4bits(nib, msg);
+            gencode(msg, code);
+            for (i = 0; i < 8; i++)  codewords[nib][i] = code[i];
+        }
     }
 
 
@@ -1224,9 +1422,26 @@ int main(int argc, char **argv) {
             manchester1(frame_rawbits, frame_bits, pos);
             pos /= 2;
 
+            if (option_ecc == 2) {
+                for (i = 0; i < pos; i++) {
+                    frm[i].hb = frame_bits[i] % 1;
+                    frm[i].sb = 0.0; // (ecc2) bit=1: sb>0 , bit=0: sb<0
+                }
+            }
+
             while ( pos < BITFRAME_LEN ) {
-                if (option_b==2) { if (read_rawbit2(fp, &bit) == EOF) break; }
-                else             { if (read_rawbit3(fp, &bit) == EOF) break; }
+                if (option_b == 2) {
+                    if (option_ecc == 2) {
+                        if (soft_read_rawbit2(fp, frm+pos) == EOF) break;
+                        bit = frm[pos].hb;
+                    }
+                    else {
+                        if (read_rawbit2(fp, &bit) == EOF) break;
+                    }
+                }
+                else { // option_b==3
+                    if (read_rawbit3(fp, &bit) == EOF) break;
+                }
                 frame_bits[pos] = 0x30 + bit;
                 pos++;
             }

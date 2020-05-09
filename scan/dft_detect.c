@@ -1,10 +1,22 @@
 
+/*
+ *  compile:
+ *      gcc dft_detect.c -lm -o dft_detect
+ *  speedup:
+ *      gcc -Ofast dft_detect.c -lm -o dft_detect
+ *
+ *  author: zilog80
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <complex.h>
 
+#ifndef M_PI
+    #define M_PI  (3.1415926535897932384626433832795)
+#endif
 
 typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
@@ -574,7 +586,7 @@ static int lowpass_init(float f, int taps, float **pws) {
 
     h = (double*)calloc( taps+1, sizeof(double)); if (h == NULL) return -1;
     w = (double*)calloc( taps+1, sizeof(double)); if (w == NULL) return -1;
-    ws = (float*)calloc( taps+1, sizeof(float)); if (ws == NULL) return -1;
+    ws = (float*)calloc( 2*taps+1, sizeof(float)); if (ws == NULL) return -1;
 
     for (n = 0; n < taps; n++) {
         w[n] = 7938/18608.0 - 9240/18608.0*cos(2*M_PI*n/(taps-1)) + 1430/18608.0*cos(4*M_PI*n/(taps-1)); // Blackmann
@@ -585,6 +597,9 @@ static int lowpass_init(float f, int taps, float **pws) {
     for (n = 0; n < taps; n++) {
         ws[n] /= norm; // 1-norm
     }
+
+    for (n = 0; n < taps; n++) ws[taps+n] = ws[n]; // duplicate/unwrap
+
     *pws = ws;
 
     free(h); h = NULL;
@@ -594,13 +609,23 @@ static int lowpass_init(float f, int taps, float **pws) {
 }
 
 // struct { int taps; double *ws}
-static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+static float complex lowpass0(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
     double complex w = 0;
     for (n = 0; n < taps; n++) {
         w += buffer[(sample+n+1)%taps]*ws[taps-1-n];
     }
     return (float complex)w;
+}
+static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
+    ui32_t s = sample % taps;
+    double complex w = 0;
+    for (n = 0; n < taps; n++) {
+        w += buffer[n]*ws[taps+s-n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
+    }
+    return (float complex)w;
+// symmetry: ws[n] == ws[taps-1-n]
 }
 
 
@@ -1197,7 +1222,7 @@ int main(int argc, char **argv) {
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
-                fprintf(stderr, "%s konnte nicht geoeffnet werden\n", *argv);
+                fprintf(stderr, "error: open %s\n", *argv);
                 return -50;
             }
             wavloaded = 1;

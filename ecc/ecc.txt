@@ -5,14 +5,21 @@ Einige Radiosonden senden frames mit Codewoertern, die eine Fehlerkorrektur ermo
 
 Graw
 ====
-BCH/Hamming code (N, N-R) = (2^m - 1, N-m), d.h. R=mt mit t=1,
+Hammingcode (N, N-R) = (2^m - 1, N-m), d.h. R=mt mit t=1,
 korrigiert t=1 Fehler pro Codewort der Laenge N,
-die Codewoerter haben den Abstand d=3 (bei 2 Fehlern
-wird falsch dekodiert).
-Fuer die Sonden DFM-06/09 ist m=3, d.h. Hamming (7, 4),
-jedoch mit einem Paritaetsbit zu (8, 4) erweitert.
-Der erweiterte Hammingcode (8, 4) kann zudem 2 Fehler
+die Codewoerter haben den (min.) Abstand d=3
+(bei 2 Fehlern wird zum Nachbarcodewort falsch dekodiert).
+
+Fuer die Sonden DFM-06/09 ist m=3, d.h. Hamming(7,4),
+jedoch mit einem Paritaetsbit zu (8,4) erweitert.
+
+Der erweiterte Hammingcode (8,4) kann zudem 2 Fehler
 als nicht-korrigierbar erkennen (wird nicht falsch decodiert).
+Zu einem Wort mit 2 Fehlern gibt es 4 Codewoerter mit Abstand 2.
+Von diesen kann das Codewort, das am besten passt, ausgewaehlt
+werden (soft decision). Allerdings steigt die Wahrscheinlichkeit,
+dass neben 2 Fehlern auch Woerter mit 3 Fehlern vorkommen, wobei
+diese dann falsch decodiert werden.
 
 
 Meisei

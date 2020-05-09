@@ -2,7 +2,9 @@
 /* big endian forest
  *
  * gcc mXX_20180919.c -lm
- * 2018-09-19 Ury?
+ *
+ * 2018-09-19 Ury: (len=0x43)
+ * 2019-11-06 Ury: (len=0x45) ./a.out -b -c -v --br 9600 new_rs_48k.wav
  *
  */
 
@@ -67,7 +69,7 @@ void Gps2Date(long GpsWeek, long GpsSeconds, int *Year, int *Month, int *Day) {
 }
 /* -------------------------------------------------------------------------- */
 
-#define BAUD_RATE   9616 //2*4800
+#define BAUD_RATE   9600  //9616 //2*4800
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
 float samples_per_bit = 0;
@@ -295,6 +297,7 @@ dduudduudduudduu duduudduuduudduu  ddududuudduduudd uduuddududududud uudduduuddu
                                                     //"011101101001111100100000"; // M10: 76 9F 20 , aux-data?
                                                     //"011001000100100100001001"; // M10-dop: 64 49 09
                                                     //"011001001010111100000010"; // M10gtop: 64 AF 02
+                                                    // M20?: 45 20
 char header[] =  "10011001100110010100110010011001";
 
 #define FRAME_LEN       (0x43+1)   //(100+1)   // 0x64+1
@@ -504,7 +507,8 @@ int get_GPSweek() {
     return 0;
 }
 
-char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+//char weekday[7][3] = { "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 int get_GPStime() {
     int i;
@@ -592,6 +596,33 @@ int get_GPSvel() {
 }
 
 /* -------------------------------------------------------------------------- */
+
+static float get_Tntc0(ui8_t *frame, int csOK) {
+// SMD ntc
+    float Rs = 22.1e3;          // P5.6=Vcc
+  float R25 = 2.2e3;// 0.119e3; //2.2e3;
+  float b = 3650.0;           // B/Kelvin
+  float T25 = 25.0 + 273.15;  // T0=25C, R0=R25=5k
+// -> Steinhart–Hart coefficients (polyfit):
+    float p0 =  4.42606809e-03,
+          p1 = -6.58184309e-04,
+          p2 =  8.95735557e-05,
+          p3 = -2.84347503e-06;
+    float T = 0.0;              // T/Kelvin
+    ui16_t ADC_ntc0;            // M10: ADC12 P6.4(A4)
+    float x, R;
+    if (csOK)
+    {
+        ADC_ntc0  = (frame[0x07] << 8) | frame[0x06]; // M10: 0x40,0x3F
+        x = (4095.0 - ADC_ntc0)/ADC_ntc0;  // (Vcc-Vout)/Vout
+        R = Rs / x;
+        if (R > 0)  T = 1/(1/T25 + 1/b * log(R/R25));
+        //if (R > 0)  T =  1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
+    }
+    return T - 273.15;
+}
+
+/* -------------------------------------------------------------------------- */
 /*
 g : F^n -> F^16      // checksum, linear
 g(m||b) = f(g(m),b)
@@ -667,6 +698,9 @@ int print_pos(int csOK) {
 
         Gps2Date(datum.week, datum.gpssec, &datum.jahr, &datum.monat, &datum.tag);
 
+        // counter
+        fprintf(stdout, "[%3d]", frame_bytes[0x15]);
+
         if (option_color) {
             fprintf(stdout, col_TXT);
 
@@ -686,6 +720,12 @@ int print_pos(int csOK) {
                 if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                 else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
+
+            if (option_verbose >= 2) {
+                float t0 = get_Tntc0(frame_bytes, csOK);
+                if (t0 > -270.0) fprintf(stdout, "  (T0:%.1fC)", t0);
+            }
+
             fprintf(stdout, ANSI_COLOR_RESET"");
         }
         else {
@@ -704,9 +744,15 @@ int print_pos(int csOK) {
                 fprintf(stdout, "  # ");
                 if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
+
+            if (option_verbose >= 2) {
+                float t0 = get_Tntc0(frame_bytes, csOK);
+                if (t0 > -270.0) fprintf(stdout, "  (T0:%.1fC)", t0);
+            }
         }
+
+        fprintf(stdout, "\n");
     }
-    fprintf(stdout, "\n");
 
     return err;
 }
@@ -728,8 +774,8 @@ void print_frame(int pos) {
         if (auxlen < 0 || auxlen > AUX_LEN) auxlen = 0;
     }
 
-    cs1 = (frame_bytes[pos_Check] << 8) | frame_bytes[pos_Check+1];
-    cs2 = checkM10(frame_bytes, pos_Check);
+    cs1 = (frame_bytes[pos_Check+auxlen] << 8) | frame_bytes[pos_Check+auxlen+1];
+    cs2 = checkM10(frame_bytes, pos_Check+auxlen);
 
     if (option_raw) {
 
@@ -745,7 +791,7 @@ void print_frame(int pos) {
                 if ((i >= pos_GPSvE)    &&  (i < pos_GPSvE+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_GPSvN)    &&  (i < pos_GPSvN+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_GPSvU)    &&  (i < pos_GPSvU+2))    fprintf(stdout, col_GPSvel);
-                if ((i >= pos_Check)    &&  (i < pos_Check+2))    fprintf(stdout, col_Check);
+                if ((i >= pos_Check+auxlen)  &&  (i < pos_Check+auxlen+2))  fprintf(stdout, col_Check);
                 fprintf(stdout, "%02x", byte);
                 fprintf(stdout, col_FRTXT);
             }
@@ -784,6 +830,7 @@ int main(int argc, char **argv) {
     int bit, bit0;
     int pos;
     int header_found = 0;
+    float baudrate = -1;
 
 
 #ifdef CYGWIN
@@ -820,6 +867,14 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "-b2") == 0) { option_b = 2; }
         else if   (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
+        else if ( (strcmp(*argv, "--br") == 0) ) {
+            ++argv;
+            if (*argv) {
+                baudrate = atof(*argv);
+                if (baudrate < 9000 || baudrate > 10000) baudrate = BAUD_RATE; // default: 9615
+            }
+            else return -1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -837,6 +892,10 @@ int main(int argc, char **argv) {
     if (i) {
         fclose(fp);
         return -1;
+    }
+    if (baudrate > 0) {
+        samples_per_bit = sample_rate/baudrate;
+        fprintf(stderr, "sps corr: %.4f\n", samples_per_bit);
     }
 
 
