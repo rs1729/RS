@@ -77,6 +77,7 @@ typedef struct {
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vx; double vy; double vD2;
+    float T; float _RH; float Ti;
     ui8_t numSV;
     ui8_t utc_ofs;
     char SN[12];
@@ -507,7 +508,7 @@ static int checkM10(ui8_t *msg, int len) {
 // Temperatur Sensor
 // NTC-Thermistor Shibaura PB5-41E
 //
-static float get_Temp(gpx_t *gpx, int csOK) {
+static float get_Temp(gpx_t *gpx) {
 // NTC-Thermistor Shibaura PB5-41E
 // T00 = 273.15 +  0.0 , R00 = 15e3
 // T25 = 273.15 + 25.0 , R25 = 5.369e3
@@ -563,22 +564,23 @@ static float get_Temp(gpx_t *gpx, int csOK) {
 
     if (R > 0)  T =  1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
 
-    if (gpx->option.vbs >= 3 && csOK) { // on-chip temperature
-        ui16_t ADC_Ti_raw = (gpx->frame_bytes[0x49] << 8) | gpx->frame_bytes[0x48]; // int.temp.diode, ref: 4095->1.5V
-        float vti, ti;
-        // INCH1A (temp.diode), slau144
-        vti = ADC_Ti_raw/4095.0 * 1.5; // V_REF+ = 1.5V, no calibration
-        ti = (vti-0.986)/0.00355;      // 0.986/0.00355=277.75, 1.5/4095/0.00355=0.1032
-        fprintf(stdout, "  (Ti:%.1fC)", ti);
-        // SegmentA-Calibration:
-        //ui16_t T30 = adr_10e2h; // CAL_ADC_15T30
-        //ui16_t T85 = adr_10e4h; // CAL_ADC_15T85
-        //float  tic = (ADC_Ti_raw-T30)*(85.0-30.0)/(T85-T30) + 30.0;
-        //fprintf(stdout, "  (Tic:%.1fC)", tic);
-    }
-
     return  T - 273.15; // Celsius
 }
+
+static float get_intTemp(gpx_t *gpx) {
+// on-chip temperature
+    ui16_t ADC_Ti_raw = (gpx->frame_bytes[0x49] << 8) | gpx->frame_bytes[0x48]; // int.temp.diode, ref: 4095->1.5V
+    float vti, ti;
+    // INCH1A (temp.diode), slau144
+    vti = ADC_Ti_raw/4095.0 * 1.5; // V_REF+ = 1.5V, no calibration
+    ti = (vti-0.986)/0.00355;      // 0.986/0.00355=277.75, 1.5/4095/0.00355=0.1032
+    gpx->Ti = ti;
+    // SegmentA-Calibration:
+    //ui16_t T30 = adr_10e2h; // CAL_ADC_15T30
+    //ui16_t T85 = adr_10e4h; // CAL_ADC_15T85
+    //float  tic = (ADC_Ti_raw-T30)*(85.0-30.0)/(T85-T30) + 30.0;
+}
+
 /*
 frame[0x32]: adr_1074h
 frame[0x33]: adr_1075h
@@ -621,7 +623,7 @@ frame[0x5F]: adr_1084h (SN)
 frame[0x60]: adr_1080h (SN)
 frame[0x61]: adr_1081h (SN)
 */
-static float get_Tntc2(gpx_t *gpx, int csOK) {
+static float get_Tntc2(gpx_t *gpx) {
 // SMD ntc
     float Rs = 22.1e3;          // P5.6=Vcc
 //  float R25 = 2.2e3;
@@ -635,14 +637,13 @@ static float get_Tntc2(gpx_t *gpx, int csOK) {
     float T = 0.0;              // T/Kelvin
     ui16_t ADC_ntc2;            // ADC12 P6.4(A4)
     float x, R;
-    if (csOK)
-    {
-        ADC_ntc2  = (gpx->frame_bytes[0x5A] << 8) | gpx->frame_bytes[0x59];
-        x = (4095.0 - ADC_ntc2)/ADC_ntc2;  // (Vcc-Vout)/Vout
-        R = Rs / x;
-        //if (R > 0)  T = 1/(1/T25 + 1/b * log(R/R25));
-        if (R > 0)  T =  1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
-    }
+
+    ADC_ntc2  = (gpx->frame_bytes[0x5A] << 8) | gpx->frame_bytes[0x59];
+    x = (4095.0 - ADC_ntc2)/ADC_ntc2;  // (Vcc-Vout)/Vout
+    R = Rs / x;
+    //if (R > 0)  T = 1/(1/T25 + 1/b * log(R/R25));
+    if (R > 0)  T =  1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
+
     return T - 273.15;
 }
 
@@ -653,6 +654,11 @@ static float get_Tntc2(gpx_t *gpx, int csOK) {
 #define LN2         0.693147181
 #define ADR_108A    1000.0       // 0x3E8=1000
 
+static float get_count_55(gpx_t *gpx) { // CalRef 55%RH , T=20C ?
+    ui32_t TBCREF_1000 = gpx->frame_bytes[0x32] | (gpx->frame_bytes[0x33]<<8) | (gpx->frame_bytes[0x34]<<16);
+    return TBCREF_1000 / ADR_108A;
+}
+
 static float get_count_RH(gpx_t *gpx) {  // capture 1000 rising edges
     ui32_t TBCCR1_1000 = gpx->frame_bytes[0x35] | (gpx->frame_bytes[0x36]<<8) | (gpx->frame_bytes[0x37]<<16);
     return TBCCR1_1000 / ADR_108A;
@@ -660,26 +666,41 @@ static float get_count_RH(gpx_t *gpx) {  // capture 1000 rising edges
 static float get_TLC555freq(gpx_t *gpx) {
     return FREQ_CAPCLK / get_count_RH(gpx);
 }
+static float cRHc55_RH(gpx_t *gpx, float cRHc55) {  // C_RH / C_55
+// U.P.S.I.
+// C_RH/C_55 = 0.8955 + 0.002*RH , T=20C
+// C_RH = C_RH(RH,T) , RH = RH(C_RH,T)
+// C_RH/C_55 approx.eq. count_RH/count_ref
+    float TH = get_Tntc2(gpx);
+    float Tc = get_Temp(gpx);
+    float rh = (cRHc55-0.8955)/0.002; // UPSI linear transfer function
+    // temperature compensation
+    float T0 = 0.0, T1 = -30.0; // T/C
+    float T = Tc; // TH, TH-Tc (sensorT - T)
+    if (T < T0) rh += T0 - T/5.5;        // approx/empirical
+    if (T < T1) rh *= 1.0 + (T1-T)/75.0; // approx/empirical
+    if (rh < 0.0) rh = 0.0;
+    if (rh > 100.0) rh = 100.0;
+    return rh;
+}
+
+static float get_RH(gpx_t *gpx) {
+    //ui32_t TBCREF_1000 = frame_bytes[0x32] | (frame_bytes[0x33]<<8) | (frame_bytes[0x34]<<16); // CalRef 55%RH , T=20C ?
+    //ui32_t TBCCR1_1000 = frame_bytes[0x35] | (frame_bytes[0x36]<<8) | (frame_bytes[0x37]<<16); // FrqCnt TLC555
+    //float  cRHc55 = TBCCR1_1000 / (float)TBCREF_1000; // CalRef 55%RH , T=20C ?
+    float  cRHc55 = get_count_RH(gpx) / get_count_55(gpx); // CalRef 55%RH , T=20C ?
+    return cRHc55_RH(gpx, cRHc55);
+}
+
 /*
-double get_C_RH() {  // TLC555 astable: R_A=3.65k, R_B=338k
+static float get_C_RH() {  // TLC555 astable: R_A=3.65k, R_B=338k
     double R_B = 338e3;
     double R_A = 3.65e3;
     double C_RH = 1/get_TLC555freq() / (LN2 * (R_A + 2*R_B));
     return C_RH;
 }
-double get_RH(int csOK) {
-// U.P.S.I.
-// C_RH/C_55 = 0.8955 + 0.002*RH , T=20C
-// C_RH = C_RH(RH,T) , RH = RH(C_RH,T)
-// C_RH/C_55 approx.eq. count_RH/count_ref
-// c55=270pF? diff=C_55-c55, T=20C
-    ui32_t c = gpx->frame_bytes[0x32] | (gpx->frame_bytes[0x33]<<8) | (gpx->frame_bytes[0x34]<<16); // CalRef 55%RH , T=20C ?
-    double count_ref = c / ADR_108A; // CalRef 55%RH , T=20C ?
-    double C_RH = get_C_RH();
-    double T = get_Tntc2(csOK);
-    return 0;
-}
 */
+
 /* -------------------------------------------------------------------------- */
 
 static int print_pos(gpx_t *gpx, int csOK) {
@@ -696,6 +717,10 @@ static int print_pos(gpx_t *gpx, int csOK) {
     if (!err) {
 
         Gps2Date(gpx->week, gpx->gpssec, &gpx->jahr, &gpx->monat, &gpx->tag);
+
+        gpx->T   = get_Temp(gpx);
+        gpx->_RH = get_RH(gpx);
+        gpx->Ti  = get_intTemp(gpx);
 
         if (gpx->option.col) {
             fprintf(stdout, col_TXT);
@@ -719,12 +744,13 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                 else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
-            if (gpx->option.ptu) {
-                float t = get_Temp(gpx, csOK);
-                if (t > -270.0) fprintf(stdout, "  T=%.1fC ", t);
+            if (gpx->option.ptu && csOK) {
+                if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC ", gpx->T);
+                if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, "_RH=%.0f%% ", gpx->_RH); }
                 if (gpx->option.vbs >= 3) {
-                    float t2 = get_Tntc2(gpx, csOK);
+                    float t2 = get_Tntc2(gpx);
                     float fq555 = get_TLC555freq(gpx);
+                    fprintf(stdout, "  (Ti:%.1fC)", gpx->Ti);
                     if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz) ", t2, fq555/1e3);
                 }
             }
@@ -750,12 +776,13 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 fprintf(stdout, "  # ");
                 if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
-            if (gpx->option.ptu) {
-                float t = get_Temp(gpx, csOK);
-                if (t > -270.0) fprintf(stdout, "  T=%.1fC ", t);
+            if (gpx->option.ptu && csOK) {
+                if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC ", gpx->T);
+                if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, "_RH=%.0f%% ", gpx->_RH); }
                 if (gpx->option.vbs >= 3) {
-                    float t2 = get_Tntc2(gpx, csOK);
+                    float t2 = get_Tntc2(gpx);
                     float fq555 = get_TLC555freq(gpx);
+                    fprintf(stdout, "  (Ti:%.1fC)", gpx->Ti);
                     if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz) ", t2, fq555/1e3);
                 }
             }
@@ -799,10 +826,12 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 aprs_id[2] = gpx->frame_bytes[pos_SN+4];
                 aprs_id[3] = gpx->frame_bytes[pos_SN+3];
                 fprintf(stdout, ", \"aprsid\": \"ME%02X%1X%02X%02X\"", aprs_id[0], aprs_id[1], aprs_id[2], aprs_id[3]);
-                // temperature
+                // temperature (and humidity)
                 if (gpx->option.ptu) {
-                    float t = get_Temp(gpx, 0);
-                    if (t > -273.0) fprintf(stdout, ", \"temp\": %.1f", t);
+                    if (gpx->T > -273.0) fprintf(stdout, ", \"temp\": %.1f", gpx->T);
+                    if (gpx->option.vbs >= 2) {
+                        if (gpx->_RH > -0.5) fprintf(stdout, ", \"humidity\": %.1f", gpx->_RH);
+                    }
                 }
                 fprintf(stdout, " }\n");
                 fprintf(stdout, "\n");
@@ -1008,7 +1037,6 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
         if (_mv*(0.5-gpx.option.inv) < 0) {
             gpx.option.inv ^= 0x1;  // M10: irrelevant
         }
-
 
         if (header_found) {
 
