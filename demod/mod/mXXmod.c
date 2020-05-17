@@ -152,19 +152,48 @@ static int bits2bytes(char *bitstr, ui8_t *bytes) {
 
 /* -------------------------------------------------------------------------- */
 
+/*
+M20
 
-#define stdFLEN        0x64  // pos[0]=0x64  // M20: 0x45
-#define pos_GPSTOW    0x0F  // 4 byte
+GPS data: Big Endian
+PTU/ADC data: little endian
+
+frame[0x0] = framelen        // (0x43,) 0x45
+frame[0x1] = 0x20 (type M20)
+
+frame[0x02..0x18]: most important data at beginning (incl. counter + M10check)
+frame[0x02..0x03]: ADC
+frame[0x04..0x05]: ADC
+frame[0x06..0x07]: ADC temperature
+frame[0x08..0x0A]: GPS altitude
+frame[0x0B..0x0E]: GPS hor.Vel. (velE,velN)
+frame[0x0F..0x11]: GPS TOW
+frame[0x15]:       counter
+frame[0x16..0x17]: block check
+
+frame[0x18..0x19]: GPS ver.Vel. (velU)
+frame[0x1A..0x1B]: GPS week
+frame[0x1C..0x1F]: GPS latitude
+frame[0x20..0x23]: GPS longitude
+
+frame[0x44..0x45]: frame check
+
+*/
+
+#define stdFLEN       0x64  // pos[0]=0x45  // M20: 0x45 (0x43)  M10: 0x64
+#define pos_GPSTOW    0x0F  // 3 byte
 #define pos_GPSlat    0x1C  // 4 byte
 #define pos_GPSlon    0x20  // 4 byte
-#define pos_GPSalt    0x08 // 3 byte
-//#define pos_GPSsats    0x1E  // 1 byte
-//#define pos_GPSutc     0x1F  // 1 byte
+#define pos_GPSalt    0x08  // 3 byte
+//#define pos_GPSsats    0xXX  // 1 byte
+//#define pos_GPSutc     0xXX  // 1 byte
 #define pos_GPSweek   0x1A  // 2 byte
 //Velocity East-North-Up (ENU)
 #define pos_GPSvE     0x0B  // 2 byte
 #define pos_GPSvN     0x0D  // 2 byte
 #define pos_GPSvU     0x18  // 2 byte
+#define pos_Cnt       0x15  // 1 byte
+#define pos_BlkChk    0x16  // 2 byte
 #define pos_Check     (stdFLEN-1)  // 2 byte
 
 
@@ -179,11 +208,11 @@ static int bits2bytes(char *bitstr, ui8_t *bytes) {
 #define XTERM_COLOR_BROWN   "\x1b[38;5;94m"  // 38;5;{0..255}m
 
 #define col_GPSweek    "\x1b[38;5;20m"  // 2 byte
-#define col_GPSTOW     "\x1b[38;5;27m"  // 4 byte
+#define col_GPSTOW     "\x1b[38;5;27m"  // 3 byte
 #define col_GPSdate    "\x1b[38;5;94m" //111
 #define col_GPSlat     "\x1b[38;5;34m"  // 4 byte
 #define col_GPSlon     "\x1b[38;5;70m"  // 4 byte
-#define col_GPSalt     "\x1b[38;5;82m"  // 4 byte
+#define col_GPSalt     "\x1b[38;5;82m"  // 3 byte
 #define col_GPSvel     "\x1b[38;5;36m"  // 6 byte
 #define col_SN         "\x1b[38;5;58m"  // 3 byte
 #define col_Check      "\x1b[38;5;11m"  // 2 byte
@@ -439,6 +468,20 @@ static int checkM10(ui8_t *msg, int len) {
     return cs & 0xFFFF;
 }
 
+static int blk_checkM10(int c0, ui8_t *msg, int len) {
+    int i, cs;
+    ui8_t pre = c0 & 0xFF;
+    cs = 0;
+
+    cs = update_checkM10(cs, pre);
+
+    for (i = 0; i < len; i++) {
+        cs = update_checkM10(cs, msg[i]);
+    }
+
+    return cs & 0xFFFF;
+}
+
 /* -------------------------------------------------------------------------- */
 
 static float get_Tntc0(gpx_t *gpx) {
@@ -467,7 +510,7 @@ static float get_Tntc0(gpx_t *gpx) {
 
 /* -------------------------------------------------------------------------- */
 
-static int print_pos(gpx_t *gpx, int csOK) {
+static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
     int err, err2;
 
     err = 0;
@@ -484,7 +527,10 @@ static int print_pos(gpx_t *gpx, int csOK) {
 
         if (gpx->option.col) {
             fprintf(stdout, col_TXT);
-            if (gpx->option.vbs >= 3) fprintf(stdout, " (W "col_GPSweek"%d"col_TXT") ", gpx->week);
+            if (gpx->option.vbs >= 3) {
+                fprintf(stdout, "[%3d]", gpx->frame_bytes[pos_Cnt]);
+                fprintf(stdout, " (W "col_GPSweek"%d"col_TXT") ", gpx->week);
+            }
             fprintf(stdout, col_GPSTOW"%s"col_TXT" ", weekday[gpx->wday]);
             fprintf(stdout, col_GPSdate"%04d-%02d-%02d"col_TXT" "col_GPSTOW"%02d:%02d:%06.3f"col_TXT" ",
                     gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
@@ -496,6 +542,8 @@ static int print_pos(gpx_t *gpx, int csOK) {
             }
             if (gpx->option.vbs >= 2) {
                 fprintf(stdout, "  # ");
+                if (bcOK) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
+                else      fprintf(stdout, " "col_CSno"(no)"col_TXT);
                 if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                 else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
@@ -508,7 +556,10 @@ static int print_pos(gpx_t *gpx, int csOK) {
             fprintf(stdout, ANSI_COLOR_RESET"");
         }
         else {
-            if (gpx->option.vbs >= 3) fprintf(stdout, " (W %d) ", gpx->week);
+            if (gpx->option.vbs >= 3) {
+                fprintf(stdout, "[%3d]", gpx->frame_bytes[pos_Cnt]);
+                fprintf(stdout, " (W %d) ", gpx->week);
+            }
             fprintf(stdout, "%s ", weekday[gpx->wday]);
             fprintf(stdout, "%04d-%02d-%02d %02d:%02d:%06.3f ",
                     gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
@@ -520,6 +571,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
             }
             if (gpx->option.vbs >= 2) {
                 fprintf(stdout, "  # ");
+                if (bcOK) fprintf(stdout, " (ok)"); else fprintf(stdout, " (no)");
                 if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
             if (gpx->option.ptu && csOK) {
@@ -541,6 +593,7 @@ static int print_frame(gpx_t *gpx, int pos) {
     int i;
     ui8_t byte;
     int cs1, cs2;
+    int bc1, bc2;
     int flen = stdFLEN; // stdFLEN=0x64, auxFLEN=0x76; M20:0x45 ?
 
     bits2bytes(gpx->frame_bits, gpx->frame_bytes);
@@ -554,6 +607,9 @@ static int print_frame(gpx_t *gpx, int pos) {
     cs1 = (gpx->frame_bytes[pos_Check+gpx->auxlen] << 8) | gpx->frame_bytes[pos_Check+gpx->auxlen+1];
     cs2 = checkM10(gpx->frame_bytes, pos_Check+gpx->auxlen);
 
+    bc1 = (gpx->frame_bytes[pos_BlkChk] << 8) | gpx->frame_bytes[pos_BlkChk+1];
+    bc2 = blk_checkM10(0x16, gpx->frame_bytes+2, pos_BlkChk-2); // len(essentialBlock) = 0x16
+
     if (gpx->option.raw) {
 
         if (gpx->option.col  &&  gpx->frame_bytes[1] != 0x49) {
@@ -563,17 +619,20 @@ static int print_frame(gpx_t *gpx, int pos) {
                 if ((i >= pos_GPSTOW)   &&  (i < pos_GPSTOW+3))   fprintf(stdout, col_GPSTOW);
                 if ((i >= pos_GPSlat)   &&  (i < pos_GPSlat+4))   fprintf(stdout, col_GPSlat);
                 if ((i >= pos_GPSlon)   &&  (i < pos_GPSlon+4))   fprintf(stdout, col_GPSlon);
-                if ((i >= pos_GPSalt)   &&  (i < pos_GPSalt+4))   fprintf(stdout, col_GPSalt);
+                if ((i >= pos_GPSalt)   &&  (i < pos_GPSalt+3))   fprintf(stdout, col_GPSalt);
                 if ((i >= pos_GPSweek)  &&  (i < pos_GPSweek+2))  fprintf(stdout, col_GPSweek);
                 if ((i >= pos_GPSvE)    &&  (i < pos_GPSvE+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_GPSvN)    &&  (i < pos_GPSvN+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_GPSvU)    &&  (i < pos_GPSvU+2))    fprintf(stdout, col_GPSvel);
+                if ((i >= pos_BlkChk)   &&  (i < pos_BlkChk+2))   fprintf(stdout, col_Check);
                 if ((i >= pos_Check+gpx->auxlen)  &&  (i < pos_Check+gpx->auxlen+2))  fprintf(stdout, col_Check);
                 fprintf(stdout, "%02x", byte);
                 fprintf(stdout, col_FRTXT);
             }
             if (gpx->option.vbs) {
                 fprintf(stdout, " # "col_Check"%04x"col_FRTXT, cs2);
+                if (bc1 == bc2) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
+                else            fprintf(stdout, " "col_CSno"(no)"col_TXT);
                 if (cs1 == cs2) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                 else            fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
@@ -586,6 +645,7 @@ static int print_frame(gpx_t *gpx, int pos) {
             }
             if (gpx->option.vbs) {
                 fprintf(stdout, " # %04x", cs2);
+                if (bc1 == bc2) fprintf(stdout, " (ok)"); else fprintf(stdout, " (no)");
                 if (cs1 == cs2) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
             fprintf(stdout, "\n");
@@ -601,7 +661,7 @@ static int print_frame(gpx_t *gpx, int pos) {
             fprintf(stdout, "\n");
         }
     }
-    else print_pos(gpx, cs1 == cs2);
+    else print_pos(gpx, bc1 == bc2, cs1 == cs2);
 
     return (gpx->frame_bytes[0]<<8)|gpx->frame_bytes[1];
 }
