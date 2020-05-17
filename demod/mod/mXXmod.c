@@ -196,6 +196,8 @@ frame[0x44..0x45]: frame check
 #define pos_BlkChk    0x16  // 2 byte
 #define pos_Check     (stdFLEN-1)  // 2 byte
 
+#define len_BlkChk    0x16 // frame[0x02..0x17] , incl. chk16
+
 
 #define ANSI_COLOR_RED     "\x1b[31m"
 #define ANSI_COLOR_GREEN   "\x1b[32m"
@@ -458,7 +460,7 @@ static int update_checkM10(int c, ui8_t b) {
 }
 
 static int checkM10(ui8_t *msg, int len) {
-    int i, cs;
+    int i, cs;  // msg[0] = len+1
 
     cs = 0;
     for (i = 0; i < len; i++) {
@@ -467,15 +469,15 @@ static int checkM10(ui8_t *msg, int len) {
 
     return cs & 0xFFFF;
 }
-
-static int blk_checkM10(int c0, ui8_t *msg, int len) {
+// checkM10(frame, frame[0]-1) = blk_checkM10(frame[0], frame+1)
+static int blk_checkM10(int len, ui8_t *msg) {
     int i, cs;
-    ui8_t pre = c0 & 0xFF;
+    ui8_t pre = len & 0xFF; // len(block+chk16)
     cs = 0;
 
     cs = update_checkM10(cs, pre);
 
-    for (i = 0; i < len; i++) {
+    for (i = 0; i < len-2; i++) {
         cs = update_checkM10(cs, msg[i]);
     }
 
@@ -608,7 +610,7 @@ static int print_frame(gpx_t *gpx, int pos) {
     cs2 = checkM10(gpx->frame_bytes, pos_Check+gpx->auxlen);
 
     bc1 = (gpx->frame_bytes[pos_BlkChk] << 8) | gpx->frame_bytes[pos_BlkChk+1];
-    bc2 = blk_checkM10(0x16, gpx->frame_bytes+2, pos_BlkChk-2); // len(essentialBlock) = 0x16
+    bc2 = blk_checkM10(len_BlkChk, gpx->frame_bytes+2); // len(essentialBlock+chk16) = 0x16
 
     if (gpx->option.raw) {
 

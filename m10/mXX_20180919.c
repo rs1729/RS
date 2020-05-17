@@ -484,20 +484,23 @@ frame[0x44..0x45]: frame check
 
 */
 
-#define stdFLEN        0x43  // pos[0]=0x43
-#define pos_GPSTOW     0x0F  // 3 byte
-#define pos_GPSlat     0x1C  // 4 byte
-#define pos_GPSlon     0x20  // 4 byte
-#define pos_GPSalt     0x08  // 3 byte
-#define pos_GPSweek    0x1A  // 2 byte
+#define stdFLEN       0x43  // pos[0]=0x43
+#define pos_GPSTOW    0x0F  // 3 byte
+#define pos_GPSlat    0x1C  // 4 byte
+#define pos_GPSlon    0x20  // 4 byte
+#define pos_GPSalt    0x08  // 3 byte
+#define pos_GPSweek   0x1A  // 2 byte
 //Velocity East-North-Up (ENU)
-#define pos_GPSvE  0x0B  // 2 byte
-#define pos_GPSvN  0x0D  // 2 byte
-#define pos_GPSvU  0x18  // 2 byte
+#define pos_GPSvE     0x0B  // 2 byte
+#define pos_GPSvN     0x0D  // 2 byte
+#define pos_GPSvU     0x18  // 2 byte
 
 #define pos_Cnt       0x15  // 1 byte
 #define pos_BlkChk    0x16  // 2 byte
 #define pos_Check     (stdFLEN-1)  // 2 byte
+
+#define len_BlkChk    0x16 // frame[0x02..0x17] , incl. chk16
+
 
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
@@ -627,7 +630,7 @@ int get_GPSvel() {
 
 /* -------------------------------------------------------------------------- */
 
-static float get_Tntc0(ui8_t *frame, int csOK) {
+float get_Tntc0(ui8_t *frame, int csOK) {
 // SMD ntc
     float Rs = 22.1e3;          // P5.6=Vcc
   float R25 = 2.2e3;// 0.119e3; //2.2e3;
@@ -703,7 +706,7 @@ int update_checkM10(int c, ui8_t b) {
 }
 
 int checkM10(ui8_t *msg, int len) {
-    int i, cs;
+    int i, cs;  // msg[0] = len+1
 
     cs = 0;
     for (i = 0; i < len; i++) {
@@ -712,15 +715,15 @@ int checkM10(ui8_t *msg, int len) {
 
     return cs & 0xFFFF;
 }
-
-int blk_checkM10(int c0, ui8_t *msg, int len) {
+// checkM10(frame, frame[0]-1) = blk_checkM10(frame[0], frame+1)
+int blk_checkM10(int len, ui8_t *msg) {
     int i, cs;
-    ui8_t pre = c0 & 0xFF;
+    ui8_t pre = len & 0xFF; // len(block+chk16)
     cs = 0;
 
     cs = update_checkM10(cs, pre);
 
-    for (i = 0; i < len; i++) {
+    for (i = 0; i < len-2; i++) {
         cs = update_checkM10(cs, msg[i]);
     }
 
@@ -826,7 +829,7 @@ void print_frame(int pos) {
     cs2 = checkM10(frame_bytes, pos_Check+auxlen);
 
     bc1 = (frame_bytes[pos_BlkChk] << 8) | frame_bytes[pos_BlkChk+1];
-    bc2 = blk_checkM10(0x16, frame_bytes+2, pos_BlkChk-2); // len(essentialBlock) = 0x16
+    bc2 = blk_checkM10(len_BlkChk, frame_bytes+2); // len(essentialBlock+chk16) = 0x16
 
     if (option_raw) {
 
