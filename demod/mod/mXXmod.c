@@ -542,6 +542,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
             if (!err2) {
                 fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
             }
+            if (gpx->option.vbs >= 3 && bcOK) {
+                ui32_t byte = (gpx->frame_bytes[0x14]<<8) | gpx->frame_bytes[0x13];
+                fprintf(stdout, "  ( %04u)", (byte>>2)&0x1FFF);
+            }
             if (gpx->option.vbs >= 2) {
                 fprintf(stdout, "  # ");
                 if (bcOK) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
