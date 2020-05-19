@@ -77,7 +77,8 @@ typedef struct {
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vx; double vy; double vD2;
-    float T; float _RH; float Ti;
+    float T;  float _RH;
+    float Ti; float batV;
     ui8_t numSV;
     ui8_t utc_ofs;
     char SN[12];
@@ -701,6 +702,28 @@ static float get_C_RH() {  // TLC555 astable: R_A=3.65k, R_B=338k
 }
 */
 
+// Battery Voltage
+// M10 batteries: 4xAA
+static double get_BatV(gpx_t *gpx) {
+    float  batV = 0.0;
+    ui32_t batADC = 0;
+
+    // ADC12_A5/4, V_R+=2.5V : 4096/4
+    // 0..1023 <-> 0V .. 2.5V
+    batADC = (gpx->frame_bytes[0x46] << 8) | gpx->frame_bytes[0x45];
+    // R1=[06D]=113kOhm
+    // R2=[30D]=200kOhm
+    // f=(R1+R2)/R2=2.77
+
+    //factor provided by F5MVO:
+    //batV = 6.62*batADC/1000.0;
+    batV = 2.709 * batADC*2.5/1023.0;
+
+    //fprintf(stdout, "  (bat0:%d/1023=%.2f)", batADC, batADC/1023.0);
+
+    return batV;
+}
+
 /* -------------------------------------------------------------------------- */
 
 static int print_pos(gpx_t *gpx, int csOK) {
@@ -718,9 +741,10 @@ static int print_pos(gpx_t *gpx, int csOK) {
 
         Gps2Date(gpx->week, gpx->gpssec, &gpx->jahr, &gpx->monat, &gpx->tag);
 
-        gpx->T   = get_Temp(gpx);
-        gpx->_RH = get_RH(gpx);
-        gpx->Ti  = get_intTemp(gpx);
+        gpx->T    = get_Temp(gpx);
+        gpx->_RH  = get_RH(gpx);
+        gpx->Ti   = get_intTemp(gpx);
+        gpx->batV = get_BatV(gpx);
 
         if (gpx->option.col) {
             fprintf(stdout, col_TXT);
@@ -745,14 +769,17 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
             if (gpx->option.ptu && csOK) {
-                if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC ", gpx->T);
-                if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, "_RH=%.0f%% ", gpx->_RH); }
+                if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC", gpx->T);
+                if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, " _RH=%.0f%%", gpx->_RH); }
                 if (gpx->option.vbs >= 3) {
                     float t2 = get_Tntc2(gpx);
                     float fq555 = get_TLC555freq(gpx);
                     fprintf(stdout, "  (Ti:%.1fC)", gpx->Ti);
-                    if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz) ", t2, fq555/1e3);
+                    if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz)", t2, fq555/1e3);
                 }
+            }
+            if (gpx->option.vbs >= 3 && csOK) {
+                fprintf(stdout, " (bat:%.2fV)", gpx->batV);
             }
             fprintf(stdout, ANSI_COLOR_RESET"");
         }
@@ -777,14 +804,17 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
             if (gpx->option.ptu && csOK) {
-                if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC ", gpx->T);
-                if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, "_RH=%.0f%% ", gpx->_RH); }
+                if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC", gpx->T);
+                if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, " _RH=%.0f%%", gpx->_RH); }
                 if (gpx->option.vbs >= 3) {
                     float t2 = get_Tntc2(gpx);
                     float fq555 = get_TLC555freq(gpx);
                     fprintf(stdout, "  (Ti:%.1fC)", gpx->Ti);
-                    if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz) ", t2, fq555/1e3);
+                    if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz)", t2, fq555/1e3);
                 }
+            }
+            if (gpx->option.vbs >= 3 && csOK) {
+                fprintf(stdout, " (bat:%.2fV)", gpx->batV);
             }
         }
         fprintf(stdout, "\n");
@@ -826,6 +856,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 aprs_id[2] = gpx->frame_bytes[pos_SN+4];
                 aprs_id[3] = gpx->frame_bytes[pos_SN+3];
                 fprintf(stdout, ", \"aprsid\": \"ME%02X%1X%02X%02X\"", aprs_id[0], aprs_id[1], aprs_id[2], aprs_id[3]);
+                fprintf(stdout, ", \"batt\": %.2f", gpx->batV);
                 // temperature (and humidity)
                 if (gpx->option.ptu) {
                     if (gpx->T > -273.0) fprintf(stdout, ", \"temp\": %.1f", gpx->T);
@@ -1078,7 +1109,6 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     }
 
     free_buffers(&dsp);
-
 
     return NULL;
 }
