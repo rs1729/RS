@@ -715,7 +715,6 @@ static double get_BatV(gpx_t *gpx) {
     // R2=[30D]=200kOhm
     // f=(R1+R2)/R2=2.77
 
-    //factor provided by F5MVO:
     //batV = 6.62*batADC/1000.0;
     batV = 2.709 * batADC*2.5/1023.0;
 
