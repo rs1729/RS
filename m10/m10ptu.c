@@ -856,7 +856,7 @@ float get_Temp(int csOK) {
 
     // range/scale 0, 1, 2:                        // M10-pcb
     float Rs[3] = { 12.1e3 ,  36.5e3 ,  475.0e3 }; // bias/series
-    float Rp[3] = { 1e20   , 330.0e3 , 3000.0e3 }; // parallel, Rp[0]=inf
+    float Rp[3] = { 1e20   , 330.0e3 , 2000.0e3 }; // parallel, Rp[0]=inf
 
     ui8_t  scT;     // {0,1,2}, range/scale voltage divider
     ui16_t ADC_RT;  // ADC12 P6.7(A7) , adr_0377h,adr_0376h
