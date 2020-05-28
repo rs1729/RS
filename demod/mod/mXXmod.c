@@ -547,7 +547,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 ui32_t s2 = (gpx->frame_bytes[0x14]<<8) | gpx->frame_bytes[0x13];
                 ui8_t ym = b0 & 0x7F;  // #{0x0,..,0x77}=120=10*12
                 ui8_t y = ym / 12;
-                ui8_t m = (ym % 12)+1;
+                ui8_t m = (ym % 12)+1; // there is b0=0x69<0x80 from 2018-09-19 ...
                 fprintf(stdout, " (%u%02u", y, m); // more samples needed
                 fprintf(stdout, " _ "); // (b0>>7)+1? (s2&0x3)+2?
                 fprintf(stdout, "_"); // ? (s2>>13)&0x3  ?? (s2&0x3)?
