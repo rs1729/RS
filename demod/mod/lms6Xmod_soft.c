@@ -967,7 +967,7 @@ int main(int argc, char **argv) {
 
     int header_found = 0;
 
-    float thres = 0.76;
+    float thres = 0.65;
     float _mv = 0.0;
 
     int symlen = 1;
@@ -1135,6 +1135,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "error: raw data not IQ\n");
         return -1;
     }
+    if (option_iq == 0 && gpx->option.vit == 2) {  // FM-demodulated data not recommended
+        gpx->option.vit = 1;                       // for soft-decoding
+        fprintf(stderr, "info: soft decoding only for IQ\n");
+    }
     if (option_iq) sel_wavch = 0;
 
     pcm.sel_ch = sel_wavch;
@@ -1220,7 +1224,7 @@ int main(int argc, char **argv) {
     while ( 1 )
     {
                                                                         // FM-audio:
-        header_found = find_header(&dsp, thres, 3, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
+        header_found = find_header(&dsp, thres, 5, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
         _mv = dsp.mv;
 
         if (header_found == EOF) break;

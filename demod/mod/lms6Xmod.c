@@ -948,7 +948,7 @@ int main(int argc, char **argv) {
 
     int header_found = 0;
 
-    float thres = 0.76;
+    float thres = 0.68;
     float _mv = 0.0;
 
     int symlen = 1;
@@ -1195,7 +1195,7 @@ int main(int argc, char **argv) {
     while ( 1 )
     {
                                                                         // FM-audio:
-        header_found = find_header(&dsp, thres, 3, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
+        header_found = find_header(&dsp, thres, 4, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
         _mv = dsp.mv;
 
         if (header_found == EOF) break;
