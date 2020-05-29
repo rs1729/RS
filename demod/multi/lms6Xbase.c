@@ -1040,7 +1040,8 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.opt_lp = 1;
     dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 6e3; // FM audio lowpass
-    dsp.opt_dc = tharg->option_dc;
+    dsp.opt_dc  = tharg->option_dc;
+    dsp.opt_cnt = tharg->option_cnt;
 
     if ( dsp.sps < 8 ) {
         //fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);

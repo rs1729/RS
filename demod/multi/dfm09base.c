@@ -895,7 +895,8 @@ void *thd_dfm09(void *targs) {
     dsp.opt_lp = 1;
     dsp.lpIQ_bw = 12e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 4e3; // FM audio lowpass
-    dsp.opt_dc = tharg->option_dc;
+    dsp.opt_dc  = tharg->option_dc;
+    dsp.opt_cnt = tharg->option_cnt;
 
     if ( dsp.sps < 8 ) {
         //fprintf(stderr, "note: sample rate low\n");
