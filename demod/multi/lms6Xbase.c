@@ -1084,7 +1084,7 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     bitQ = 0;
     while ( 1 && bitQ != EOF )
     {
-        header_found = find_header(&dsp, thres, 4, bitofs, dsp.opt_dc);
+        header_found = find_header(&dsp, thres, 6, bitofs, dsp.opt_dc);
         _mv = dsp.mv;
 
         if (header_found == EOF) break;

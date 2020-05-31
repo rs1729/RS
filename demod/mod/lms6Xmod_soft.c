@@ -1223,8 +1223,8 @@ int main(int argc, char **argv) {
 
     while ( 1 )
     {
-                                                                        // FM-audio:
-        header_found = find_header(&dsp, thres, 5, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
+                                                                         // FM-audio:
+        header_found = find_header(&dsp, thres, 10, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
         _mv = dsp.mv;
 
         if (header_found == EOF) break;
