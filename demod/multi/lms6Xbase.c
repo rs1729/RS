@@ -107,12 +107,11 @@ typedef struct {
     ui8_t bIn;
     ui8_t codeIn;
     ui8_t prevState;  // 0..M=64
-    int w;  // > 255 : if (w>250): w=250 ?
-    //float sw;
+    float w;
 } states_t;
 
 typedef struct {
-    char rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2 +8];
+    hsbit_t  rawbits[RAWBITFRAME_LEN+OVERLAP*BITS*2 +8];
     states_t state[RAWBITFRAME_LEN+OVERLAP +8][M];
     states_t d[N];
 } VIT_t;
@@ -129,7 +128,7 @@ typedef struct {
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vE; double vN; double vU;
-    char  blk_rawbits[RAWBITBLOCK_LEN+SYNC_LEN*BITS*2 +9];
+    hsbit_t  blk_rawbits[RAWBITBLOCK_LEN+SYNC_LEN*BITS*2 +9];
     ui8_t frame[FRM_LEN];  // = { 0x24, 0x54, 0x00, 0x00}; // dataheader
     int frm_pos;     // ecc_blk <-> frm_blk
     int sf6;
@@ -204,12 +203,16 @@ static int vit_initCodes(gpx_t *gpx) {
     return 0;
 }
 
-static int vit_dist(int c, char *rc) {
-    return (((c>>1)^rc[0])&1) + ((c^rc[1])&1);
+static float vit_dist2(int c, hsbit_t *rc) {
+    int c0 = 2*((c>>1) & 1)-1; // {0,1} -> {-1,+1}
+    int c1 = 2*(c & 1)-1;
+    float d2 = (c0-rc[0].sb)*(c0-rc[0].sb) + (c1-rc[1].sb)*(c1-rc[1].sb);
+    return d2;
 }
 
-static int vit_start(VIT_t *vit, char *rc) {
-    int t, m, j, c, d;
+static int vit_start(VIT_t *vit, hsbit_t *rc) {
+    int t, m, j, c;
+    float d;
 
     t = L-1;
     m = M;
@@ -227,7 +230,7 @@ static int vit_start(VIT_t *vit, char *rc) {
             c = vit_code[j];
             vit->state[t][j].bIn = j % 2;
             vit->state[t][j].codeIn = c;
-            d = vit_dist( c, rc+2*(t-1) );
+            d = vit_dist2( c, rc+2*(t-1) );
             vit->state[t][j].w = vit->state[t-1][vit->state[t][j].prevState].w + d;
         }
         m *= 2;
@@ -236,7 +239,7 @@ static int vit_start(VIT_t *vit, char *rc) {
     return t;
 }
 
-static int vit_next(VIT_t *vit, int t, char *rc) {
+static int vit_next(VIT_t *vit, int t, hsbit_t *rc) {
     int b, nstate;
     int j, index;
 
@@ -246,7 +249,7 @@ static int vit_next(VIT_t *vit, int t, char *rc) {
             vit->d[nstate].bIn = b;
             vit->d[nstate].codeIn = vit_code[nstate];
             vit->d[nstate].prevState = j;
-            vit->d[nstate].w = vit->state[t][j].w + vit_dist( vit->d[nstate].codeIn, rc );
+            vit->d[nstate].w = vit->state[t][j].w + vit_dist2( vit->d[nstate].codeIn, rc );
         }
      }
 
@@ -263,11 +266,11 @@ static int vit_next(VIT_t *vit, int t, char *rc) {
 static int vit_path(VIT_t *vit, int j, int t) {
     int c;
 
-    vit->rawbits[2*t] = '\0';
+    vit->rawbits[2*t].hb = '\0';
     while (t > 0) {
         c = vit->state[t][j].codeIn;
-        vit->rawbits[2*t -2] = 0x30 + ((c>>1) & 1);
-        vit->rawbits[2*t -1] = 0x30 + (c & 1);
+        vit->rawbits[2*t -2].hb = 0x30 + ((c>>1) & 1);
+        vit->rawbits[2*t -1].hb = 0x30 + (c & 1);
         j = vit->state[t][j].prevState;
         t--;
     }
@@ -275,13 +278,20 @@ static int vit_path(VIT_t *vit, int j, int t) {
     return 0;
 }
 
-static int viterbi(VIT_t *vit, char *rc) {
+static int hbstr_len(hsbit_t *hsbit) {
+    int len = 0;
+    while (hsbit[len].hb) len++;
+    return len;
+}
+
+static int viterbi(VIT_t *vit, hsbit_t *rc) {
     int t, tmax;
-    int j, j_min, w_min;
+    int j, j_min;
+    float w_min;
 
     vit_start(vit, rc);
 
-    tmax = strlen(rc)/2;
+    tmax = hbstr_len(rc)/2;
 
     for (t = L-1; t < tmax; t++)
     {
@@ -306,15 +316,15 @@ static int viterbi(VIT_t *vit, char *rc) {
 
 // ------------------------------------------------------------------------
 
-static int deconv(char* rawbits, char *bits) {
+static int deconv(hsbit_t *rawbits, char *bits) {
 
     int j, n, bitA, bitB;
-    char *p;
+    hsbit_t *p;
     int len;
     int errors = 0;
     int m = L-1;
 
-    len = strlen(rawbits);
+    len = hbstr_len(rawbits);
     for (j = 0; j < m; j++) bits[j] = '0';
     n = 0;
     while ( 2*(m+n) < len ) {
@@ -324,10 +334,10 @@ static int deconv(char* rawbits, char *bits) {
             bitA ^= (bits[n+j]&1) & (polyA[j]&1);
             bitB ^= (bits[n+j]&1) & (polyB[j]&1);
         }
-        if      ( (bitA^(p[0]&1))==(polyA[m]&1)  &&  (bitB^(p[1]&1))==(polyB[m]&1) ) bits[n+m] = '1';
-        else if ( (bitA^(p[0]&1))==0             &&  (bitB^(p[1]&1))==0            ) bits[n+m] = '0';
+        if      ( (bitA^(p[0].hb&1))==(polyA[m]&1)  &&  (bitB^(p[1].hb&1))==(polyB[m]&1) ) bits[n+m] = '1';
+        else if ( (bitA^(p[0].hb&1))==0             &&  (bitB^(p[1].hb&1))==0            ) bits[n+m] = '0';
         else {
-            if ( (bitA^(p[0]&1))!=(polyA[m]&1) && (bitB^(p[1]&1))==(polyB[m]&1) ) bits[n+m] = 0x39;
+            if ( (bitA^(p[0].hb&1))!=(polyA[m]&1) && (bitB^(p[1].hb&1))==(polyB[m]&1) ) bits[n+m] = 0x39;
             else bits[n+m] = 0x38;
             errors = n;
             break;
@@ -804,7 +814,7 @@ static void proc_frame(gpx_t *gpx, int len, dsp_t *dsp) {
     ui8_t block_bytes[FRAME_LEN+8];
     ui8_t rs_cw[rs_N];
     char  frame_bits[BITFRAME_LEN+OVERLAP*BITS +8];  // init L-1 bits mit 0
-    char *rawbits = NULL;
+    hsbit_t *rawbits = NULL;
     int i, j;
     int err = 0;
     int errs = 0;
@@ -813,13 +823,17 @@ static void proc_frame(gpx_t *gpx, int len, dsp_t *dsp) {
 
 
     if ((len % 8) > 4) {
-        while (len % 8) gpx->blk_rawbits[len++] = '0';
+        while (len % 8) {
+            gpx->blk_rawbits[len].hb = '0';
+            gpx->blk_rawbits[len].sb = -1;
+            len++;
+        }
     }
-    gpx->blk_rawbits[len] = '\0';
+    gpx->blk_rawbits[len].hb = '\0';
 
     flen = len / (2*BITS);
 
-    if (gpx->option.vit == 1) {
+    if (gpx->option.vit) {
         viterbi(gpx->vit, gpx->blk_rawbits);
         rawbits = gpx->vit->rawbits;
     }
@@ -949,14 +963,14 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
 
     int k;
 
-    int bit, rbit;
+    hsbit_t hsbit, rhsbit;
     int bitpos = 0;
     int bitQ = 0;
     int pos;
 
     int header_found = 0;
 
-    float thres = 0.68;
+    float thres = 0.65;
     float _mv = 0.0;
 
     int symlen = 1;
@@ -995,16 +1009,21 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     //gpx->option.ptu = 1;
     gpx->option.jsn = tharg->option_jsn;
 
-    gpx->option.vit = 1;
+    gpx->option.vit = 2;
     gpx->option.ecc = 1;
 
 
     // init gpx
-    memcpy(gpx->blk_rawbits, blk_syncbits, sizeof(blk_syncbits));
     memcpy(gpx->frame, frm_sync6, sizeof(frm_sync6));
     gpx->frm_pos = 0;     // ecc_blk <-> frm_blk
     gpx->sf6 = 0;
     gpx->sfX = 0;
+    //memcpy(gpx->blk_rawbits, blk_syncbits, sizeof(blk_syncbits));
+    for (k = 0; k < strlen(blk_syncbits); k++) { // strlen(blk_syncbits)=BLOCKSTART
+        int hbit = blk_syncbits[k] & 1;
+        gpx->blk_rawbits[k].hb = hbit + 0x30;
+        gpx->blk_rawbits[k].sb = 2*hbit-1;
+    }
 
 
     gpx->week = gpsweek;
@@ -1092,7 +1111,7 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     bitQ = 0;
     while ( 1 && bitQ != EOF )
     {
-        header_found = find_header(&dsp, thres, 6, bitofs, dsp.opt_dc);
+        header_found = find_header(&dsp, thres, 10, bitofs, dsp.opt_dc);
         _mv = dsp.mv;
 
         if (header_found == EOF) break;
@@ -1117,19 +1136,26 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
 
             while ( pos < rawbitblock_len ) {
 
-                bitQ = read_slbit(&dsp, &rbit, 0, bitofs, bitpos, -1, 0); // symlen=1
-
+                bitQ = read_softbit(&dsp, &rhsbit, 0, bitofs, bitpos, -1, 0); // symlen=1
                 if (bitQ == EOF) { break; }
 
-                bit = rbit ^ (bc%2);  // (c0,inv(c1))
-                gpx->blk_rawbits[pos] = 0x30 + bit;
+                hsbit.hb = rhsbit.hb ^ (bc%2);  // (c0,inv(c1))
+                int sgn = -2*(((unsigned int)bc)%2)+1;
+                hsbit.sb = sgn * rhsbit.sb;
+
+                if (gpx->option.vit == 1) { // hard decision
+                    hsbit.sb = 2*hsbit.hb -1;
+                }
+
+                gpx->blk_rawbits[pos] = hsbit;
+                gpx->blk_rawbits[pos].hb += 0x30;
 
                 bc++;
                 pos++;
                 bitpos += 1;
             }
 
-            gpx->blk_rawbits[pos] = '\0';
+            gpx->blk_rawbits[pos].hb = '\0';
 
             time_elapsed_sec = dsp.sample_in / (double)dsp.sr;
             proc_frame(gpx, pos, &dsp);

@@ -897,7 +897,7 @@ int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spi
             }
             sample -= dc;
 
-            if ( l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) sum -= sample;
+            if (l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) sum -= sample;
 
             dsp->sc++;
         } while (dsp->sc < bg);  // n < dsp->sps
@@ -915,9 +915,9 @@ int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spi
                       +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
             sample = avg + scale*(sample - avg); // spikes
         }
-            sample -= dc;
+        sample -= dc;
 
-        if ( l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) sum += sample;
+        if (l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) sum += sample;
 
         dsp->sc++;
     } while (dsp->sc < bg);  // n < dsp->sps
@@ -925,6 +925,81 @@ int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spi
 
     if (sum >= 0) *bit = 1;
     else          *bit = 0;
+
+    return 0;
+}
+
+int read_softbit(dsp_t *dsp, hsbit_t *shb, int inv, int ofs, int pos, float l, int spike) {
+// symlen==2: manchester2 10->0,01->1: 2.bit
+
+    float sample;
+    float avg;
+    float ths = 0.5, scale = 0.27;
+
+    double sum = 0.0;
+    double mid;
+    //double l = 1.0;
+
+    double bg = pos*dsp->symlen*dsp->sps;
+    double dc = 0.0;
+
+    ui8_t bit = 0;
+
+
+    if (dsp->opt_dc && dsp->opt_iq < 2) dc = dsp->dc;
+
+    if (pos == 0) {
+        bg = 0;
+        dsp->sc = 0;
+    }
+
+
+    if (dsp->symlen == 2) {
+        mid = bg + (dsp->sps-1)/2.0;
+        bg += dsp->sps;
+        do {
+            if (dsp->buffered > 0) dsp->buffered -= 1;
+            else if (f32buf_sample(dsp, inv) == EOF) return EOF;
+
+            sample = dsp->bufs[(dsp->sample_out-dsp->buffered + ofs + dsp->M) % dsp->M];
+            if (spike && fabs(sample - avg) > ths) {
+                avg = 0.5*(dsp->bufs[(dsp->sample_out-dsp->buffered-1 + ofs + dsp->M) % dsp->M]
+                          +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
+                sample = avg + scale*(sample - avg); // spikes
+            }
+            sample -= dc;
+
+            if (l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) sum -= sample;
+
+            dsp->sc++;
+        } while (dsp->sc < bg);  // n < dsp->sps
+    }
+
+    mid = bg + (dsp->sps-1)/2.0;
+    bg += dsp->sps;
+    do {
+        if (dsp->buffered > 0) dsp->buffered -= 1;
+        else if (f32buf_sample(dsp, inv) == EOF) return EOF;
+
+        sample = dsp->bufs[(dsp->sample_out-dsp->buffered + ofs + dsp->M) % dsp->M];
+        if (spike && fabs(sample - avg) > ths) {
+            avg = 0.5*(dsp->bufs[(dsp->sample_out-dsp->buffered-1 + ofs + dsp->M) % dsp->M]
+                      +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
+            sample = avg + scale*(sample - avg); // spikes
+        }
+        sample -= dc;
+
+        if (l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) sum += sample;
+
+        dsp->sc++;
+    } while (dsp->sc < bg);  // n < dsp->sps
+
+
+    if (sum >= 0) bit = 1;
+    else          bit = 0;
+
+    shb->hb = bit;
+    shb->sb = (float)sum;
 
     return 0;
 }

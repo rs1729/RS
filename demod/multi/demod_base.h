@@ -170,6 +170,11 @@ typedef struct {
 } pcm_t;
 
 
+typedef struct {
+    ui8_t hb;
+    float sb;
+} hsbit_t;
+
 
 typedef struct {
     pcm_t pcm;
@@ -184,6 +189,7 @@ typedef struct {
 float read_wav_header(pcm_t *);
 int f32buf_sample(dsp_t *, int);
 int read_slbit(dsp_t *, int*, int, int, int, float, int);
+int read_softbit(dsp_t *, hsbit_t *, int, int, int, float, int );
 
 int init_buffers(dsp_t *);
 int free_buffers(dsp_t *);
