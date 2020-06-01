@@ -1470,8 +1470,8 @@ static void print_frame(gpx_t *gpx, int len) {
 typedef struct {
     char *hdr;
     char *buf;
-    char len;
     float *sbuf;
+    int len;
     int bufpos;
     float ths;
 } hdb_t;
