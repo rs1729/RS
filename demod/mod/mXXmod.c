@@ -542,7 +542,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
             if (!err2) {
                 fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
             }
-            if (gpx->option.vbs >= 3 && bcOK) { // SN
+            if (gpx->option.vbs >= 3 && (bcOK || csOK)) { // SN
                 ui8_t  b0 = gpx->frame_bytes[0x12];
                 ui32_t s2 = (gpx->frame_bytes[0x14]<<8) | gpx->frame_bytes[0x13];
                 ui8_t ym = b0 & 0x7F;  // #{0x0,..,0x77}=120=10*12
