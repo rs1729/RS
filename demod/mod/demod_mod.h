@@ -144,16 +144,29 @@ typedef struct {
 } hsbit_t;
 
 
+typedef struct {
+    char *hdr;
+    char *buf;
+    float *sbuf;
+    int len;
+    int bufpos;
+    float thb;
+    float ths;
+} hdb_t;
+
 
 float read_wav_header(pcm_t *, FILE *);
 int f32buf_sample(dsp_t *, int);
 int read_slbit(dsp_t *, int*, int, int, int, float, int);
-int read_softbit(dsp_t *, hsbit_t *, int, int, int, float, int );
+int read_softbit(dsp_t *, hsbit_t *, int, int, int, float, int);
 
 int init_buffers(dsp_t *);
 int free_buffers(dsp_t *);
 
-ui32_t get_sample(dsp_t *);
-
 int find_header(dsp_t *, float, int, int, int);
+
+
+int find_binhead(FILE *fp, hdb_t *hdb, float *score);
+int f32soft_read(FILE *fp, float *s);
+int find_softbinhead(FILE *fp, hdb_t *hdb, float *score);
 

@@ -24,6 +24,8 @@
 /* ------------------------------------------------------------------------------------ */
 
 
+#ifndef EXT_FSK
+
 static void raw_dft(dft_t *dft, float complex *Z) {
     int s, l, l2, i, j, k;
     float complex  w1, w2, T;
@@ -1275,12 +1277,6 @@ int free_buffers(dsp_t *dsp) {
 
 /* ------------------------------------------------------------------------------------ */
 
-ui32_t get_sample(dsp_t *dsp) {
-    return dsp->sample_out;
-}
-
-/* ------------------------------------------------------------------------------------ */
-
 
 int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
     ui32_t k = 0;
@@ -1340,6 +1336,147 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
             }
         }
 
+    }
+
+    return EOF;
+}
+
+/* ------------------------------------------------------------------------------------ */
+
+
+#else
+// external FSK demod: read float32 soft symbols
+
+float read_wav_header(pcm_t *pcm, FILE *fp) {}
+int f32buf_sample(dsp_t *dsp, int inv) {}
+int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spike) {}
+int read_softbit(dsp_t *dsp, hsbit_t *shb, int inv, int ofs, int pos, float l, int spike) {}
+
+int init_buffers(dsp_t *dsp) {}
+int free_buffers(dsp_t *dsp) {}
+
+int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {}
+
+#endif
+
+
+static float cmp_hdb(hdb_t *hdb) { // bit-errors?
+    int i, j;
+    int headlen = hdb->len;
+    int berrs1 = 0, berrs2 = 0;
+
+    i = 0;
+    j = hdb->bufpos;
+    while (i < headlen) {
+        if (j < 0) j = headlen-1;
+        if (hdb->buf[j] != hdb->hdr[headlen-1-i]) berrs1 += 1;
+        j--;
+        i++;
+    }
+
+    i = 0;
+    j = hdb->bufpos;
+    while (i < headlen) {
+        if (j < 0) j = headlen-1;
+        if ((hdb->buf[j]^0x01) != hdb->hdr[headlen-1-i]) berrs2 += 1;
+        j--;
+        i++;
+    }
+
+    if (berrs2 < berrs1) return (-headlen+berrs2)/(float)headlen;
+    else                 return ( headlen-berrs1)/(float)headlen;
+
+    return 0;
+}
+
+int find_binhead(FILE *fp, hdb_t *hdb, float *score) {
+    int bit;
+    int headlen = hdb->len;
+    float mv;
+
+    //*score = 0.0;
+
+    while ( (bit = fgetc(fp)) != EOF )
+    {
+        bit &= 1;
+
+        hdb->bufpos = (hdb->bufpos+1) % headlen;
+        hdb->buf[hdb->bufpos] = 0x30 | bit;  // Ascii
+
+        mv = cmp_hdb(hdb);
+        if ( fabs(mv) > hdb->thb ) {
+            *score = mv;
+            return 1;
+        }
+    }
+
+    return EOF;
+}
+
+static float corr_softhdb(hdb_t *hdb) { // max score in window probably not needed
+    int i, j;
+    int headlen = hdb->len;
+    double sum = 0.0;
+    double normx = 0.0,
+           normy = 0.0;
+    float x, y;
+
+    i = 0;
+    j = hdb->bufpos + 1;
+
+    while (i < headlen) {
+        if (j >= headlen) j = 0;
+        x = hdb->sbuf[j];
+        y = 2.0*(hdb->hdr[i]&0x1) - 1.0;
+        sum += y * hdb->sbuf[j];
+        normx += x*x;
+        normy += y*y;
+        j++;
+        i++;
+    }
+    sum /= sqrt(normx*normy);
+
+    return sum;
+}
+
+int f32soft_read(FILE *fp, float *s) {
+    unsigned int word = 0;
+    short *b = (short*)&word;
+    float *f = (float*)&word;
+    int bps = 32;
+
+    if (fread( &word, bps/8, 1, fp) != 1) return EOF;
+
+    if (bps == 32) {
+        *s = *f;
+    }
+    else {
+        if (bps ==  8) { *b -= 128; }
+        *s = *b/128.0;
+        if (bps == 16) { *s /= 256.0; }
+    }
+
+    return 0;
+}
+
+int find_softbinhead(FILE *fp, hdb_t *hdb, float *score) {
+    int headlen = hdb->len;
+    float sbit;
+    float mv;
+
+    //*score = 0.0;
+
+    while ( f32soft_read(fp, &sbit) != EOF )
+    {
+        hdb->bufpos = (hdb->bufpos+1) % headlen;
+        hdb->sbuf[hdb->bufpos] = sbit;
+
+        mv = corr_softhdb(hdb);
+
+        if ( fabs(mv) > hdb->ths ) {
+            *score = mv;
+            return 1;
+        }
     }
 
     return EOF;

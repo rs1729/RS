@@ -369,14 +369,14 @@ static int get_BattVolts(gpx_t *gpx, int ofs) {
     int i;
     unsigned byte;
     ui8_t batt_bytes[2];
-    float batt_volts;
+    ui16_t batt_volts; // signed voltage?
 
     for (i = 0; i < 2; i++) {
         byte = gpx->frame[pos_BattVolts+ofs + i];
         batt_bytes[i] = byte;
     }
-
-    batt_volts = (float)(batt_bytes[0] + (batt_bytes[1] << 8));
+                                // 2 bytes? V > 25.5 ?
+    batt_volts = batt_bytes[0]; // + (batt_bytes[1] << 8);
     gpx->batt = batt_volts/10.0;
 
     return 0;
@@ -895,10 +895,10 @@ static int get_Calconf(gpx_t *gpx, int out, int ofs) {
             byte = gpx->frame[pos_CalData+ofs+1+i];
             fprintf(stdout, "%02x ", byte);
         }
-/*
+        /*
         if (err == 0) fprintf(stdout, "[OK]");
         else          fprintf(stdout, "[NO]");
-*/
+        */
         fprintf(stdout, " ");
     }
 
@@ -1160,7 +1160,7 @@ static int prn_sat3(gpx_t *gpx, int ofs) {
     pDOP = gpx->frame[pos_pDOP+ofs]/10.0; if (gpx->frame[pos_pDOP+ofs] == 0xFF) pDOP = -1.0;
     fprintf(stdout, "numSatsFix: %2d  sAcc: %.1f  pDOP: %.1f\n", numSV, sAcc, pDOP);
 
-/*
+    /*
     fprintf(stdout, "CRC: ");
     fprintf(stdout, " %04X", pck_GPS1);
     if (check_CRC(gpx, pos_GPS1+ofs, pck_GPS1)==0) fprintf(stdout, "[OK]"); else fprintf(stdout, "[NO]");
@@ -1173,7 +1173,7 @@ static int prn_sat3(gpx_t *gpx, int ofs) {
     //fprintf(stdout, "[%+d]", check_CRC(gpx, pos_GPS3, pck_GPS3));
 
     fprintf(stdout, "\n");
-*/
+    */
     return 0;
 }
 
@@ -1467,69 +1467,6 @@ static void print_frame(gpx_t *gpx, int len) {
 /* -------------------------------------------------------------------------- */
 
 
-// header bit buffer
-typedef struct {
-    char *hdr;
-    char *buf;
-    char len;
-    int bufpos;
-    float ths;
-} hdb_t;
-
-static float cmp_hdb(hdb_t *hdb) { // bit-errors?
-    int i, j;
-    int headlen = hdb->len;
-    int berrs1 = 0, berrs2 = 0;
-
-    i = 0;
-    j = hdb->bufpos;
-    while (i < headlen) {
-        if (j < 0) j = headlen-1;
-        if (hdb->buf[j] != hdb->hdr[headlen-1-i]) berrs1 += 1;
-        j--;
-        i++;
-    }
-
-    i = 0;
-    j = hdb->bufpos;
-    while (i < headlen) {
-        if (j < 0) j = headlen-1;
-        if ((hdb->buf[j]^0x01) != hdb->hdr[headlen-1-i]) berrs2 += 1;
-        j--;
-        i++;
-    }
-
-    if (berrs2 < berrs1) return (-headlen+berrs2)/(float)headlen;
-    else                 return ( headlen-berrs1)/(float)headlen;
-
-    return 0;
-}
-
-static int find_binhead(FILE *fp, hdb_t *hdb, float *score) {
-    int bit;
-    int headlen = hdb->len;
-    float mv;
-
-    //*score = 0.0;
-
-    while ( (bit = fgetc(fp)) != EOF )
-    {
-        bit &= 1;
-
-        hdb->bufpos = (hdb->bufpos+1) % headlen;
-        hdb->buf[hdb->bufpos] = 0x30 | bit;  // Ascii
-
-        mv = cmp_hdb(hdb);
-        if ( fabs(mv) > hdb->ths ) {
-            *score = mv;
-            return 1;
-        }
-    }
-
-    return EOF;
-}
-
-
 int main(int argc, char *argv[]) {
 
     //int option_inv = 0;    // invertiert Signal
@@ -1538,6 +1475,7 @@ int main(int argc, char *argv[]) {
     int option_lp = 0;
     int option_dc = 0;
     int option_bin = 0;
+    int option_softin = 0;
     int option_pcmraw = 0;
     int wavloaded = 0;
     int sel_wavch = 0;     // audio channel: left
@@ -1613,7 +1551,8 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--silent") == 0) { gpx.option.slt = 1; }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--auto") == 0) { gpx.option.aut = 1; }
-        else if   (strcmp(*argv, "--bin") == 0) { option_bin = 1; }   // bit/byte binary input
+        else if   (strcmp(*argv, "--bin") == 0) { option_bin = 1; }  // bit/byte binary input
+        else if   (strcmp(*argv, "--softin") == 0) { option_softin = 1; }  // float32 soft input
         else if   (strcmp(*argv, "--ths") == 0) {
             ++argv;
             if (*argv) {
@@ -1694,9 +1633,16 @@ int main(int argc, char *argv[]) {
     memcpy(gpx.frame, rs41_header_bytes, sizeof(rs41_header_bytes)); // 8 header bytes
 
 
+    #ifdef EXT_FSK
+    if (!option_bin && !option_softin) {
+        option_softin = 1;
+        fprintf(stderr, "reading float32 soft symbols\n");
+    }
+    #endif
+
     if (!rawhex) {
 
-        if (!option_bin) {
+        if (!option_bin && !option_softin) {
 
             if (option_iq == 0 && option_pcmraw) {
                 fclose(fp);
@@ -1744,34 +1690,45 @@ int main(int argc, char *argv[]) {
             if ( dsp.sps < 8 ) {
                 fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
             }
+
+
+            k = init_buffers(&dsp); // BT=0.5  (IQ-Int: BT > 0.5 ?)
+            if ( k < 0 ) {
+                fprintf(stderr, "error: init buffers\n");
+                return -1;
+            }
+
+            //if (option_iq >= 2) bitofs += 1; // FM: +1 , IQ: +2
+            bitofs += shift;
         }
         else {
+            if (option_bin && option_softin) option_bin = 0;
             // init circular header bit buffer
             hdb.hdr = rs41_header;
             hdb.len = strlen(rs41_header);
-            hdb.ths = 1.0 - 3.1/(float)hdb.len; // 1.0-max_bit_errors/hdrlen
+            hdb.thb = 1.0 - 3.1/(float)hdb.len; // 1.0-max_bit_errors/hdrlen
             hdb.bufpos = -1;
             hdb.buf = calloc(hdb.len, sizeof(char));
             if (hdb.buf == NULL) {
                 fprintf(stderr, "error: malloc\n");
                 return -1;
             }
+            hdb.ths = 0.7; // caution/test false positive
+            hdb.sbuf = calloc(hdb.len, sizeof(float));
+            if (hdb.sbuf == NULL) {
+                fprintf(stderr, "error: malloc\n");
+                return -1;
+            }
         }
 
-
-        k = init_buffers(&dsp); // BT=0.5  (IQ-Int: BT > 0.5 ?)
-        if ( k < 0 ) {
-            fprintf(stderr, "error: init buffers\n");
-            return -1;
-        };
-
-        //if (option_iq >= 2) bitofs += 1; // FM: +1 , IQ: +2
-        bitofs += shift;
 
         while ( 1 )
         {
             if (option_bin) {
                 header_found = find_binhead(fp, &hdb, &_mv);
+            }
+            else if (option_softin) {
+                header_found = find_softbinhead(fp, &hdb, &_mv);
             }
             else {                                                              // FM-audio:
                 header_found = find_header(&dsp, thres, 3, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
@@ -1797,15 +1754,15 @@ int main(int argc, char *argv[]) {
                         bitQ = fgetc(fp);
                         if (bitQ != EOF) bit = bitQ & 0x1;
                     }
+                    else if (option_softin) {
+                        float s = 0.0;
+                        bitQ = f32soft_read(fp, &s);
+                        if (bitQ != EOF) bit = (s>=0.0); // no soft decoding
+                    }
                     else {
-                        if (option_iq >= 2) {
-                            float bl = -1;
-                            if (option_iq > 2) bl = 1.0;
-                            bitQ = read_slbit(&dsp, &bit, 0/*gpx.option.inv*/, bitofs, bitpos, bl, 0);
-                        }
-                        else {
-                            bitQ = read_slbit(&dsp, &bit, 0/*gpx.option.inv*/, bitofs, bitpos, -1, 0);
-                        }
+                        float bl = -1;
+                        if (option_iq > 2) bl = 1.0;
+                        bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos, bl, 0); // symlen=1
                     }
                     if ( bitQ == EOF ) break; // liest 2x EOF
 
@@ -1828,7 +1785,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        if (!option_bin) free_buffers(&dsp);
+        if (!option_bin && !option_softin) free_buffers(&dsp);
         else {
             if (hdb.buf) { free(hdb.buf); hdb.buf = NULL; }
         }

@@ -59,4 +59,7 @@ alternative decoders using cross-correlation for better header-synchronization
   The difference between hard and soft viterbi becomes only apparent at lower SNR. The inner convolutional
   code does most of the error correction. The concatenated outer Reed-Solomon code kicks in only at low SNR.
 
+  soft input:<br />
+  Option `--softin` expects float32 symbols as input
+
 
