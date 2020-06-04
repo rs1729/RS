@@ -128,7 +128,7 @@ static int dft_window(dft_t *dft, int w) {
                     dft->win[n] = 0.5 * ( 1.0 - cos(2*M_PI*n/(float)(dft->N2-1)) );
                     break ;
             case 2: // Hamming
-                    dft->win[n] = 25/46.0 + (1.0 - 25/46.0)*cos(2*M_PI*n / (float)(dft->N2-1));
+                    dft->win[n] = 25/46.0 - (1.0 - 25/46.0)*cos(2*M_PI*n / (float)(dft->N2-1));
                     break ;
             case 3: // Blackmann
                     dft->win[n] =  7938/18608.0
