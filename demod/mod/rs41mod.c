@@ -87,6 +87,7 @@ typedef struct {
     float T; float RH;
     ui32_t crc;
     ui8_t frame[FRAME_LEN];
+    ui8_t dfrm[FRAME_LEN];
     ui8_t calibytes[51*16];
     ui8_t calfrchk[51];
     float ptu_Rf1;      // ref-resistor f1 (750 Ohm)
@@ -1006,7 +1007,27 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
     errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
 
 
-    if (gpx->option.ecc == 2 && (errors1 < 0 || errors2 < 0))
+    if (gpx->option.ecc >= 2) // option_softin: mark weak dfrm[]
+    {   // 2nd pass
+        if (errors1 < 0) {
+            for (i = 0; i < frmlen/2; i++) gpx->frame[2*i] ^= gpx->dfrm[2*i];
+            for (i = 0; i < rs_K; i++) cw1[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i  ];
+            errors1 = rs_decode(&gpx->RS, cw1, err_pos1, err_val1);
+            if (errors1 < 0) {
+                for (i = 0; i < frmlen/2; i++) gpx->frame[2*i] ^= gpx->dfrm[2*i];
+            }
+        }
+        if (errors2 < 0) {
+            for (i = 0; i < frmlen/2; i++) gpx->frame[2*i+1] ^= gpx->dfrm[2*i+1];
+            for (i = 0; i < rs_K; i++) cw2[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i+1];
+            errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
+            if (errors2 < 0) {
+                for (i = 0; i < frmlen/2; i++) gpx->frame[2*i+1] ^= gpx->dfrm[2*i+1];
+            }
+        }
+    }
+
+    if (gpx->option.ecc >= 2 && (errors1 < 0 || errors2 < 0))
     {   // 2nd pass
         gpx->frame[pos_FRAME] = (pck_FRAME>>8)&0xFF; gpx->frame[pos_FRAME+1] = pck_FRAME&0xFF;
         gpx->frame[pos_PTU]   = (pck_PTU  >>8)&0xFF; gpx->frame[pos_PTU  +1] = pck_PTU  &0xFF;
@@ -1030,6 +1051,14 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
         for (i = 0; i < rs_K; i++) cw2[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i+1];
         errors1 = rs_decode(&gpx->RS, cw1, err_pos1, err_val1);
         errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
+    }
+
+    if (gpx->option.ecc >= 3)
+    {   // 3nd pass: erasures ...
+        if (errors1 < 0) {
+        }
+        if (errors2 < 0) {
+        }
     }
 
 
@@ -1448,7 +1477,7 @@ static void print_frame(gpx_t *gpx, int len) {
         }
         if (gpx->option.ecc) {
             if (ec >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
-            if (gpx->option.ecc /*== 2*/) {
+            if (gpx->option.ecc /*>= 2*/) {
                 if (ec > 0) fprintf(stdout, " (%d)", ec);
                 if (ec < 0) {
                     if      (ec == -1)  fprintf(stdout, " (-+)");
@@ -1492,11 +1521,15 @@ int main(int argc, char *argv[]) {
         byte_count = FRAMESTART;
     int bit, byte;
     int bitQ;
+    int difbyte = 0;
+    hsbit_t hsbit, hsbit1;
 
     int header_found = 0;
 
     float thres = 0.7; // dsp.mv threshold
     float _mv = 0.0;
+
+    float lpIQ_bw = 7.4e3;
 
     int symlen = 1;
     int bitofs = 2; // +0 .. +3
@@ -1546,6 +1579,7 @@ int main(int argc, char *argv[]) {
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { gpx.option.ecc = 1; }
         else if   (strcmp(*argv, "--ecc2") == 0) { gpx.option.ecc = 2; }
+        else if   (strcmp(*argv, "--ecc3") == 0) { gpx.option.ecc = 3; }
         else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
         else if   (strcmp(*argv, "--ptu") == 0) { gpx.option.ptu = 1; }
         else if   (strcmp(*argv, "--silent") == 0) { gpx.option.slt = 1; }
@@ -1583,6 +1617,14 @@ int main(int argc, char *argv[]) {
             option_iq = 5;
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
+        else if   (strcmp(*argv, "--lpbw") == 0) {  // IQ lowpass BW / kHz
+            double bw = 0.0;
+            ++argv;
+            if (*argv) bw = atof(*argv);
+            else return -1;
+            if (bw > 4.6 && bw < 24.0) lpIQ_bw = bw*1e3;
+            option_lp = 1;
+        }
         else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
         else if   (strcmp(*argv, "--min") == 0) {
             option_min = 1;
@@ -1682,7 +1724,7 @@ int main(int argc, char *argv[]) {
             dsp.h = 0.6; //0.7;  // 0.7..0.8? modulation index abzgl. BT
             dsp.opt_iq = option_iq;
             dsp.opt_lp = option_lp;
-            dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
+            dsp.lpIQ_bw = lpIQ_bw;  // 7.4e3 (6e3..8e3) // IF lowpass bandwidth
             dsp.lpFM_bw = 6e3; // FM audio lowpass
             dsp.opt_dc = option_dc;
             dsp.opt_IFmin = option_min;
@@ -1731,7 +1773,7 @@ int main(int argc, char *argv[]) {
                 header_found = find_softbinhead(fp, &hdb, &_mv);
             }
             else {                                                              // FM-audio:
-                header_found = find_header(&dsp, thres, 3, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
+                header_found = find_header(&dsp, thres, 4, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
                 _mv = dsp.mv;
             }
             if (header_found == EOF) break;
@@ -1747,6 +1789,7 @@ int main(int argc, char *argv[]) {
                 byte_count = FRAMESTART;
                 bitpos = 0; // byte_count*8-HEADLEN
                 b8pos = 0;
+                difbyte = 0;
 
                 while ( byte_count < FRAME_LEN )
                 {
@@ -1761,8 +1804,15 @@ int main(int argc, char *argv[]) {
                     }
                     else {
                         float bl = -1;
-                        if (option_iq > 2) bl = 1.0;
-                        bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos, bl, 0); // symlen=1
+                        if (option_iq > 2) bl = 2.0;
+                        //bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos, bl, 0); // symlen=1
+                        bitQ = read_softbit2p(&dsp, &hsbit, 0, bitofs, bitpos, bl, 0, &hsbit1); // symlen=1
+                        bit = hsbit.hb;
+                        if (gpx.option.ecc == 3) bit = (hsbit.sb+hsbit1.sb)>=0;
+
+                        if (bitpos < FRAME_LEN*BITS && hsbit.sb*hsbit1.sb < 0) {
+                            difbyte |= 1<<b8pos;
+                        }
                     }
                     if ( bitQ == EOF ) break; // liest 2x EOF
 
@@ -1775,6 +1825,8 @@ int main(int argc, char *argv[]) {
                         b8pos = 0;
                         byte = bits2byte(bitbuf);
                         gpx.frame[byte_count] = byte ^ mask[byte_count % MASK_LEN];
+                        gpx.dfrm[byte_count] = difbyte;
+                        difbyte = 0;
                         byte_count++;
                     }
                 }

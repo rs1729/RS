@@ -1117,6 +1117,7 @@ int main(int argc, char **argv) {
     int option_iq = 0;
     int option_lp = 0;
     int option_dc = 0;
+    int option_chk = 0;
     int option_softin = 0;
     int option_pcmraw = 0;
     int wavloaded = 0;
@@ -1132,6 +1133,7 @@ int main(int argc, char **argv) {
     int bitpos = 0;
     int bitQ;
     int pos;
+    hsbit_t hsbit, hsbit1;
 
     //int headerlen = 0;
 
@@ -1190,6 +1192,7 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "--spike") == 0) ) {
             spike = 1;
         }
+        else if   (strcmp(*argv, "--chk3") == 0) { option_chk = 3; }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--softin") == 0) { option_softin = 1; }  // float32 soft input
         else if   (strcmp(*argv, "--ths") == 0) {
@@ -1397,7 +1400,13 @@ int main(int argc, char **argv) {
                     float bl = -1;
                     if (option_iq >= 2) spike = 0;
                     if (option_iq > 2)  bl = 4.0;
-                    bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos, bl, spike); // symlen=2
+                    //bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos, bl, spike); // symlen=2
+                    bitQ = read_softbit2p(&dsp, &hsbit, 0, bitofs, bitpos, bl, spike, &hsbit1); // symlen=1
+                    bit = hsbit.hb;
+                    if (option_chk == 3 && option_iq) {
+                    //if (hsbit.sb*hsbit1.sb < 0)
+                        bit = (hsbit.sb+0.25*hsbit1.sb)>=0;
+                    }
                 }
                 if ( bitQ == EOF ) { break; }
 

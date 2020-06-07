@@ -944,6 +944,96 @@ int read_softbit(dsp_t *dsp, hsbit_t *shb, int inv, int ofs, int pos, float l, i
     return 0;
 }
 
+int read_softbit2p(dsp_t *dsp, hsbit_t *shb, int inv, int ofs, int pos, float l, int spike, hsbit_t *shb1) {
+// symlen==2: manchester2 10->0,01->1: 2.bit
+
+    float sample, sample1;
+    float avg;
+    float ths = 0.5, scale = 0.27;
+
+    double sum = 0.0, sum1 = 0.0;
+    double mid;
+    //double l = 1.0;
+
+    double bg = pos*dsp->symlen*dsp->sps;
+
+    double dc = 0.0;
+
+    ui8_t bit = 0, bit1 = 0;
+
+
+    if (dsp->opt_dc && dsp->opt_iq < 2) dc = dsp->dc;
+
+    if (pos == 0) {
+        bg = 0;
+        dsp->sc = 0;
+    }
+
+
+    if (dsp->symlen == 2) {
+        mid = bg + (dsp->sps-1)/2.0;
+        bg += dsp->sps;
+        do {
+            if (dsp->buffered > 0) dsp->buffered -= 1;
+            else if (f32buf_sample(dsp, inv) == EOF) return EOF;
+
+            sample = dsp->bufs[(dsp->sample_out-dsp->buffered + ofs + dsp->M) % dsp->M];
+            sample1 = dsp->bufs[(dsp->sample_out-dsp->buffered + ofs-1 + dsp->M) % dsp->M];
+            if (spike && fabs(sample - avg) > ths) {
+                avg = 0.5*(dsp->bufs[(dsp->sample_out-dsp->buffered-1 + ofs + dsp->M) % dsp->M]
+                          +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
+                sample = avg + scale*(sample - avg); // spikes
+            }
+            sample -= dc;
+            sample1 -= dc;
+
+            if (l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) {
+                sum -= sample;
+                sum1 -= sample1;
+            }
+
+            dsp->sc++;
+        } while (dsp->sc < bg);  // n < dsp->sps
+    }
+
+    mid = bg + (dsp->sps-1)/2.0;
+    bg += dsp->sps;
+    do {
+        if (dsp->buffered > 0) dsp->buffered -= 1;
+        else if (f32buf_sample(dsp, inv) == EOF) return EOF;
+
+        sample = dsp->bufs[(dsp->sample_out-dsp->buffered + ofs + dsp->M) % dsp->M];
+        sample1 = dsp->bufs[(dsp->sample_out-dsp->buffered + ofs-1 + dsp->M) % dsp->M];
+        if (spike && fabs(sample - avg) > ths) {
+            avg = 0.5*(dsp->bufs[(dsp->sample_out-dsp->buffered-1 + ofs + dsp->M) % dsp->M]
+                      +dsp->bufs[(dsp->sample_out-dsp->buffered+1 + ofs + dsp->M) % dsp->M]);
+            sample = avg + scale*(sample - avg); // spikes
+        }
+        sample -= dc;
+        sample1 -= dc;
+
+        if (l < 0 || (mid-l < dsp->sc && dsp->sc < mid+l)) {
+            sum += sample;
+            sum1 += sample1;
+        }
+
+        dsp->sc++;
+    } while (dsp->sc < bg);  // n < dsp->sps
+
+
+    if (sum >= 0) bit = 1;
+    else          bit = 0;
+    shb->hb = bit;
+    shb->sb = (float)sum;
+
+    if (sum1 >= 0) bit1 = 1;
+    else           bit1 = 0;
+    shb1->hb = bit1;
+    shb1->sb = (float)sum1;
+
+    return 0;
+}
+
 /* -------------------------------------------------------------------------- */
 
 #define IF_SAMPLE_RATE      48000
@@ -1351,6 +1441,7 @@ float read_wav_header(pcm_t *pcm, FILE *fp) {}
 int f32buf_sample(dsp_t *dsp, int inv) {}
 int read_slbit(dsp_t *dsp, int *bit, int inv, int ofs, int pos, float l, int spike) {}
 int read_softbit(dsp_t *dsp, hsbit_t *shb, int inv, int ofs, int pos, float l, int spike) {}
+int read_softbit2p(dsp_t *dsp, hsbit_t *shb, int inv, int ofs, int pos, float l, int spike, hsbit_t *shb1) {}
 
 int init_buffers(dsp_t *dsp) {}
 int free_buffers(dsp_t *dsp) {}

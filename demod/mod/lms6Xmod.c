@@ -962,7 +962,7 @@ int main(int argc, char **argv) {
 
     int k;
 
-    hsbit_t hsbit, rhsbit;
+    hsbit_t hsbit, rhsbit, rhsbit1;
     int bitpos = 0;
     int bitQ;
     int pos;
@@ -973,12 +973,14 @@ int main(int argc, char **argv) {
     float thres = 0.65;
     float _mv = 0.0;
 
+    float lpIQ_bw = 16e3;
+
     int symlen = 1;
     int bitofs = 0;
     int shift = 0;
 
-    int bitofs6 = 1; // +1 .. +2
-    int bitofsX = 0; // 0 .. +1
+    int bitofs6 = 0; // -1 .. +2
+    int bitofsX = 0; // -1 .. +1
 
     unsigned int bc = 0;
 
@@ -1036,6 +1038,7 @@ int main(int argc, char **argv) {
             gpx->option.raw = 1; // bytes - rs_ecc_codewords
         }
         else if   (strcmp(*argv, "--ecc" ) == 0) { gpx->option.ecc = 1; } // RS-ECC
+        else if   (strcmp(*argv, "--ecc3") == 0) { gpx->option.ecc = 3; } // RS-ECC
         else if   (strcmp(*argv, "--vit"  ) == 0) { gpx->option.vit = 1; } // viterbi-hard
         else if   (strcmp(*argv, "--vit2" ) == 0) { gpx->option.vit = 2; } // viterbi-soft
         else if ( (strcmp(*argv, "--gpsweek") == 0) ) {
@@ -1081,6 +1084,14 @@ int main(int argc, char **argv) {
             option_iq = 5;
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
+        else if   (strcmp(*argv, "--lpbw") == 0) {  // IQ lowpass BW / kHz
+            double bw = 0.0;
+            ++argv;
+            if (*argv) bw = atof(*argv);
+            else return -1;
+            if (bw > 4.6 && bw < 24.0) lpIQ_bw = bw*1e3;
+            option_lp = 1;
+        }
         else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
         else if   (strcmp(*argv, "--min") == 0) {
             option_min = 1;
@@ -1189,7 +1200,7 @@ int main(int argc, char **argv) {
         dsp.h = 0.9;  // 0.95 modulation index
         dsp.opt_iq = option_iq;
         dsp.opt_lp = option_lp;
-        dsp.lpIQ_bw = 16e3; // IF lowpass bandwidth // soft decoding?
+        dsp.lpIQ_bw = lpIQ_bw;  // 16e3; // IF lowpass bandwidth // soft decoding?
         dsp.lpFM_bw = 6e3; // FM audio lowpass
         dsp.opt_dc = option_dc;
         dsp.opt_IFmin = option_min;
@@ -1303,7 +1314,14 @@ int main(int argc, char **argv) {
                     }
                 }
                 else {
-                    bitQ = read_softbit(&dsp, &rhsbit, 0, bitofs, bitpos, -1, 0); // symlen=1
+                    //bitQ = read_softbit(&dsp, &rhsbit, 0, bitofs, bitpos, -1, 0); // symlen=1
+                    bitQ = read_softbit2p(&dsp, &rhsbit, 0, bitofs, bitpos, -1, 0, &rhsbit1); // symlen=1
+                    if (gpx->option.ecc == 3) {
+                    if (rhsbit.sb*rhsbit1.sb < 0) {
+                        rhsbit.sb += rhsbit1.sb;
+                        rhsbit.hb = (rhsbit.sb>=0.0);
+                    }
+                    }
                 }
                 if (bitQ == EOF) { break; }
 
