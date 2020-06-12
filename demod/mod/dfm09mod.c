@@ -52,6 +52,12 @@ typedef struct {
     ui32_t chX[2];
 } sn_t;
 
+typedef struct {
+    ui32_t prn; // SVs used (PRN)
+    float dMSL; // Alt_MSL - Alt_ellipsoid = -N = - geoid_height =  ellipsoid - geoid
+    ui8_t nSV; // numSVs used
+} gpsdat_t;
+
 #define BITFRAME_LEN  280
 
 typedef struct {
@@ -74,6 +80,7 @@ typedef struct {
     pcksts_t pck[9];
     option_t option;
     int ptu_out;
+    gpsdat_t gps;
 } gpx_t;
 
 
@@ -294,6 +301,9 @@ static int dat_out(gpx_t *gpx, ui8_t *dat_bits, int ec) {
         }
     }
 
+    // GPS data
+    // SiRF msg ID 41: Geodetic Navigation Data
+
     if (fr_id == 0) {
         //start = 0x1000;
         frnr = bits2val(dat_bits+24, 8);
@@ -301,7 +311,8 @@ static int dat_out(gpx_t *gpx, ui8_t *dat_bits, int ec) {
     }
 
     if (fr_id == 1) {
-        // 00..31: ? GPS-Sats in Sicht?
+        // 00..31: GPS-Sats in solution (bitmap)
+        gpx->gps.prn = bits2val(dat_bits, 32); // SV/PRN used
         msek = bits2val(dat_bits+32, 16);  // UTC (= GPS - 18sec  ab 1.1.2017)
         gpx->sek = msek/1000.0;
     }
@@ -328,6 +339,8 @@ static int dat_out(gpx_t *gpx, ui8_t *dat_bits, int ec) {
     }
 
     if (fr_id == 5) {
+        short dMSL = bits2val(dat_bits, 16);
+        gpx->gps.dMSL = dMSL/1e2;
     }
 
     if (fr_id == 6) { // sat data
@@ -342,6 +355,7 @@ static int dat_out(gpx_t *gpx, ui8_t *dat_bits, int ec) {
         gpx->tag   = bits2val(dat_bits+16, 5);
         gpx->std   = bits2val(dat_bits+21, 5);
         gpx->min   = bits2val(dat_bits+26, 6);
+        gpx->gps.nSV = bits2val(dat_bits+32, 8);
     }
 
     ret = fr_id;
@@ -733,6 +747,16 @@ static void print_gpx(gpx_t *gpx) {
         }
         printf("\n");
 
+        if (gpx->option.sat) {
+            printf("  ");
+            printf("  dMSL: %+.2f", gpx->gps.dMSL); // MSL = alt + gps.dMSL
+            printf("  sats: %d", gpx->gps.nSV);
+            printf("  (");
+            for (j = 0; j < 32; j++) { if ((gpx->gps.prn >> j)&1) printf(" %02d", j+1); }
+            printf(" )");
+            printf("\n");
+        }
+
         if (gpx->option.jsn && jsonout)
         {
             // JSON Buffer to store sonde ID
@@ -999,6 +1023,7 @@ int main(int argc, char **argv) {
             option_min = 1;
         }
         else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
+        else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
             ++argv;
