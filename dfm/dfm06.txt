@@ -15,12 +15,14 @@ erweiterter systematischer [8,4]-Hamming-Code, erste 4 bit sind Daten
 Big Endian
 
 
+(SiRF msg ID 41: Geodetic Navigation Data)
 GPS_DAT-Block 48bit + 4bit-PCK_ID 0x0..0x8 (letztes nibble):
 PCK_ID  bitpos
 
 0x0     24..31   Counter: 8 bit
 
-0x1     32..47   UTC-msec : 16bit  (sec*1e3),  GPS = UTC + 18s (ab 1. Jan. 2017)
+0x1      0..31   SV/PRN bitmap
+        32..47   UTC-msec : 16bit  (sec*1e3),  GPS = UTC + 18s (ab 1. Jan. 2017)
 
 0x2      0..31   GPS-lat  : 32bit, Faktor 1e7
         32..47   hor-V m/s: 16bit, Faktor 1e2
@@ -28,8 +30,10 @@ PCK_ID  bitpos
 0x3      0..31   GPS-lon  : 32bit, Faktor 1e7
         32..47   direction: 16bit, Faktor 1e2 (unsigned, 0-36000)
 
-0x4      0..31   GPS-alt m: 32bit, Faktor 1e2
+0x4      0..31   GPS-alt m: 32bit, Faktor 1e2 (Alt_ellipsoid)
         32..47   ver-V m/s: 16bit, Faktor 1e2 (signed)
+
+0x5      0..15   dMSL = Alt_MSL - Alt_ellipsoid = -N = -geoid_height , Faktor 1e2 (signed)
 
 0x8      0..11   Jahr : 12bit
         12..15   Monat:  4bit
