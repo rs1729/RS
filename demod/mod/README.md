@@ -60,6 +60,8 @@ alternative decoders using cross-correlation for better header-synchronization
   code does most of the error correction. The concatenated outer Reed-Solomon code kicks in only at low SNR.
 
   soft input:<br />
-  Option `--softin` expects float32 symbols as input
+  Option `--softin` expects float32 symbols as input, with `s>0` corresponding to `bit=1`.<br />
+  (remark/caution: often soft bits are defined as `bit=0 -> s=+1` and `bit=1 -> s=-1` such that the identity element `0`
+  for addition mod 2 corresponds to the identity element `+1` for multiplication.)
 
 
