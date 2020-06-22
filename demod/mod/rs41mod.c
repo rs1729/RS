@@ -1212,20 +1212,6 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
                     if (errors1 >= 0) { j = 256; i = 256; } //break;
                 }
             }
-
-            if (errors1 >= 0) {
-                int rank[2];
-
-                for (i = 0; i < 2; i++)
-                {
-                    if (era_pos[i] < rs_R) pos_frm = era_pos[i] + cfg_rs41.parpos;
-                    else                   pos_frm = 2*(era_pos[i]-rs_R) + cfg_rs41.msgpos;
-
-                    for (rank[i] = 0; rank[i] < 255; rank[i]++) {
-                        if (sort_idx1[rank[i]] == pos_frm) break;
-                    }
-                }
-            }
         }
 
         if (errors2 < 0)
@@ -1246,19 +1232,6 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
                     era_pos[1] = pos_cw;
                     errors2 = rs_decode_ErrEra(&gpx->RS, cw2, 2, era_pos, err_pos2, err_val2);
                     if (errors2 >= 0) { j = 256; i = 256; } //break;
-                }
-            }
-
-            if (errors2 >= 0) {
-                int rank[2];
-                for (i = 0; i < 2; i++)
-                {
-                    if (era_pos[i] < rs_R) pos_frm = era_pos[i] + cfg_rs41.parpos + rs_R;
-                    else                   pos_frm = 2*(era_pos[i]-rs_R) + cfg_rs41.msgpos + 1;
-
-                    for (rank[i] = 0; rank[i] < 255; rank[i]++) {
-                        if (sort_idx2[rank[i]] == pos_frm) break;
-                    }
                 }
             }
         }
