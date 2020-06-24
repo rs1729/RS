@@ -99,7 +99,8 @@ typedef struct {
     float T; float RH;
     ui32_t crc;
     ui8_t frame[FRAME_LEN];
-    ui8_t dfrm[FRAME_LEN];
+    //ui8_t dfrm_shiftsgn[FRAME_LEN];
+    ui8_t dfrm_bitscore[FRAME_LEN];
     ui8_t calibytes[51*16];
     ui8_t calfrchk[51];
     float ptu_Rf1;      // ref-resistor f1 (750 Ohm)
@@ -998,12 +999,16 @@ static int get_Calconf(gpx_t *gpx, int out, int ofs) {
 
 /* ------------------------------------------------------------------------------------ */
 
-static int set_bytes(gpx_t *gpx, int pos, ui8_t *src, int len, int subcw) {
+static int set_bytes(gpx_t *gpx, int pos, ui8_t *src, int len, int subcw, int *pset) {
     int rem = 0; // cw1: rem=0 , cw2: rem=1 ( pos >= msgpos)
     int i;
     if (subcw == 2) rem = 1; else rem = 0;
     for (i = 0; i < len; i++) {
-        if ( (pos+i) % 2 == rem) gpx->frame[pos+i] = src[i];
+        if ( (pos+i) % 2 == rem) {
+            gpx->frame[pos+i] = src[i];
+            *pset = pos+i;
+            pset++;
+        }
     }
     return 0;
 }
@@ -1011,13 +1016,16 @@ static int set_bytes(gpx_t *gpx, int pos, ui8_t *src, int len, int subcw) {
 #define N_idx_fixed 5
 static int idx_fixed[N_idx_fixed] = { pos_FRAME, pos_PTU, pos_GPS1, pos_GPS2, pos_GPS3 };
 
-static int inFixed(gpx_t *gpx, int idx) {
+static int inFixed(gpx_t *gpx, int idx, int *frmset, int setcnt) {
     int j;
     for (j = 0; j < N_idx_fixed; j++) {
         if (idx == idx_fixed[j] || idx == idx_fixed[j]+1) return 1;
     }
     if (frametype(gpx) >= -2) {
         if (idx >= pos_ZEROstd && idx < NDATA_LEN) return 1;
+    }
+    for (j = 0; j < setcnt; j++) {
+        if (idx == frmset[j]) return 1;
     }
     return 0;
 }
@@ -1029,13 +1037,16 @@ static int inFixed(gpx_t *gpx, int idx) {
 static int rs41_ecc(gpx_t *gpx, int frmlen) {
 // richtige framelen wichtig fuer 0-padding
 
-    int i, j, leak, ret = 0;
+    int i, j, k, leak, ret = 0;
     int errors1, errors2;
     ui8_t cw1[rs_N], cw2[rs_N];
     ui8_t err_pos1[rs_R], err_pos2[rs_R],
           err_val1[rs_R], err_val2[rs_R];
     ui8_t era_pos[rs_R];
-    ui8_t Era_max = 11; // iteration depth, odd
+    ui8_t Era_max = 12; // iteration depth 2..255 (2 erasures for 1 error)
+
+    int frmset[FRAME_LEN];
+    int setcnt = 0;
 
 
     memset(cw1, 0, rs_N);
@@ -1058,28 +1069,8 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
     errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
 
 
-    if (gpx->option.ecc >= 2) // option_softin: mark weak dfrm[]
-    {   // 2nd pass
-        if (errors1 < 0) {
-            for (i = 0; i < frmlen/2; i++) gpx->frame[2*i] ^= gpx->dfrm[2*i];
-            for (i = 0; i < rs_K; i++) cw1[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i  ];
-            errors1 = rs_decode(&gpx->RS, cw1, err_pos1, err_val1);
-            if (errors1 < 0) {
-                for (i = 0; i < frmlen/2; i++) gpx->frame[2*i] ^= gpx->dfrm[2*i];
-            }
-        }
-        if (errors2 < 0) {
-            for (i = 0; i < frmlen/2; i++) gpx->frame[2*i+1] ^= gpx->dfrm[2*i+1];
-            for (i = 0; i < rs_K; i++) cw2[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i+1];
-            errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
-            if (errors2 < 0) {
-                for (i = 0; i < frmlen/2; i++) gpx->frame[2*i+1] ^= gpx->dfrm[2*i+1];
-            }
-        }
-    }
-
     if (gpx->option.ecc >= 2 && (errors1 < 0 || errors2 < 0))
-    {   // 2nd pass
+    {   // 2nd pass: set packet-IDs
         gpx->frame[pos_FRAME] = (pck_FRAME>>8)&0xFF; gpx->frame[pos_FRAME+1] = pck_FRAME&0xFF;
         gpx->frame[pos_PTU]   = (pck_PTU  >>8)&0xFF; gpx->frame[pos_PTU  +1] = pck_PTU  &0xFF;
         gpx->frame[pos_GPS1]  = (pck_GPS1 >>8)&0xFF; gpx->frame[pos_GPS1 +1] = pck_GPS1 &0xFF;
@@ -1104,113 +1095,140 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
         errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
     }
 
-    if (gpx->option.ecc > 2)
+    if (gpx->option.ecc == 4)  // set (probably) known bytes (if same rs41)
     {
         int crc = 0;
-        int pos_frm = 0;
-        int pos_cw = 0;
+        float frnb_ts = gpx->ecdat.ts - gpx->ecdat.last_frnb_ts + 0.5f;
+        int   frnb = gpx->ecdat.last_frnb + (unsigned)frnb_ts;
+        float calfr_ts = gpx->ecdat.ts - gpx->ecdat.last_calfrm_ts + 0.5f;
+        int   calfr = (gpx->ecdat.last_calfrm + (unsigned)calfr_ts) % 51;
 
-        if (gpx->option.ecc > 3)  // set (probably) known bytes (if same rs41)
-        {
-            float frnb_ts = gpx->ecdat.ts - gpx->ecdat.last_frnb_ts + 0.5f;
-            int   frnb = gpx->ecdat.last_frnb + (unsigned)frnb_ts;
-            float calfr_ts = gpx->ecdat.ts - gpx->ecdat.last_calfrm_ts + 0.5f;
-            int   calfr = (gpx->ecdat.last_calfrm + (unsigned)calfr_ts) % 51;
+        if (errors1 < 0) {
+            // chkCRC
+            crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
+            if (crc)
+            {
+                if ( gpx->id[0] && strncmp(gpx->frame+pos_SondeID, gpx->id, 8) != 0 )
+                {   // raw: gpx->id[0]==0
+                    // check gpx->frame+pos_SondeID[1..7] in 0x30..0x39
+                    set_bytes(gpx, pos_SondeID, gpx->id, 8, 1, frmset+setcnt);
+                    setcnt += 8/2;
+                }
 
-            if (errors1 < 0) {
-                // chkCRC
                 crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
-                if (crc)
+                if (crc && gpx->calfrchk[calfr])
                 {
-                    if ( gpx->id[0] && strncmp(gpx->frame+pos_SondeID, gpx->id, 8) != 0 )
-                    {   // raw: gpx->id[0]==0
-                        // check gpx->frame+pos_SondeID[1..7] in 0x30..0x39
-                        set_bytes(gpx, pos_SondeID, gpx->id, 8, 1);
+                    // pos_CalData:  0x052
+                    // gpx->frame[pos_CalData] == calfr ?
+                    if (gpx->frame[pos_CalData] != calfr) {
                     }
-
-                    crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
-                    if (crc && gpx->calfrchk[calfr])
-                    {
-                        // pos_CalData:  0x052
-                        // gpx->frame[pos_CalData] == calfr ?
-                        if (gpx->frame[pos_CalData] != calfr) {
-                        }
-                        else { // probably same SondeID
-                            //gpx->frame[pos_CalData] = calfr;
-                            set_bytes(gpx, pos_CalData+1, gpx->calibytes+calfr*16, 16, 1);
-                        }
+                    else { // probably same SondeID
+                        //gpx->frame[pos_CalData] = calfr;
+                        set_bytes(gpx, pos_CalData+1, gpx->calibytes+calfr*16, 16, 1, frmset+setcnt);
+                        setcnt += 16/2;
                     }
-
-                    crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
-                    //pos_FrameNb: 0x03B=59
-                    if (crc && ((frnb>>8)&0xFF) != gpx->frame[pos_FrameNb+1]) {
-                        // last valid check, last_frnb>0 ...
-                        if (gpx->ecdat.last_frnb > 0) gpx->frame[pos_FrameNb+1] = (frnb>>8)&0xFF;
-                    }
-
                 }
 
-                for (i = 0; i < rs_K; i++) cw1[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i  ];
-                errors1 = rs_decode(&gpx->RS, cw1, err_pos1, err_val1);
-            }
-            if (errors2 < 0) {
-                // chkCRC
                 crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
-                if (crc)
-                {   // check gpx->frame+pos_SondeID[1..7] in 0x30..0x39
-                    if ( gpx->id[0] && strncmp(gpx->frame+pos_SondeID, gpx->id, 8) != 0 )
-                    {
-                        set_bytes(gpx, pos_SondeID, gpx->id, 8, 2);
+                //pos_FrameNb: 0x03B=59
+                if (crc && ((frnb>>8)&0xFF) != gpx->frame[pos_FrameNb+1]) {
+                    // last valid check, last_frnb>0 ...
+                    if (gpx->ecdat.last_frnb > 0) {
+                        gpx->frame[pos_FrameNb+1] = (frnb>>8)&0xFF;
+                        frmset[setcnt++] = pos_FrameNb+1;
                     }
+                }
+            }
 
-                    crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
-                    if (crc && gpx->calfrchk[calfr]) {
-                        if (gpx->frame[pos_CalData] == calfr) {
-                            set_bytes(gpx, pos_CalData+1, gpx->calibytes+calfr*16, 16, 2);
-                        }
-                    }
-
-                    crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
-                    //pos_FrameNb: 0x03B=59
-                    if (crc && (frnb&0xFF) != gpx->frame[pos_FrameNb]) {
-                        // last valid check, last_frnb>0 ...
-                        if (gpx->ecdat.last_frnb > 0) gpx->frame[pos_FrameNb] = frnb&0xFF;
-                    }
-
+            for (i = 0; i < rs_K; i++) cw1[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i  ];
+            errors1 = rs_decode(&gpx->RS, cw1, err_pos1, err_val1);
+        }
+        if (errors2 < 0) {
+            // chkCRC
+            crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
+            if (crc)
+            {   // check gpx->frame+pos_SondeID[1..7] in 0x30..0x39
+                if ( gpx->id[0] && strncmp(gpx->frame+pos_SondeID, gpx->id, 8) != 0 )
+                {
+                    set_bytes(gpx, pos_SondeID, gpx->id, 8, 2, frmset+setcnt);
+                    setcnt += 8/2;
                 }
 
-                for (i = 0; i < rs_K; i++) cw2[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i+1];
-                errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
+                crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
+                if (crc && gpx->calfrchk[calfr]) {
+                    if (gpx->frame[pos_CalData] == calfr) {
+                        set_bytes(gpx, pos_CalData+1, gpx->calibytes+calfr*16, 16, 2, frmset+setcnt);
+                        setcnt += 16/2;
+                    }
+                }
+
+                crc = check_CRC(gpx, pos_FRAME, pck_FRAME);
+                //pos_FrameNb: 0x03B=59
+                if (crc && (frnb&0xFF) != gpx->frame[pos_FrameNb]) {
+                    // last valid check, last_frnb>0 ...
+                    if (gpx->ecdat.last_frnb > 0) {
+                        gpx->frame[pos_FrameNb] = frnb&0xFF;
+                        frmset[setcnt++] = pos_FrameNb;
+                    }
+                }
             }
+
+            for (i = 0; i < rs_K; i++) cw2[rs_R+i] = gpx->frame[cfg_rs41.msgpos+2*i+1];
+            errors2 = rs_decode(&gpx->RS, cw2, err_pos2, err_val2);
         }
+    }
 
 
-        // 3rd pass:
-        //   2 RS codewords interleaved: 2x12 errors can be corrected;
-        //   CRC is good for list decoding, high rate is not;
-        //   burst errors could affect neighboring bytes, however
-        //   if AWGN and 24 bit-errors per frame, probability for 2 bit-errors in 1 byte is low;
-        //   erasures: 11 + 2/2 = 12 (11 errors and 2 erasures per codeword can be corrected)
-        //             11 + 2 = 13: try combinations of 2 erasures with low scores
+    // 3rd pass:
+    //   2 RS codewords interleaved: 2x12 errors can be corrected;
+    //   CRC is good for list decoding, high rate is not;
+    //   burst errors could affect neighboring bytes, however
+    //   if AWGN and 24 bit-errors per frame, probability for 2 bit-errors in 1 byte is low;
+    //   low byte-score -> erasure , low bit-score -> bit-toggle:
+    //   - erasures: 11 + 2/2 = 12 (11 errors and 2 erasures per codeword can be corrected)
+    //               11 + 2 = 13: try combinations of 2 erasures with low byte-scores
+    //   - toggle low-score bits
+
+    if (gpx->option.ecc > 2)
+    {
+        int pos_cw = 0;
+        int pos_frm = 0;
 
         if (errors1 < 0)
         {
             for (i = 1; i < Era_max; i++) {
                 pos_frm = gpx->ecdat.sort_idx1[i];
-                if (inFixed(gpx, pos_frm)) continue;
+                if (inFixed(gpx, pos_frm, frmset, setcnt)) continue;
                 if (pos_frm < cfg_rs41.msgpos) pos_cw = pos_frm - cfg_rs41.parpos;
                 else                           pos_cw = rs_R + (pos_frm - cfg_rs41.msgpos)/2;
                 if (pos_cw < 0 || pos_cw > 254) continue;
                 era_pos[0] = pos_cw;
                 for (j = 0; j < i; j++) {
                     pos_frm = gpx->ecdat.sort_idx1[j];
-                    if (inFixed(gpx, pos_frm)) continue;
+                    if (inFixed(gpx, pos_frm, frmset, setcnt)) continue;
                     if (pos_frm < cfg_rs41.msgpos) pos_cw = pos_frm - cfg_rs41.parpos;
                     else                           pos_cw = rs_R + (pos_frm - cfg_rs41.msgpos)/2;
                     if (pos_cw < 0 || pos_cw > 254) continue;
                     era_pos[1] = pos_cw;
-                    errors1 = rs_decode_ErrEra(&gpx->RS, cw1, 2, era_pos, err_pos1, err_val1);
-                    if (errors1 >= 0) { j = 256; i = 256; } //break;
+
+                    //k = -1;
+                    for (k = -1; k < j; k++)  // toggle low-score bits
+                    {
+                        if (k >= 0) {
+                            pos_frm = gpx->ecdat.sort_idx1[k];
+                            if (inFixed(gpx, pos_frm, frmset, setcnt)) continue;
+                            else {
+                                if (pos_frm < cfg_rs41.msgpos) pos_cw = pos_frm - cfg_rs41.parpos;
+                                else                           pos_cw = rs_R + (pos_frm - cfg_rs41.msgpos)/2;
+                                if (pos_cw < 0 || pos_cw > 254) continue;
+                                cw1[pos_cw] ^= gpx->dfrm_bitscore[pos_frm];
+                            }
+                        }
+
+                        errors1 = rs_decode_ErrEra(&gpx->RS, cw1, 2, era_pos, err_pos1, err_val1);
+                        if (errors1 >= 0) { j = 256; i = 256; k = 256; } //break;
+                        //else if (k >= 0) { cw1[pos_cw] ^= gpx->dfrm_bitscore[pos_frm]; }
+                    }
                 }
             }
         }
@@ -1219,20 +1237,37 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
         {
             for (i = 1; i < Era_max; i++) {
                 pos_frm = gpx->ecdat.sort_idx2[i];
-                if (inFixed(gpx, pos_frm)) continue;
+                if (inFixed(gpx, pos_frm, frmset, setcnt)) continue;
                 if (pos_frm < cfg_rs41.msgpos) pos_cw = pos_frm - cfg_rs41.parpos - rs_R;
                 else                           pos_cw = rs_R + (pos_frm - cfg_rs41.msgpos)/2;
                 if (pos_cw < 0 || pos_cw > 254) continue;
                 era_pos[0] = pos_cw;
                 for (j = 0; j < i; j++) {
                     pos_frm = gpx->ecdat.sort_idx2[j];
-                    if (inFixed(gpx, pos_frm)) continue;
+                    if (inFixed(gpx, pos_frm, frmset, setcnt)) continue;
                     if (pos_frm < cfg_rs41.msgpos) pos_cw = pos_frm - cfg_rs41.parpos - rs_R;
                     else                           pos_cw = rs_R + (pos_frm - cfg_rs41.msgpos)/2;
                     if (pos_cw < 0 || pos_cw > 254) continue;
                     era_pos[1] = pos_cw;
-                    errors2 = rs_decode_ErrEra(&gpx->RS, cw2, 2, era_pos, err_pos2, err_val2);
-                    if (errors2 >= 0) { j = 256; i = 256; } //break;
+
+                    //k = -1;
+                    for (k = -1; k < j; k++)  // toggle low-score bits
+                    {
+                        if (k >= 0) {
+                            pos_frm = gpx->ecdat.sort_idx2[k];
+                            if (inFixed(gpx, pos_frm, frmset, setcnt)) continue;
+                            else {
+                                if (pos_frm < cfg_rs41.msgpos) pos_cw = pos_frm - cfg_rs41.parpos - rs_R;
+                                else                           pos_cw = rs_R + (pos_frm - cfg_rs41.msgpos)/2;
+                                if (pos_cw < 0 || pos_cw > 254) continue;
+                                cw2[pos_cw] ^= gpx->dfrm_bitscore[pos_frm];
+                            }
+                        }
+
+                        errors2 = rs_decode_ErrEra(&gpx->RS, cw2, 2, era_pos, err_pos2, err_val2);
+                        if (errors2 >= 0) { j = 256; i = 256; k = 256; } //break;
+                        //else if (k >= 0) { cw2[pos_cw] ^= gpx->dfrm_bitscore[pos_frm]; }
+                    }
                 }
             }
         }
@@ -1384,7 +1419,7 @@ static int prn_sat3(gpx_t *gpx, int ofs) {
 }
 
 static int print_position(gpx_t *gpx, int ec) {
-    int i, j;
+    int i;
     int err, err0, err1, err2, err3;
     //int output, out_mask;
     int encrypted = 0;
@@ -2047,16 +2082,20 @@ int main(int argc, char *argv[]) {
                     bitbuf[b8pos] = bit;
                     b8pos++;
                     if (b8pos == BITS) {
-                        int j;
+                        int j, j0 = 0;
                         float min_score_byte = softbits[0];
                         for (j = 1; j < BITS; j++) {
-                            if (fabs(softbits[j]) < fabs(min_score_byte)) min_score_byte = softbits[j];
+                            if (fabs(softbits[j]) < fabs(min_score_byte)) {
+                                min_score_byte = softbits[j];
+                                j0 = j;
+                            }
                         }
                         gpx.ecdat.frm_bytescore[byte_count] = min_score_byte;
                         b8pos = 0;
                         byte = bits2byte(bitbuf);
                         gpx.frame[byte_count] = byte ^ mask[byte_count % MASK_LEN];
-                        gpx.dfrm[byte_count] = difbyte;
+                        //gpx.dfrm_shiftsgn[byte_count] = difbyte;
+                        gpx.dfrm_bitscore[byte_count] = (1<<j0);
                         difbyte = 0;
                         byte_count++;
                     }
