@@ -30,7 +30,7 @@ echo "lms 0.02428" > rsfifo
 #include <fcntl.h> // O_RDONLY //... setmode()/cygwin
 
 #ifdef CYGWIN
-  #include <fcntl.h>  // cygwin: _setmode()
+  //#include <fcntl.h>  // cygwin: _setmode()
   #include <io.h>
 #endif
 
@@ -369,10 +369,13 @@ int main(int argc, char **argv) {
 
                     k++;
                     if (k > xlt_cnt) xlt_cnt = k;
-                    tharg[k].thd.max_fq = xlt_cnt;
+                    for (k = 0; k < xlt_cnt; k++) {
+                        tharg[k].thd.max_fq = xlt_cnt;
+                    }
 
                 }
             }
+            sleep(1);
         }
     }
 
