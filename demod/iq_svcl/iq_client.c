@@ -122,13 +122,14 @@ int main(int argc, char *argv[]) {
                 len = fwrite(recvln, recv_len, 1, stdout);
                 if (len != 1) {
                     fprintf(stderr, "error: write  %d blocks\n", len);
+                    break;
                 }
                 memset(recvln, 0, LINELEN+1);
                 //ioctl(sock_fd, FIONREAD, &count);
             }
             if (recv_len < 0) {
                 fprintf(stderr, "error: read socket\n");
-                return 5;
+                //return 5;
             }
         }
 

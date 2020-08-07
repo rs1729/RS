@@ -18,6 +18,8 @@
 #include <unistd.h> // open(),close()
 #include <fcntl.h> // O_RDONLY //... setmode()/cygwin
 
+#include <signal.h>
+
 #ifdef CYGWIN
   #include <io.h>
 #endif
@@ -233,6 +235,10 @@ static void *thd_IF(void *targs) { // pcm_t *pcm, double xlt_fq
             if (option_dbg && l != n) {
                 fprintf(stderr, "l: %d  n: %d\n", l, n);
             }
+            if (l <= 0) {
+                bitQ = read_ifblock(&dsp, z_vec+n);
+                (dsp.thd)->used = 0;
+            }
             n = 0;
         }
 
@@ -440,6 +446,8 @@ int main(int argc, char **argv) {
     _setmode(fileno(stdin), _O_BINARY);  // _fileno(stdin)
 #endif
     //setbuf(FPOUT, NULL);
+
+    sigaction(SIGPIPE, &(struct sigaction){SIG_IGN}, NULL);
 
 
     for (k = 0; k < MAX_FQ; k++) base_fqs[k] = 0.0;
@@ -660,7 +668,7 @@ int main(int argc, char **argv) {
                 else if (tcp_buf[0] == '-') { // -<n> : close <n>
                     int num = atoi(tcp_buf+1);
                     if (num >= 0 && num < MAX_FQ) {
-                        if (tharg[num].thd.used && num != tn_scan) {
+                        if (num != tn_scan) {
                             tharg[num].thd.used = 0;
                         }
                     }
