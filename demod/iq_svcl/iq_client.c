@@ -16,8 +16,6 @@
 
 #include "iq_svcl.h"
 
-#define LINELEN 4096
-
 
 static sa_in_t serv_addr;
 static int serv_port = PORT;
@@ -32,6 +30,7 @@ static char recvln[LINELEN+1];
 int main(int argc, char *argv[]) {
 
     int re = 0;
+    char *fname_fft = "db_fft_cl.txt";
 
     sock_fd = socket(AF_INET, SOCK_STREAM, 0); // TCP
     if (sock_fd < 0) {
@@ -51,8 +50,17 @@ int main(int argc, char *argv[]) {
             ++argv;
             if (*argv) str_addr = *argv; else return -1;
         }
-        else if (strcmp(*argv, "--scan") == 0) {
-            sprintf(sendln, "%s", "--scan");
+        else if (strcmp(*argv, "--fft0") == 0) {
+            sprintf(sendln, "%s", "--fft0");
+        }
+        else if (strcmp(*argv, "--fft") == 0) {
+            sprintf(sendln, "%s", "--fft");
+            ++argv;
+            if (*argv) {
+                fname_fft = *argv;
+            }
+            else return -1;
+            re = 2;
         }
         else if (strcmp(*argv, "--freq") == 0) {
             ++argv;
@@ -95,41 +103,74 @@ int main(int argc, char *argv[]) {
             //int count = 0;
             int len;
 
-
-            // header
-            memset(recvln, 0, LINELEN+1);
-            len = HDRLEN;
-            while ( (recv_len = read(sock_fd, recvln, len)) > 0) {
-                recvln[recv_len] = '\0';
-                if ( *recvln ) fprintf(stderr, "%s", recvln);
-                len -= recv_len;
-                if (len == 0) break;
-            }
-            if (recv_len < 0) {
-                fprintf(stderr, "error: read socket\n");
-                return 5;
-            }
-
-
-            //
-            // data
-
-            memset(recvln, 0, LINELEN+1);
-
-            //ioctl(sock_fd, FIONREAD, &count);
-            while ( (recv_len = read(sock_fd, recvln, LINELEN)) > 0) {
-
-                len = fwrite(recvln, recv_len, 1, stdout);
-                if (len != 1) {
-                    fprintf(stderr, "error: write  %d blocks\n", len);
-                    break;
-                }
+            if ( re == 1 )
+            {
+                // header
                 memset(recvln, 0, LINELEN+1);
+                len = HDRLEN;
+                while ( (recv_len = read(sock_fd, recvln, len)) > 0) {
+                    recvln[recv_len] = '\0';
+                    if ( *recvln ) fprintf(stderr, "%s", recvln);
+                    len -= recv_len;
+                    if (len == 0) break;
+                }
+                if (recv_len < 0) {
+                    fprintf(stderr, "error: read socket\n");
+                    return 5;
+                }
+
+
+                //
+                // data
+
+                memset(recvln, 0, LINELEN+1);
+
                 //ioctl(sock_fd, FIONREAD, &count);
+                while ( (recv_len = read(sock_fd, recvln, LINELEN)) > 0) {
+
+                    len = fwrite(recvln, recv_len, 1, stdout);
+                    if (len != 1) {
+                        fprintf(stderr, "error: write  %d blocks\n", len);
+                        break;
+                    }
+                    memset(recvln, 0, LINELEN+1);
+                    //ioctl(sock_fd, FIONREAD, &count);
+                }
+                if (recv_len < 0) {
+                    fprintf(stderr, "error: read socket\n");
+                    //return 5;
+                }
             }
-            if (recv_len < 0) {
-                fprintf(stderr, "error: read socket\n");
-                //return 5;
+            else if ( re == 2 )
+            {
+                // fft data
+                FILE *fpo = fopen(fname_fft, "wb");
+                if (fpo != NULL) {
+
+                    memset(recvln, 0, LINELEN+1);
+
+                    //ioctl(sock_fd, FIONREAD, &count);
+                    while ( (recv_len = read(sock_fd, recvln, LINELEN)) > 0) {
+
+                        len = fwrite(recvln, recv_len, 1, fpo);
+                        if (len != 1) {
+                            fprintf(stderr, "error: write  %d blocks\n", len);
+                            break;
+                        }
+                        memset(recvln, 0, LINELEN+1);
+                        //ioctl(sock_fd, FIONREAD, &count);
+                    }
+                    if (recv_len < 0) {
+                        fprintf(stderr, "error: read socket\n");
+                        //return 5;
+                    }
+
+                    fclose(fpo);
+                }
+                else {
+                    fprintf(stderr, "error: open %s\n", fname_fft);
+                }
+
             }
         }
 

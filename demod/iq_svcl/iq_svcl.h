@@ -9,7 +9,8 @@
 #define TCPBUF_LEN 1024
 #define SERV_BACKLOG 6
 
-#define HDRLEN 256
+#define LINELEN 4096
+#define HDRLEN  256
 
 #define PORT 1280
 

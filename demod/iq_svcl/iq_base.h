@@ -34,7 +34,7 @@ typedef struct {
     double xlt_fq;
     float complex *blk;
     int used;
-    int scan;
+    int fft;
 } thd_t;
 
 
@@ -96,6 +96,7 @@ typedef struct {
     pcm_t pcm;
     thd_t thd;
     int fd;
+    char *fname;
 } thargs_t;
 
 

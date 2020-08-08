@@ -29,8 +29,9 @@
 
 #define FPOUT stderr
 
-
 static int option_dbg = 0;
+
+static int tcp_eof = 0;
 
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  cond  = PTHREAD_COND_INITIALIZER;
@@ -249,7 +250,6 @@ static void *thd_IF(void *targs) { // pcm_t *pcm, double xlt_fq
             pthread_mutex_unlock( (dsp.thd)->mutex );
             break;
         }
-
     }
 
 
@@ -266,6 +266,8 @@ static void *thd_IF(void *targs) { // pcm_t *pcm, double xlt_fq
         fprintf(stderr, "<%d: EOF>\n", (dsp.thd)->tn);
     }
 
+    tcp_eof = (bitQ == EOF);
+
     return NULL;
 }
 
@@ -273,6 +275,9 @@ static void *thd_FFT(void *targs) {
 
     thargs_t *tharg = targs;
     pcm_t *pcm = &(tharg->pcm);
+
+    FILE *fpo = NULL;
+    char *fname_fft = "db_fft.txt";
 
     int k;
     int bitQ = 0;
@@ -300,7 +305,7 @@ static void *thd_FFT(void *targs) {
     dsp.bps_out = pcm->bps_out;
 
 
-    //(dsp.thd)->scan = 1;
+    //(dsp.thd)->fft = 1;
     if (option_dbg) {
         fprintf(stderr, "init FFT buffers\n");
     }
@@ -334,7 +339,7 @@ static void *thd_FFT(void *targs) {
         n++;
         if (n == len) { // mlen = len * decM <= DFT.N
 
-            if ((dsp.thd)->scan && sum_n*mlen < sec*dsp.sr_base)
+            if ((dsp.thd)->fft && sum_n*mlen < sec*dsp.sr_base)
             {
                 double complex dc = 0; // narrow bandwidth: no off-signal average
                 for (j = 0; j < mlen; j++) {
@@ -364,23 +369,58 @@ static void *thd_FFT(void *targs) {
                 for (j = 0; j < dsp.DFT.N; j++) sum_db[j] /= (float)sum_n;
 
                 pthread_mutex_lock( (dsp.thd)->mutex );
-                fprintf(FPOUT, "<%d: SCAN>\n", (dsp.thd)->tn);
+                fprintf(FPOUT, "<%d: FFT>\n", (dsp.thd)->tn);
                 pthread_mutex_unlock( (dsp.thd)->mutex );
 
-                (dsp.thd)->scan = 0;
-                sum_n = 0;
-
-                FILE *fpo = fopen("db_scan.txt", "wb");
-                if (fpo != NULL) {
-                    for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
-                        fprintf(fpo, "%9.6f ; %9.1f ; %10.4f", bin2fq(&(dsp.DFT), j % dsp.DFT.N), bin2freq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
-                        fprintf(fpo, "\n");
+                if ( (dsp.thd)->fft == 1 ) { // 1=server
+                    fname_fft = tharg->fname;
+                    fpo = fopen(fname_fft, "wb");
+                    if (fpo != NULL) {
+                        for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
+                            fprintf(fpo, "%9.6f ; %9.1f ; %10.4f\n",
+                                    bin2fq(&(dsp.DFT), j % dsp.DFT.N), bin2freq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                        }
+                        fclose(fpo);
                     }
-                    fclose(fpo);
+                    else {
+                        fprintf(stderr, "error: open %s\n", fname_fft);
+                    }
                 }
-                else {
-                    fprintf(stderr, "error: open db.txt\n");
+                else if ( (dsp.thd)->fft > 1 ) { // 2,3=client
+                    if ( (dsp.thd)->fft == 2 )
+                    {   // send FFT data to client
+                        char sendln[LINELEN+1];
+                        int sendln_len;
+                        int l;
+
+                        for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
+                            memset(sendln, 0, LINELEN+1);
+                            snprintf(sendln, LINELEN, "%9.6f ; %9.1f ; %10.4f\n",
+                                     bin2fq(&(dsp.DFT), j % dsp.DFT.N), bin2freq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                            sendln_len = strlen(sendln);
+                            l = write(tharg->fd, sendln, sendln_len);
+                        }
+                    }
+                    else
+                    {   // save FFT at server
+                        fname_fft = "db_fft_cl.txt"; //tharg->fname;
+                        fpo = fopen(fname_fft, "wb");
+                        if (fpo != NULL) {
+                            for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
+                                fprintf(fpo, "%9.6f ; %9.1f ; %10.4f\n",
+                                        bin2fq(&(dsp.DFT), j % dsp.DFT.N), bin2freq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                            }
+                            fclose(fpo);
+                        }
+                        else {
+                            fprintf(stderr, "error: open %s\n", fname_fft);
+                        }
+                    }
+                    close(tharg->fd);
                 }
+
+                (dsp.thd)->fft = 0;
+                sum_n = 0;
             }
 
             n = 0;
@@ -414,6 +454,7 @@ static void *thd_FFT(void *targs) {
     reset_blockread(&dsp);
     (dsp.thd)->used = 0;
 
+    tcp_eof = (bitQ == EOF);
 
     return NULL;
 }
@@ -429,7 +470,7 @@ int main(int argc, char **argv) {
     void *rstype[MAX_FQ];
     int option_pcmraw = 0,
         option_min = 0;
-
+    char *fname_fft = "db_fft.txt";
 
     // TCP
     sa_in_t serv_addr;
@@ -437,7 +478,7 @@ int main(int argc, char **argv) {
     int listen_fd;
     char tcp_buf[TCPBUF_LEN];
     int th_used = 0;
-    int tn_scan = -1;
+    int tn_fft = -1;
 
     pcm_t pcm = {0};
 
@@ -457,13 +498,15 @@ int main(int argc, char **argv) {
         if (strcmp(*argv, "--dbg") == 0) {
             option_dbg = 1;
         }
-        else if (strcmp(*argv, "--scan") == 0) {
+        else if (strcmp(*argv, "--fft") == 0) {
             if (xlt_cnt < MAX_FQ) {
                 base_fqs[xlt_cnt] = 0.0;
                 rstype[xlt_cnt] = thd_FFT;
-                tn_scan = xlt_cnt;
+                tn_fft = xlt_cnt;
                 xlt_cnt++;
             }
+            ++argv;
+            if (*argv) fname_fft = *argv; else return -1;
         }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
@@ -524,10 +567,13 @@ int main(int argc, char **argv) {
 
     thargs_t tharg[MAX_FQ]; // xlt_cnt<=MAX_FQ
     for (k = 0; k < MAX_FQ; k++) tharg[k].thd.used = 0;
-    for (k = 0; k < MAX_FQ; k++) tharg[k].thd.scan = 0;
+    for (k = 0; k < MAX_FQ; k++) tharg[k].thd.fft = 0;
 
     for (k = 0; k < xlt_cnt; k++) {
-        if (k == tn_scan) tharg[k].thd.scan = 1;
+        if (k == tn_fft) {
+            tharg[k].thd.fft = 1; // 1=server
+            tharg[k].fname = fname_fft;
+        }
         tharg[k].thd.tn = k;
         tharg[k].thd.tn_bit = (1<<k);
         tharg[k].thd.mutex = &mutex;
@@ -579,7 +625,6 @@ int main(int argc, char **argv) {
     }
 
 
-
     while ( 1 ) {
 
         int l = 0;
@@ -629,46 +674,60 @@ int main(int argc, char **argv) {
                     for (k = 0; k < MAX_FQ; k++) tharg[k].thd.used = 0;
                     break;
                 }
-                else if ( strcmp(tcp_buf, "--scan") == 0 ) {
-                    close(conn_fd);
-                    if (tn_scan >= 0) {
-                        tharg[tn_scan].thd.scan = 1;
-                    }
-                    else {
-                        for (k = 0; k < MAX_FQ; k++) {
-                            if (tharg[k].thd.used == 0) break;
+                else if ( strncmp(tcp_buf, "--fft", 5) == 0 ) {
+                    char *fname_fft_cl = "db_fft_cl.txt";
+                    int opt_fft = strcmp(tcp_buf, "--fft0") == 0 ? 3 : 2;
+                    //close(conn_fd);
+                    if ( !tcp_eof )
+                    {
+                        if (tn_fft >= 0) {
+                            tharg[tn_fft].thd.fft = opt_fft; // 2,3=client
+                            tharg[tn_fft].fname = fname_fft_cl;
+                            tharg[tn_fft].fd = conn_fd;
                         }
-                        if (k < MAX_FQ) {
-                            tharg[k].thd.scan = 1;
-                            tn_scan = k;
-                            tharg[k].thd.tn = k;
-                            tharg[k].thd.tn_bit = (1<<k);
-                            tharg[k].thd.mutex = &mutex;
-                            tharg[k].thd.cond = &cond;
-                            //tharg[k].thd.lock = &lock;
-                            tharg[k].thd.blk = block_decMB;
-                            tharg[k].thd.xlt_fq = 0.0;
+                        else {
+                            for (k = 0; k < MAX_FQ; k++) {
+                                if (tharg[k].thd.used == 0) break;
+                            }
+                            if (k < MAX_FQ) {
+                                tharg[k].thd.fft = opt_fft; // 2,3=client
+                                tharg[k].fname = fname_fft_cl;
+                                tn_fft = k;
+                                tharg[k].thd.tn = k;
+                                tharg[k].thd.tn_bit = (1<<k);
+                                tharg[k].thd.mutex = &mutex;
+                                tharg[k].thd.cond = &cond;
+                                //tharg[k].thd.lock = &lock;
+                                tharg[k].thd.blk = block_decMB;
+                                tharg[k].thd.xlt_fq = 0.0;
 
-                            tharg[k].pcm = pcm;
-                            tharg[k].fd = conn_fd; // already closed
+                                tharg[k].pcm = pcm;
+                                tharg[k].fd = conn_fd;
 
-                            rbf1 |= tharg[k].thd.tn_bit;
-                            tharg[k].thd.used = 1;
+                                rbf1 |= tharg[k].thd.tn_bit;
+                                tharg[k].thd.used = 1;
 
-                            pthread_create(&tharg[k].thd.tid, NULL, thd_FFT, &tharg[k]);
+                                pthread_create(&tharg[k].thd.tid, NULL, thd_FFT, &tharg[k]);
 
-                            k++;
-                            if (k > xlt_cnt) xlt_cnt = k;
-                            for (k = 0; k < xlt_cnt; k++) {
-                                tharg[k].thd.max_fq = xlt_cnt;
+                                k++;
+                                if (k > xlt_cnt) xlt_cnt = k;
+                                for (k = 0; k < xlt_cnt; k++) {
+                                    tharg[k].thd.max_fq = xlt_cnt;
+                                }
+                            }
+                            else {
+                                close(conn_fd);
                             }
                         }
+                    }
+                    else {
+                        close(conn_fd);
                     }
                 }
                 else if (tcp_buf[0] == '-') { // -<n> : close <n>
                     int num = atoi(tcp_buf+1);
                     if (num >= 0 && num < MAX_FQ) {
-                        if (num != tn_scan) {
+                        if (num != tn_fft) {
                             tharg[num].thd.used = 0;
                         }
                     }
@@ -703,7 +762,7 @@ int main(int argc, char **argv) {
 
                 rbf1 |= tharg[k].thd.tn_bit;
                 tharg[k].thd.used = 1;
-                tharg[k].thd.scan = 0;
+                tharg[k].thd.fft = 0;
 
                 pthread_create(&tharg[k].thd.tid, NULL, thd_IF, &tharg[k]);
 

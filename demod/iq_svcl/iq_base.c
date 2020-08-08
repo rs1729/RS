@@ -548,7 +548,7 @@ int init_buffers(dsp_t *dsp) {
     int n, k;
 
 
-    if (dsp->thd->scan == 0)
+    if (dsp->thd->fft == 0)
     {
         //
         // pcm_dec_init()
@@ -620,11 +620,11 @@ int init_buffers(dsp_t *dsp) {
     dsp->DFT.N2 = 1 << dsp->DFT.LOG2N;
     dsp->DFT.N = dsp->DFT.N2 << mn;
     dsp->DFT.LOG2N += mn;
-
-if (dsp->thd->scan) {
+/*
+if (dsp->opt_dbg && dsp->thd->fft) {
 //fprintf(stderr, "HZBIN: %d , N: %d , Hz_per_bin: %.1f\n", HZBIN, dsp->DFT.N, bin2freq(&(dsp->DFT), 1));
 }
-
+*/
     dsp->DFT.X  = calloc(dsp->DFT.N+1, sizeof(float complex));  if (dsp->DFT.X  == NULL) return -1;
     dsp->DFT.Z  = calloc(dsp->DFT.N+1, sizeof(float complex));  if (dsp->DFT.Z  == NULL) return -1;
 
