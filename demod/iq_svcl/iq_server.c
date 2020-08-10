@@ -271,6 +271,9 @@ static void *thd_IF(void *targs) { // pcm_t *pcm, double xlt_fq
     return NULL;
 }
 
+#define FFT_SEC 2
+#define FFT_FPS 20
+
 static void *thd_FFT(void *targs) {
 
     thargs_t *tharg = targs;
@@ -327,7 +330,9 @@ static void *thd_FFT(void *targs) {
     int len = dsp.DFT.N / dsp.decM;
     int mlen = len*dsp.decM;
     int sum_n = 0;
-    int sec = 2;
+    int sec = FFT_SEC;
+    int fft_step = dsp.sr_base/(dsp.DFT.N*FFT_FPS);
+    int n_fft = 0;
 
     bitQ = 0;
     while ( bitQ != EOF )
@@ -339,7 +344,9 @@ static void *thd_FFT(void *targs) {
         n++;
         if (n == len) { // mlen = len * decM <= DFT.N
 
-            if ((dsp.thd)->fft && sum_n*mlen < sec*dsp.sr_base)
+            n_fft += 1;
+
+            if ((dsp.thd)->fft && sum_n*n_fft*mlen < sec*dsp.sr_base && n_fft >= fft_step)
             {
                 double complex dc = 0; // narrow bandwidth: no off-signal average
                 for (j = 0; j < mlen; j++) {
@@ -363,8 +370,9 @@ static void *thd_FFT(void *targs) {
                 for (j = 0; j < dsp.DFT.N; j++) sum_db[j] += db[j];
 
                 sum_n++;
+                n_fft = 0;
             }
-            if (sum_n*mlen >= sec*dsp.sr_base) {
+            if (sum_n*fft_step*mlen >= sec*dsp.sr_base) {
 
                 for (j = 0; j < dsp.DFT.N; j++) sum_db[j] /= (float)sum_n;
 
