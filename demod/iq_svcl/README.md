@@ -23,7 +23,7 @@ receive IF stream from baseband IQ via TCP,
   &nbsp;&nbsp;&nbsp;&nbsp; `<bo>=8,16,32`: output/IF bits per (real) sample (u8, s16 or f32) <br />
   down-converts up to `MAX_FQ=(4+1) (iq_base.h)` channels/signals. More signals than number of CPUs/cores is not recommended.
   One channel can be used for scanning, `--fft <fft.txt>` makes FFT (2 seconds average).
-  The FFT is saved in `<fft.txt>` as `<fq>;<frequency>;<dB>`, approx. 200 Hz per bin.<br />
+  The FFT is saved in `<fft.txt>` as `<fq>;<dB>`, approx. 200 Hz per bin.<br />
   If no output bps is chosen (`--bo [8,16,32]`), the IF bps is equal to the baseband bps. It is recommended to use
   `--bo 32` (i.e. float32) output, then no quantization noise is introduced when converting from internal float32 samples.<br />
 

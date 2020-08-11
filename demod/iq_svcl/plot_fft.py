@@ -18,19 +18,15 @@ if not os.path.isfile(fft_file):
     sys.exit()
 
 
-data = np.genfromtxt( fft_file, delimiter=';', names=['fq','freq','db'] )
+data = np.genfromtxt( fft_file, delimiter=';', names=['fq','db'] , skip_header=1 )
 
 fq   = data['fq']
-freq = data['freq']
 db   = data['db']
 
 
 ax1 = plt.subplot(111)
-ax1.set_xlim(freq[0], freq[-1])
-ax1.plot( freq, db, color='b', linewidth=0.2, label='fft')
-ax2 = ax1.twiny()
-ax2.set_xlim(fq[0], fq[-1])
+ax1.set_xlim(fq[0], fq[-1])
+ax1.plot( fq, db, color='b', linewidth=0.2, label='fft')
 
 plt.show()
-
 

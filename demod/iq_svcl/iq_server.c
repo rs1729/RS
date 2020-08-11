@@ -29,6 +29,10 @@
 
 #define FPOUT stderr
 
+#define OPT_FFT_SERV 1  // server
+#define OPT_FFT_CLSV 2  // server (client request)
+#define OPT_FFT_CLNT 3  // server -> client
+
 static int option_dbg = 0;
 
 static int tcp_eof = 0;
@@ -380,13 +384,28 @@ static void *thd_FFT(void *targs) {
                 fprintf(FPOUT, "<%d: FFT>\n", (dsp.thd)->tn);
                 pthread_mutex_unlock( (dsp.thd)->mutex );
 
-                if ( (dsp.thd)->fft == 1 ) { // 1=server
-                    fname_fft = tharg->fname;
+                if ( (dsp.thd)->fft == OPT_FFT_CLNT ) { // send FFT data to client
+                    char sendln[LINELEN+1];
+                    int sendln_len;
+                    int l;
+                    snprintf(sendln, LINELEN, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dsp.DFT.sr, dsp.DFT.N);
+                    sendln_len = strlen(sendln);
+                    l = write(tharg->fd, sendln, sendln_len);
+                    for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
+                        memset(sendln, 0, LINELEN+1);
+                        snprintf(sendln, LINELEN, "%+11.8f;%7.2f\n", bin2fq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                        sendln_len = strlen(sendln);
+                        l = write(tharg->fd, sendln, sendln_len);
+                    }
+                }
+                else { // save FFT at server
+                    if ( (dsp.thd)->fft == OPT_FFT_SERV )  fname_fft = tharg->fname;
+                    else                /* OPT_FFT_CLSV */ fname_fft = "db_fft_cl.txt";
                     fpo = fopen(fname_fft, "wb");
                     if (fpo != NULL) {
+                        fprintf(fpo, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dsp.DFT.sr, dsp.DFT.N);
                         for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
-                            fprintf(fpo, "%9.6f ; %9.1f ; %10.4f\n",
-                                    bin2fq(&(dsp.DFT), j % dsp.DFT.N), bin2freq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                            fprintf(fpo, "%+11.8f;%7.2f\n", bin2fq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
                         }
                         fclose(fpo);
                     }
@@ -394,38 +413,7 @@ static void *thd_FFT(void *targs) {
                         fprintf(stderr, "error: open %s\n", fname_fft);
                     }
                 }
-                else if ( (dsp.thd)->fft > 1 ) { // 2,3=client
-                    if ( (dsp.thd)->fft == 2 )
-                    {   // send FFT data to client
-                        char sendln[LINELEN+1];
-                        int sendln_len;
-                        int l;
-
-                        for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
-                            memset(sendln, 0, LINELEN+1);
-                            snprintf(sendln, LINELEN, "%9.6f ; %9.1f ; %10.4f\n",
-                                     bin2fq(&(dsp.DFT), j % dsp.DFT.N), bin2freq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
-                            sendln_len = strlen(sendln);
-                            l = write(tharg->fd, sendln, sendln_len);
-                        }
-                    }
-                    else
-                    {   // save FFT at server
-                        fname_fft = "db_fft_cl.txt"; //tharg->fname;
-                        fpo = fopen(fname_fft, "wb");
-                        if (fpo != NULL) {
-                            for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
-                                fprintf(fpo, "%9.6f ; %9.1f ; %10.4f\n",
-                                        bin2fq(&(dsp.DFT), j % dsp.DFT.N), bin2freq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
-                            }
-                            fclose(fpo);
-                        }
-                        else {
-                            fprintf(stderr, "error: open %s\n", fname_fft);
-                        }
-                    }
-                    close(tharg->fd);
-                }
+                if ( (dsp.thd)->fft != OPT_FFT_SERV ) close(tharg->fd);
 
                 (dsp.thd)->fft = 0;
                 sum_n = 0;
@@ -579,7 +567,7 @@ int main(int argc, char **argv) {
 
     for (k = 0; k < xlt_cnt; k++) {
         if (k == tn_fft) {
-            tharg[k].thd.fft = 1; // 1=server
+            tharg[k].thd.fft = OPT_FFT_SERV;
             tharg[k].fname = fname_fft;
         }
         tharg[k].thd.tn = k;
@@ -684,12 +672,12 @@ int main(int argc, char **argv) {
                 }
                 else if ( strncmp(tcp_buf, "--fft", 5) == 0 ) {
                     char *fname_fft_cl = "db_fft_cl.txt";
-                    int opt_fft = strcmp(tcp_buf, "--fft0") == 0 ? 3 : 2;
+                    int opt_fft = strcmp(tcp_buf, "--fft0") == 0 ? OPT_FFT_CLSV : OPT_FFT_CLNT;
                     //close(conn_fd);
                     if ( !tcp_eof )
                     {
                         if (tn_fft >= 0) {
-                            tharg[tn_fft].thd.fft = opt_fft; // 2,3=client
+                            tharg[tn_fft].thd.fft = opt_fft;
                             tharg[tn_fft].fname = fname_fft_cl;
                             tharg[tn_fft].fd = conn_fd;
                         }
@@ -698,7 +686,7 @@ int main(int argc, char **argv) {
                                 if (tharg[k].thd.used == 0) break;
                             }
                             if (k < MAX_FQ) {
-                                tharg[k].thd.fft = opt_fft; // 2,3=client
+                                tharg[k].thd.fft = opt_fft;
                                 tharg[k].fname = fname_fft_cl;
                                 tn_fft = k;
                                 tharg[k].thd.tn = k;
