@@ -21,7 +21,8 @@ simultaneous decoding
   &nbsp;&nbsp;&nbsp;&nbsp; `-0.5 < fqX < 0.5`: (relative) frequency, `fq=freq/sr` <br />
   &nbsp;&nbsp;&nbsp;&nbsp; `<sr>`: sample rate <br />
   &nbsp;&nbsp;&nbsp;&nbsp; `<bs>=8,16,32`: bits per (real) sample (u8, s16 or f32) <br />
-  decodes up to `MAX_FQ=5 (demod_base.h)` signals. Decoding more signals than number of CPUs/cores is not recommended. <br />
+  decodes up to `MAX_FQ=5 (demod_base.h)` signals. Decoding more signals than number of CPUs/cores is not recommended.<br />
+  Note: If the baseband sample rate has no appropriate factors (e.g. if prime), the IF sample rate might be high and IF-processing slow.<br />
 
   Sending add/remove commands via fifo: <br />
   [terminal 1]<br />

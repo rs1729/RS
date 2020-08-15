@@ -1,8 +1,8 @@
 
 ## IQ server/client
 
-receive IF stream from baseband IQ via TCP,
-`PORT=1280 (iq_svcl.h)`
+receive IF stream from baseband IQ via TCP, `PORT=1280 (iq_svcl.h)`<br />
+(for another `iq_server/client` choose a different port, e.g. `PORT=1281`)
 
 
 #### Compile
@@ -21,7 +21,8 @@ receive IF stream from baseband IQ via TCP,
   &nbsp;&nbsp;&nbsp;&nbsp; `-0.5 < fq < 0.5`: (relative) frequency, `fq=frequency/sr` <br />
   &nbsp;&nbsp;&nbsp;&nbsp; `<if_sr>`: IF sample rate <br />
   &nbsp;&nbsp;&nbsp;&nbsp; `<bo>=8,16,32`: output/IF bits per (real) sample (u8, s16 or f32) <br />
-  down-converts up to `MAX_FQ=(4+1) (iq_base.h)` channels/signals. More signals than number of CPUs/cores is not recommended.
+  down-converts up to `MAX_FQ=(4+1) (iq_base.h)` channels/signals. More signals than number of CPUs/cores is not recommended.<br />
+  (Note: If the baseband sample rate has no appropriate factors (e.g. if prime), the IF sample rate might be high and IF-processing slow.)<br />
   One channel can be used for scanning, `--fft <fft.txt>` makes FFT (2 seconds average).
   The FFT is saved in `<fft.txt>` as `<fq>;<dB>`, approx. 200 Hz per bin.<br />
   If no output bps is chosen (`--bo [8,16,32]`), the IF bps is equal to the baseband bps. It is recommended to use
