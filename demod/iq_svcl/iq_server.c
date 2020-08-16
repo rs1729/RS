@@ -494,6 +494,15 @@ int main(int argc, char **argv) {
         if (strcmp(*argv, "--dbg") == 0) {
             option_dbg = 1;
         }
+        else if (strcmp(*argv, "--port") == 0) {
+            int port = 0;
+            ++argv;
+            if (*argv) port = atoi(*argv); else return -1;
+            if (port < PORT_LO || port > PORT_HI) {
+                fprintf(stderr, "error: port %d..%d\n", PORT_LO, PORT_HI);
+            }
+            else serv_port = port;
+        }
         else if (strcmp(*argv, "--fft") == 0) {
             if (xlt_cnt < MAX_FQ) {
                 base_fqs[xlt_cnt] = 0.0;

@@ -12,7 +12,9 @@
 #define LINELEN 4096
 #define HDRLEN  256
 
-#define PORT 1280
+#define PORT    1280
+#define PORT_LO 1024
+#define PORT_HI 65353
 
 typedef struct sockaddr    sa_t;
 typedef struct sockaddr_in sa_in_t;

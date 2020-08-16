@@ -32,16 +32,6 @@ int main(int argc, char *argv[]) {
     int re = 0;
     char *fname_fft = "db_fft_cl.txt";
 
-    sock_fd = socket(AF_INET, SOCK_STREAM, 0); // TCP
-    if (sock_fd < 0) {
-        fprintf(stderr, "error: create socket\n");
-        return 1;
-    }
-
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(serv_port);
-
     memset(sendln, 0, LINELEN+1);
 
     ++argv;
@@ -49,6 +39,15 @@ int main(int argc, char *argv[]) {
         if (strcmp(*argv, "--ip") == 0) {
             ++argv;
             if (*argv) str_addr = *argv; else return -1;
+        }
+        else if (strcmp(*argv, "--port") == 0) {
+            int port = 0;
+            ++argv;
+            if (*argv) port = atoi(*argv); else return -1;
+            if (port < PORT_LO || port > PORT_HI) {
+                fprintf(stderr, "error: port %d..%d\n", PORT_LO, PORT_HI);
+            }
+            else serv_port = port;
         }
         else if (strcmp(*argv, "--fft0") == 0) {
             sprintf(sendln, "%s", "--fft0");
@@ -79,6 +78,16 @@ int main(int argc, char *argv[]) {
         ++argv;
     }
 
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0); // TCP
+    if (sock_fd < 0) {
+        fprintf(stderr, "error: create socket\n");
+        return 1;
+    }
+
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(serv_port);
+
     if ( *sendln )
     {
         if (inet_pton(AF_INET, str_addr, &serv_addr.sin_addr) <= 0) {
@@ -97,6 +106,8 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "error: write socket\n");
             return 4;
         }
+
+        fprintf(stderr, "port: %d\n", serv_port);
 
         if ( re )
         {

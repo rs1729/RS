@@ -1,8 +1,7 @@
 
 ## IQ server/client
 
-receive IF stream from baseband IQ via TCP, `PORT=1280 (iq_svcl.h)`<br />
-(for another `iq_server/client` choose a different port, e.g. `PORT=1281`)
+receive IF stream from baseband IQ via TCP, default `PORT=1280 (iq_svcl.h)`<br />
 
 
 #### Compile
@@ -11,12 +10,15 @@ receive IF stream from baseband IQ via TCP, `PORT=1280 (iq_svcl.h)`<br />
   `gcc -O2 iq_client.c -o iq_client` <br />
 
 #### Usage/Examples
+  - `T1$ ./iq_server [--port <pn>] <iq_baseband.wav>`<br />
+  `T2$ ./iq_client [--ip <ip_adr>] [--port <pn>] --freq <fq>`
+
   - Ex.1<br />
   [terminal 1]<br />
-  `$ ./iq_server --bo 32 <iq_baseband.wav>` &nbsp;&nbsp;
+  `T1$ ./iq_server --bo 32 <iq_baseband.wav>` &nbsp;&nbsp;
   (or &nbsp; `$ ./iq_server --bo 32 - <sr> <bs> <iq_baseband.raw>`)<br />
   [terminal 2]<br />
-  `$ ./iq_client --freq <fq> | ./rs41mod -vx --IQ 0.0 --lp - <if_sr> <bo>` <br />
+  `T2$ ./iq_client --freq <fq> | ./rs41mod -vx --IQ 0.0 --lp - <if_sr> <bo>` <br />
   where <br />
   &nbsp;&nbsp;&nbsp;&nbsp; `-0.5 < fq < 0.5`: (relative) frequency, `fq=frequency/sr` <br />
   &nbsp;&nbsp;&nbsp;&nbsp; `<if_sr>`: IF sample rate <br />
@@ -30,14 +32,14 @@ receive IF stream from baseband IQ via TCP, `PORT=1280 (iq_svcl.h)`<br />
 
   - Ex.2<br />
   [terminal 1]<br />
-  `$ rtl_sdr -f 403.0M -s 1920000 - | ./iq_server --fft fft_server.txt --bo 32 - 1920000 8`<br />
+  `T1$ rtl_sdr -f 403.0M -s 1920000 - | ./iq_server --fft fft_server.txt --bo 32 - 1920000 8`<br />
   [terminal 2]<br />
-  `$ ./iq_client --freq -0.3125 | ./m10mod -c -vv --IQ 0.0 - 48000 32`<br />
+  `T2$ ./iq_client --freq -0.3125 | ./m10mod -c -vv --IQ 0.0 - 48000 32`<br />
   [terminal 3]<br />
-  `$ ./iq_client --freq 0.0 | ./rs41mod -vx --IQ 0.0 - 48000 32`<br />
+  `T3$ ./iq_client --freq 0.0 | ./rs41mod -vx --IQ 0.0 - 48000 32`<br />
   [terminal 4]<br />
-  `$ ./iq_client -1` &nbsp;&nbsp; (*close channel 1*)<br />
-  `$ ./iq_client --stop` &nbsp;&nbsp; (*close all clients and stop server*)<br />
+  `T4$ ./iq_client -1` &nbsp;&nbsp; (*close channel 1*)<br />
+  `T4$ ./iq_client --stop` &nbsp;&nbsp; (*close all clients and stop server*)<br />
 
   The `iq_server` `--fft` option immediately starts reading the IQ stream (so buffering is reduced).<br />
   `./iq_client --fft <fft_cl.txt>` can also request FFT.<br />
