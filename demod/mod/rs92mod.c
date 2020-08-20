@@ -1237,6 +1237,7 @@ int main(int argc, char *argv[]) {
     int option_der = 0;    // linErr
     int option_min = 0;
     int option_iq = 0;
+    int option_iqdc = 0;
     int option_lp = 0;
     int option_dc = 0;
     int option_softin = 0;
@@ -1411,6 +1412,7 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--iq0") == 0) { option_iq = 1; }  // differential/FM-demod
         else if   (strcmp(*argv, "--iq2") == 0) { option_iq = 2; }
         else if   (strcmp(*argv, "--iq3") == 0) { option_iq = 3; }  // iq2==iq3
+        else if   (strcmp(*argv, "--iqdc") == 0) { option_iqdc = 1; }  // iq-dc removal (iq0,2,3)
         else if   (strcmp(*argv, "--IQ") == 0) { // fq baseband -> IF (rotate from and decimate)
             double fq = 0.0;                     // --IQ <fq> , -0.5 < fq < 0.5
             ++argv;
@@ -1533,6 +1535,7 @@ int main(int argc, char *argv[]) {
         dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
         dsp.h = 0.8; // 1.0 modulation index abzgl. BT
         dsp.opt_iq = option_iq;
+        dsp.opt_iqdc = option_iqdc;
         dsp.opt_lp = option_lp;
         dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
         dsp.lpFM_bw = 6e3; // FM audio lowpass
