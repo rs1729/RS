@@ -337,89 +337,120 @@ static void *thd_FFT(void *targs) {
     int sec = FFT_SEC;
     int fft_step = dsp.sr_base/(dsp.DFT.N*FFT_FPS);
     int n_fft = 0;
+    int th_used = 0;
+    int readSamples = 1;
 
     bitQ = 0;
     while ( bitQ != EOF )
     {
-        bitQ = read_fftblock(&dsp);
+        #ifdef FFT_READ_SINK_MIN
+        ////              // th_used = 0; for (j = 0; j < MAX_FQ; j++) th_used += tharg[j].thd.used;
+        if (rbf1 == 0) {  // if (readSamples == 0 && th_used == 1) ...
+            readSamples = 1;
+            pthread_mutex_lock( (dsp.thd)->mutex );
+            rbf1 |= (dsp.thd)->tn_bit;
+            pthread_mutex_unlock( (dsp.thd)->mutex );
+            n = 0;
+            n_fft = 0;
+            sum_n = 0;
+        }
+        ////
+        #endif
 
-        for (j = 0; j < dsp.decM; j++) dsp.DFT.Z[n*dsp.decM + j] = dsp.decMbuf[j];
 
-        n++;
-        if (n == len) { // mlen = len * decM <= DFT.N
+        if ( readSamples )
+        {
+            bitQ = read_fftblock(&dsp);
 
-            n_fft += 1;
+            for (j = 0; j < dsp.decM; j++) dsp.DFT.Z[n*dsp.decM + j] = dsp.decMbuf[j];
 
-            if ((dsp.thd)->fft && sum_n*n_fft*mlen < sec*dsp.sr_base && n_fft >= fft_step)
-            {
-                double complex dc = 0; // narrow bandwidth: no off-signal average
-                for (j = 0; j < mlen; j++) {
-                    dc += dsp.DFT.Z[j];
+            n++;
+            if (n == len) { // mlen = len * decM <= DFT.N
+
+                n_fft += 1;
+
+                if ((dsp.thd)->fft && sum_n*n_fft*mlen < sec*dsp.sr_base && n_fft >= fft_step)
+                {
+                    double complex dc = 0; // narrow bandwidth: no off-signal average
+                    for (j = 0; j < mlen; j++) {
+                        dc += dsp.DFT.Z[j];
+                    }
+                    dc /= 0.99*mlen; // mlen <= dsp.DFT.N;
+                    //dc = 0;
+
+                    for (j = 0; j < mlen; j++) {
+                        dsp.DFT.Z[j] -= dc;
+                    }
+
+                    for (j = 0; j < mlen; j++) {
+                        dsp.DFT.Z[j] *= dsp.DFT.win[j];
+                    }
+                    while (j < dsp.DFT.N) dsp.DFT.Z[j++] = 0.0; // dft(Z[...]) != 0
+
+                    raw_dft(&(dsp.DFT), dsp.DFT.Z);
+
+                    db_power(&(dsp.DFT), dsp.DFT.Z, db);
+                    for (j = 0; j < dsp.DFT.N; j++) sum_db[j] += db[j];
+
+                    sum_n++;
+                    n_fft = 0;
                 }
-                dc /= 0.99*mlen; // mlen <= dsp.DFT.N;
-                //dc = 0;
+                if (sum_n*fft_step*mlen >= sec*dsp.sr_base) {
 
-                for (j = 0; j < mlen; j++) {
-                    dsp.DFT.Z[j] -= dc;
-                }
+                    for (j = 0; j < dsp.DFT.N; j++) sum_db[j] /= (float)sum_n;
 
-                for (j = 0; j < mlen; j++) {
-                    dsp.DFT.Z[j] *= dsp.DFT.win[j];
-                }
-                while (j < dsp.DFT.N) dsp.DFT.Z[j++] = 0.0; // dft(Z[...]) != 0
+                    pthread_mutex_lock( (dsp.thd)->mutex );
+                    fprintf(FPOUT, "<%d: FFT>\n", (dsp.thd)->tn);
+                    pthread_mutex_unlock( (dsp.thd)->mutex );
 
-                raw_dft(&(dsp.DFT), dsp.DFT.Z);
-
-                db_power(&(dsp.DFT), dsp.DFT.Z, db);
-                for (j = 0; j < dsp.DFT.N; j++) sum_db[j] += db[j];
-
-                sum_n++;
-                n_fft = 0;
-            }
-            if (sum_n*fft_step*mlen >= sec*dsp.sr_base) {
-
-                for (j = 0; j < dsp.DFT.N; j++) sum_db[j] /= (float)sum_n;
-
-                pthread_mutex_lock( (dsp.thd)->mutex );
-                fprintf(FPOUT, "<%d: FFT>\n", (dsp.thd)->tn);
-                pthread_mutex_unlock( (dsp.thd)->mutex );
-
-                if ( (dsp.thd)->fft == OPT_FFT_CLNT ) { // send FFT data to client
-                    char sendln[LINELEN+1];
-                    int sendln_len;
-                    int l;
-                    snprintf(sendln, LINELEN, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dsp.DFT.sr, dsp.DFT.N);
-                    sendln_len = strlen(sendln);
-                    l = write(tharg->fd, sendln, sendln_len);
-                    for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
-                        memset(sendln, 0, LINELEN+1);
-                        snprintf(sendln, LINELEN, "%+11.8f;%7.2f\n", bin2fq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                    if ( (dsp.thd)->fft == OPT_FFT_CLNT ) { // send FFT data to client
+                        char sendln[LINELEN+1];
+                        int sendln_len;
+                        int l;
+                        snprintf(sendln, LINELEN, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dsp.DFT.sr, dsp.DFT.N);
                         sendln_len = strlen(sendln);
                         l = write(tharg->fd, sendln, sendln_len);
-                    }
-                }
-                else { // save FFT at server
-                    if ( (dsp.thd)->fft == OPT_FFT_SERV )  fname_fft = tharg->fname;
-                    else                /* OPT_FFT_CLSV */ fname_fft = "db_fft_cl.txt";
-                    fpo = fopen(fname_fft, "wb");
-                    if (fpo != NULL) {
-                        fprintf(fpo, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dsp.DFT.sr, dsp.DFT.N);
                         for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
-                            fprintf(fpo, "%+11.8f;%7.2f\n", bin2fq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                            memset(sendln, 0, LINELEN+1);
+                            snprintf(sendln, LINELEN, "%+11.8f;%7.2f\n", bin2fq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                            sendln_len = strlen(sendln);
+                            l = write(tharg->fd, sendln, sendln_len);
                         }
-                        fclose(fpo);
                     }
-                    else {
-                        fprintf(stderr, "error: open %s\n", fname_fft);
+                    else { // save FFT at server
+                        if ( (dsp.thd)->fft == OPT_FFT_SERV )  fname_fft = tharg->fname;
+                        else                /* OPT_FFT_CLSV */ fname_fft = "db_fft_cl.txt";
+                        fpo = fopen(fname_fft, "wb");
+                        if (fpo != NULL) {
+                            fprintf(fpo, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dsp.DFT.sr, dsp.DFT.N);
+                            for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
+                                fprintf(fpo, "%+11.8f;%7.2f\n", bin2fq(&(dsp.DFT), j % dsp.DFT.N), sum_db[j % dsp.DFT.N]);
+                            }
+                            fclose(fpo);
+                        }
+                        else {
+                            fprintf(stderr, "error: open %s\n", fname_fft);
+                        }
                     }
+                    if ( (dsp.thd)->fft != OPT_FFT_SERV ) close(tharg->fd);
+
+                    (dsp.thd)->fft = 0;
+                    sum_n = 0;
                 }
-                if ( (dsp.thd)->fft != OPT_FFT_SERV ) close(tharg->fd);
 
-                (dsp.thd)->fft = 0;
-                sum_n = 0;
+                #ifdef FFT_READ_SINK_MIN
+                ////
+                th_used = 0;
+                for (j = 0; j < MAX_FQ; j++) th_used += tharg[j].thd.used;
+                if (th_used > 1) {
+                    readSamples = 0;
+                    reset_blockread(&dsp);
+                }
+                ////
+                #endif
+
+                n = 0;
             }
-
-            n = 0;
         }
 
         if ( (dsp.thd)->used == 0 )
