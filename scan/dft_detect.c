@@ -434,6 +434,8 @@ static int read_wav_header(FILE *fp, int wav_channel) {
 
     if (bits_sample != 8 && bits_sample != 16 && bits_sample != 32) return -1;
 
+    if (sample_rate == 900001) sample_rate -= 1;
+
     return 0;
 }
 
