@@ -303,6 +303,7 @@ float read_wav_header(pcm_t *pcm) {
 
     if (bits_sample != 8 && bits_sample != 16 && bits_sample != 32) return -1;
 
+    if (sample_rate == 900001) sample_rate -= 1;
 
     pcm->sr  = sample_rate;
     pcm->bps = bits_sample;
