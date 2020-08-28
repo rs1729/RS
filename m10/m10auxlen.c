@@ -616,7 +616,7 @@ static int _checkM10(ui8_t *msg, int len) {
     int i, cs;
 
     cs = 0;               // len+1 = msg[0] < 0x43 ? msg[0]|0x80 : msg[0]
-    cs = update_checkM10(cs, len+1);
+    cs = update_checkM10(cs, len+1);     // < 0x64 ?
 
     for (i = 1; i < len; i++) {
         cs = update_checkM10(cs, msg[i]);
@@ -1037,7 +1037,7 @@ static int print_frame(gpx_t *gpx, int pos) {
         gpx->auxlen = flen - stdFLEN;
         if (gpx->auxlen < 0 || gpx->auxlen > AUX_LEN) gpx->auxlen = 0;
     }
-    if (flen < 0x43 /*stdFLEN*/) {
+    if (flen < 0x43 /*0x64=stdFLEN*/) {
         flen |= 0x80; // 0x16+0x80=0x96=150
         gpx->auxlen = flen - stdFLEN; // = 50;
     }
