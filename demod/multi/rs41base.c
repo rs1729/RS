@@ -89,7 +89,8 @@ typedef struct {
     float ptu_co2[3];   // { -243.911 , 0.187654 , 8.2e-06 }
     float ptu_calT2[3]; // calibration T2-Hum
     float ptu_calH[2];  // calibration Hum
-    ui32_t freq;    // freq/kHz
+    ui32_t freq;    // freq/kHz (RS41)
+    int jsn_freq;   // freq/kHz (SDR)
     float batt;     // battery voltage (V)
     ui16_t conf_fw; // firmware
     ui16_t conf_kt; // kill timer (sec)
@@ -1341,6 +1342,11 @@ static int print_position(gpx_t *gpx, int ec) {
                                 fprintf(stdout, ", \"encrypted\": false");
                             }
                         }
+                        if (gpx->jsn_freq > 0) {  // rs41-frequency: gpx->freq
+                            int fq_kHz = gpx->jsn_freq;
+                            if (gpx->freq > 0) fq_kHz = gpx->freq;
+                            fprintf(stdout, ", \"freq\": %d", fq_kHz);
+                        }
                         fprintf(stdout, " }\n");
                         fprintf(stdout, "\n");
                     }
@@ -1514,6 +1520,8 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     setbuf(stdout, NULL);
 */
 
+    // init gpx
+
     gpx.option.vbs = 1;
     gpx.option.ptu = 1;
     gpx.option.aut = 1;
@@ -1525,8 +1533,9 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
         rs_init_RS255(&gpx.RS);  // RS, GF
     }
 
-    // init gpx
     memcpy(gpx.frame, rs41_header_bytes, sizeof(rs41_header_bytes)); // 8 header bytes
+
+    gpx.jsn_freq = tharg->jsn_freq;
 
 
     pcm->sel_ch = 0;

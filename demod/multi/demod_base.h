@@ -182,6 +182,7 @@ typedef struct {
     int option_jsn;
     int option_dc;
     int option_cnt;
+    int jsn_freq;
 } thargs_t;
 
 

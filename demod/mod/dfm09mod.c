@@ -80,6 +80,7 @@ typedef struct {
     pcksts_t pck[9];
     option_t option;
     int ptu_out;
+    int jsn_freq;   // freq/kHz (SDR)
     gpsdat_t gps;
 } gpx_t;
 
@@ -782,6 +783,9 @@ static void print_gpx(gpx_t *gpx) {
                 if (t > -270.0) printf(", \"temp\": %.1f", t);
             }
             if (dfm_typ > 0) printf(", \"subtype\": \"0x%1X\"", dfm_typ);
+            if (gpx->jsn_freq > 0) {
+                printf(", \"freq\": %d", gpx->jsn_freq);
+            }
             printf(" }\n");
             printf("\n");
         }
@@ -907,6 +911,7 @@ int main(int argc, char **argv) {
     int wavloaded = 0;
     int sel_wavch = 0;       // audio channel: left
     int spike = 0;
+    int cfreq = -1;
 
     FILE *fp = NULL;
     char *fpname = NULL;
@@ -990,6 +995,13 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--softin") == 0) { option_softin = 1; }  // float32 soft input
         else if   (strcmp(*argv, "--dist") == 0) { option_dist = 1; option_ecc = 1; }
         else if   (strcmp(*argv, "--json") == 0) { option_json = 1; option_ecc = 1; }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--ths") == 0) {
             ++argv;
@@ -1100,6 +1112,8 @@ int main(int argc, char **argv) {
     gpx.option.dst = option_dist;
     gpx.option.jsn = option_json;
 
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
+
     headerlen = strlen(dfm_rawheader);
 
 
@@ -1127,6 +1141,11 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "error: wav header\n");
                 return -1;
             }
+        }
+
+        if (cfreq > 0) {
+            int fq_kHz = (cfreq - dsp.xlt_fq*pcm.sr + 500)/1e3;
+            gpx.jsn_freq = fq_kHz;
         }
 
         // dfm: BT=1?, h=2.4?

@@ -91,6 +91,7 @@ typedef struct {
     ui8_t frame_bytes[FRAME_LEN+AUX_LEN+4];
     char frame_bits[BITFRAME_LEN+BITAUX_LEN+8];
     int auxlen; // 0 .. 0x76-0x64
+    int jsn_freq;   // freq/kHz (SDR)
     option_t option;
     ui8_t type;
 } gpx_t;
@@ -1002,6 +1003,9 @@ static int print_pos(gpx_t *gpx, int csOK) {
                     }
                 }
                 fprintf(stdout, ", \"subtype\": \"0x%02X\"", gpx->type);
+                if (gpx->jsn_freq > 0) {
+                    fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
+                }
                 fprintf(stdout, " }\n");
                 fprintf(stdout, "\n");
             }
@@ -1156,14 +1160,16 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     setbuf(stdout, NULL);
 */
 
+    // init gpx
+
     gpx.option.inv = 0; // irrelevant
     gpx.option.vbs = 2;
     gpx.option.ptu = 1;
     gpx.option.jsn = tharg->option_jsn;
     gpx.option.col = 0; //option_color;
 
+    gpx.jsn_freq = tharg->jsn_freq;
 
-    // init gpx
 
     pcm->sel_ch = 0;
 
