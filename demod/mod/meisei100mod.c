@@ -685,8 +685,8 @@ int main(int argc, char **argv) {
                             w16[0] = bits2val(subframe_bits+HEADLEN+46*1   , 16);
                             w16[1] = bits2val(subframe_bits+HEADLEN+46*1+17, 16);
                             w32 = (w16[1]<<16) | w16[0];
-
-                            if (err_frm == 0) // oder kleineren subblock pruefen
+                                             // counter ok   and    w16[] ok  (max 1 error)
+                            if (err_frm == 0 && block_err[0] < 2 && block_err[1] < 2)
                             {
                                 gpx.cfg[counter%64] = *fcfg;
 
