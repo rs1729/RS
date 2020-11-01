@@ -92,6 +92,7 @@ int main(int argc, char **argv) {
     int wavloaded = 0;
     int k;
     int xlt_cnt = 0;
+    int cfreq = -1;
     double base_fqs[MAX_FQ];
     void *rstype[MAX_FQ];
     int option_pcmraw = 0,
@@ -166,6 +167,13 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--json") == 0) {
             option_jsn = 1;
         }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 350000000 || frq > 450000000) frq = -1;
+            cfreq = frq;
+        }
         else if   (strcmp(*argv, "--dc") == 0) {
             option_dc = 1;
         }
@@ -232,6 +240,10 @@ int main(int argc, char **argv) {
         tharg[k].thd.blk = block_decMB;
         tharg[k].thd.max_fq = xlt_cnt;
         tharg[k].thd.xlt_fq = -base_fqs[k]; // S(t)*exp(-f*2pi*I*t): fq baseband -> IF (rotate from and decimate)
+        if (cfreq > 0) {
+            int fq_kHz = (cfreq - tharg[k].thd.xlt_fq*pcm.sr_base + 500)/1e3;
+            tharg[k].jsn_freq = fq_kHz;
+        }
 
         tharg[k].pcm = pcm;
 

@@ -5,6 +5,7 @@
 */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
@@ -338,6 +339,7 @@ typedef struct {
     double vH; double vD; double vV;
     double vE; double vN; double vU;
     //int freq;
+    int jsn_freq;   // freq/kHz (SDR)
 } gpx_t;
 
 gpx_t gpx;
@@ -641,6 +643,9 @@ void print_frame(int len) {
                         printf(", \"frame\": %d, \"id\": \"LMS6-%d\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                                gpx.frnr, gpx.id, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vV );
                         printf(", \"subtype\": \"%s\"", "MK2A");
+                        if (gpx.jsn_freq > 0) {
+                            printf(", \"freq\": %d", gpx.jsn_freq);
+                        }
                         printf(" }\n");
                         printf("\n");
                         gpx.prev_frnr = gpx.frnr;
@@ -662,6 +667,7 @@ int main(int argc, char **argv) {
     int i, bit, len;
     int pos;
     int header_found = 0;
+    int cfreq = -1;
 
 
     fpname = argv[0];
@@ -692,6 +698,13 @@ int main(int argc, char **argv) {
             option_crc = 1;
             option_verbose = 1;
         }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -703,6 +716,9 @@ int main(int argc, char **argv) {
         ++argv;
     }
     if (!wavloaded) fp = stdin;
+
+    gpx.jsn_freq = 0;
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
     i = read_wav_header(fp);
     if (i) {

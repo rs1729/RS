@@ -117,7 +117,8 @@ typedef struct {
     int sats[4];
     double dop;
     ui16_t conf_kt; // kill timer (sec)
-    int freq;
+    int freq;       // freq/kHz (RS92)
+    int jsn_freq;   // freq/kHz (SDR)
     ui32_t crc;
     ui8_t frame[FRAME_LEN]; // { 0x2A, 0x2A, 0x2A, 0x2A, 0x2A, 0x10}
     unsigned short aux[4];
@@ -1184,6 +1185,11 @@ static int print_position(gpx_t *gpx, int ec) {  // GPS-Hoehe ueber Ellipsoid
                 if ((gpx->crc & crc_AUX)==0 && (gpx->aux[0] != 0 || gpx->aux[1] != 0 || gpx->aux[2] != 0 || gpx->aux[3] != 0)) {
                     fprintf(stdout, ", \"aux\": \"%04x%04x%04x%04x\"", gpx->aux[0], gpx->aux[1], gpx->aux[2], gpx->aux[3]);
                 }
+                if (gpx->jsn_freq > 0) {  // rs92-frequency: gpx->freq
+                    int fq_kHz = gpx->jsn_freq;
+                    //if (gpx->freq > 0) fq_kHz = gpx->freq; // L-band: option.ngp ?
+                    fprintf(stdout, ", \"freq\": %d", fq_kHz);
+                }
                 fprintf(stdout, " }\n");
             }
         }
@@ -1245,6 +1251,7 @@ int main(int argc, char *argv[]) {
     int sel_wavch = 0;     // audio channel: left
     int spike = 0;
     int fileloaded = 0;
+    int cfreq = -1;
 
     char bitbuf[BITS];
     int bitpos = 0,
@@ -1390,6 +1397,13 @@ int main(int argc, char *argv[]) {
             gpx.option.crc = 1;
             gpx.gps.opt_vel = 4;
         }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else if   (strcmp(*argv, "--spike") == 0) { spike = 1; }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--softin") == 0) { option_softin = 1; }  // float32 soft input
@@ -1488,6 +1502,8 @@ int main(int argc, char *argv[]) {
     // init gpx
     memcpy(gpx.frame, rs92_header_bytes, sizeof(rs92_header_bytes)); // 6 header bytes
 
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
+
 
     #ifdef EXT_FSK
     if (!option_softin) {
@@ -1513,6 +1529,11 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "error: wav header\n");
                 return -1;
             }
+        }
+
+        if (cfreq > 0) {
+            int fq_kHz = (cfreq - dsp.xlt_fq*pcm.sr + 500)/1e3;
+            gpx.jsn_freq = fq_kHz;
         }
 
         // rs92-sgp: BT=0.5, h=1.0 ?

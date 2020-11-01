@@ -134,6 +134,7 @@ typedef struct {
     ui32_t _sn;
     float sn; //  0 mod 16
     float fq; // 15 mod 64
+    int jsn_freq;   // freq/kHz (SDR)
     RS_t RS;
 } gpx_t;
 
@@ -217,6 +218,7 @@ int main(int argc, char **argv) {
     int option_pcmraw = 0;
     int sel_wavch = 0;
     int wavloaded = 0;
+    int cfreq = -1;
 
     int option1 = 0,
         option2 = 0;
@@ -353,6 +355,13 @@ int main(int argc, char **argv) {
             option_jsn = 1;
             option_ecc = 1;
         }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
             ++argv;
@@ -383,6 +392,8 @@ int main(int argc, char **argv) {
     }
     if (!wavloaded) fp = stdin;
 
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
+
 
     #ifdef EXT_FSK
     if (!option_softin) {
@@ -408,6 +419,11 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "error: wav header\n");
                 return -1;
             }
+        }
+
+        if (cfreq > 0) {
+            int fq_kHz = (cfreq - dsp.xlt_fq*pcm.sr + 500)/1e3;
+            gpx.jsn_freq = fq_kHz;
         }
 
         symlen = 1;
@@ -669,8 +685,8 @@ int main(int argc, char **argv) {
                             w16[0] = bits2val(subframe_bits+HEADLEN+46*1   , 16);
                             w16[1] = bits2val(subframe_bits+HEADLEN+46*1+17, 16);
                             w32 = (w16[1]<<16) | w16[0];
-
-                            if (err_frm == 0) // oder kleineren subblock pruefen
+                                             // counter ok   and    w16[] ok  (max 1 error)
+                            if (err_frm == 0 && block_err[0] < 2 && block_err[1] < 2)
                             {
                                 gpx.cfg[counter%64] = *fcfg;
 
@@ -770,8 +786,12 @@ int main(int argc, char **argv) {
                                         sprintf(id_str, "%.0f", gpx.sn);
                                     }
                                     printf("{ \"type\": \"%s\"", "IMS100");
-                                    printf(", \"frame\": %d, \"id\": \"IMS100-%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f }\n",
+                                    printf(", \"frame\": %d, \"id\": \"IMS100-%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f",
                                            gpx.frnr, id_str, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD );
+                                    if (gpx.jsn_freq > 0) { // not gpx.fq, because gpx.sn not in every frame
+                                        printf(", \"freq\": %d", gpx.jsn_freq);
+                                    }
+                                    printf(" }\n");
                                     printf("\n");
                                 }
 

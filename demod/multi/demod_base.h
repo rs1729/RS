@@ -170,6 +170,7 @@ typedef struct {
     thd_t thd;
     int option_jsn;
     int option_dc;
+    int jsn_freq;
 } thargs_t;
 
 

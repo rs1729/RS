@@ -135,6 +135,7 @@ typedef struct {
     int sf6;
     int sfX;
     int typ;
+    int jsn_freq;   // freq/kHz (SDR)
     float frm_rate;
     int auto_detect;
     int reset_dsp;
@@ -737,6 +738,9 @@ static int print_frame(gpx_t *gpx, int crc_err, int len) {
                            gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV );
                     printf(", \"gpstow\": %d", gpx->gpstow );
                     printf(", \"subtype\": \"%c\"", sntyp[3]); // "6":LMS6-403, "X":lms6X, "MK2A":LMS6-1680/Mk2a
+                    if (gpx->jsn_freq > 0) {
+                        printf(", \"freq\": %d", gpx->jsn_freq);
+                    }
                     printf(" }\n");
                     printf("\n");
                 }
@@ -976,6 +980,8 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
 */
     gpx_t _gpx = {0}; gpx_t *gpx = &_gpx;
 
+    // init gpx
+
     gpx->auto_detect = 1;
     gpx->reset_dsp = 0;
 
@@ -993,8 +999,8 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     gpx->option.vit = 1;
     gpx->option.ecc = 1;
 
+    gpx->jsn_freq = tharg->jsn_freq;
 
-    // init gpx
     memcpy(gpx->blk_rawbits, blk_syncbits, sizeof(blk_syncbits));
     memcpy(gpx->frame, frm_sync6, sizeof(frm_sync6));
     gpx->frm_pos = 0;     // ecc_blk <-> frm_blk
@@ -1163,7 +1169,6 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
 
         }
     }
-
 
     free_buffers(&dsp);
     if (gpx->vit) { free(gpx->vit); gpx->vit = NULL; }

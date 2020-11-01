@@ -73,6 +73,7 @@ typedef struct {
     pcksts_t pck[9];
     option_t option;
     int ptu_out;
+    int jsn_freq;   // freq/kHz (SDR)
 } gpx_t;
 
 
@@ -684,6 +685,9 @@ static int print_gpx(gpx_t *gpx) {
                 if (t > -270.0) printf(", \"temp\": %.1f", t);
             }
             if (dfm_typ > 0) printf(", \"subtype\": \"0x%1X\"", dfm_typ);
+            if (gpx->jsn_freq > 0) {
+                printf(", \"freq\": %d", gpx->jsn_freq);
+            }
             printf(" }\n");
             printf("\n");
         }
@@ -845,6 +849,7 @@ void *thd_dfm09(void *targs) {
 */
 
     // init gpx
+
     strcpy(gpx.frame_bits, dfm_header); //, sizeof(dfm_header);
     for (k = 0; k < 9; k++) gpx.pck[k].ec = -1; // init ecc-status
 
@@ -854,6 +859,8 @@ void *thd_dfm09(void *targs) {
     gpx.option.aut = 1;
     gpx.option.dst = 0;
     gpx.option.jsn = tharg->option_jsn;
+
+    gpx.jsn_freq = tharg->jsn_freq;
 
 
     headerlen = strlen(dfm_rawheader);

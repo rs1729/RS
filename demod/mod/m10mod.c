@@ -93,6 +93,7 @@ typedef struct {
     ui8_t frame_bytes[FRAME_LEN+AUX_LEN+4];
     char frame_bits[BITFRAME_LEN+BITAUX_LEN+8];
     int auxlen; // 0 .. 0x76-0x64
+    int jsn_freq;   // freq/kHz (SDR)
     option_t option;
     ui8_t type;
 } gpx_t;
@@ -1004,6 +1005,9 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 fprintf(stdout, ", \"rawid\": \"M10_%02X%02X%02X%02X%02X\"", gpx->frame_bytes[pos_SN], gpx->frame_bytes[pos_SN+1],
                                                gpx->frame_bytes[pos_SN+2], gpx->frame_bytes[pos_SN+3], gpx->frame_bytes[pos_SN+4]); // gpx->type
                 fprintf(stdout, ", \"subtype\": \"0x%02X\"", gpx->type);
+                if (gpx->jsn_freq > 0) {
+                    fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
+                }
                 fprintf(stdout, " }\n");
                 fprintf(stdout, "\n");
             }
@@ -1124,6 +1128,7 @@ int main(int argc, char **argv) {
     int wavloaded = 0;
     int sel_wavch = 0;     // audio channel: left
     int spike = 0;
+    int cfreq = -1;
 
     FILE *fp = NULL;
     char *fpname = NULL;
@@ -1232,6 +1237,13 @@ int main(int argc, char **argv) {
             option_min = 1;
         }
         else if   (strcmp(*argv, "--json") == 0) { gpx.option.jsn = 1; }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
             ++argv;
@@ -1268,6 +1280,8 @@ int main(int argc, char **argv) {
     gpx.option.ptu = option_ptu;
     gpx.option.col = option_color;
 
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
+
 
     #ifdef EXT_FSK
     if (!option_softin) {
@@ -1293,6 +1307,11 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "error: wav header\n");
                 return -1;
             }
+        }
+
+        if (cfreq > 0) {
+            int fq_kHz = (cfreq - dsp.xlt_fq*pcm.sr + 500)/1e3;
+            gpx.jsn_freq = fq_kHz;
         }
 
         // m10: BT>1?, h=1.2 ?

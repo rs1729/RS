@@ -110,7 +110,8 @@ typedef struct {
     float ptu_co2[3];   // { -243.911 , 0.187654 , 8.2e-06 }
     float ptu_calT2[3]; // calibration T2-Hum
     float ptu_calH[2];  // calibration Hum
-    ui32_t freq;    // freq/kHz
+    ui32_t freq;    // freq/kHz (RS41)
+    int jsn_freq;   // freq/kHz (SDR)
     float batt;     // battery voltage (V)
     ui16_t conf_fw; // firmware
     ui16_t conf_kt; // kill timer (sec)
@@ -1588,6 +1589,11 @@ static int print_position(gpx_t *gpx, int ec) {
                                 fprintf(stdout, ", \"encrypted\": false");
                             }
                         }
+                        if (gpx->jsn_freq > 0) {  // rs41-frequency: gpx->freq
+                            int fq_kHz = gpx->jsn_freq;
+                            if (gpx->freq > 0) fq_kHz = gpx->freq;
+                            fprintf(stdout, ", \"freq\": %d", fq_kHz);
+                        }
                         fprintf(stdout, " }\n");
                         fprintf(stdout, "\n");
                     }
@@ -1758,6 +1764,7 @@ int main(int argc, char *argv[]) {
     int wavloaded = 0;
     int sel_wavch = 0;     // audio channel: left
     int rawhex = 0, xorhex = 0;
+    int cfreq = -1;
 
     FILE *fp;
     char *fpname = NULL;
@@ -1886,6 +1893,13 @@ int main(int argc, char *argv[]) {
             gpx.option.ecc = 2;
             gpx.option.crc = 1;
         }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else if   (strcmp(*argv, "--rawhex") == 0) { rawhex = 2; }  // raw hex input
         else if   (strcmp(*argv, "--xorhex") == 0) { rawhex = 2; xorhex = 1; }  // raw xor input
         else if (strcmp(*argv, "-") == 0) {
@@ -1926,6 +1940,8 @@ int main(int argc, char *argv[]) {
     // init gpx
     memcpy(gpx.frame, rs41_header_bytes, sizeof(rs41_header_bytes)); // 8 header bytes
 
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
+
 
     #ifdef EXT_FSK
     if (!option_bin && !option_softin) {
@@ -1953,6 +1969,11 @@ int main(int argc, char *argv[]) {
                     fprintf(stderr, "error: wav header\n");
                     return -1;
                 }
+            }
+
+            if (cfreq > 0) {
+                int fq_kHz = (cfreq - dsp.xlt_fq*pcm.sr + 500)/1e3;
+                gpx.jsn_freq = fq_kHz;
             }
 
             // rs41: BT=0.5, h=0.8,1.0 ?

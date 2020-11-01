@@ -148,6 +148,7 @@ typedef struct {
     int sf6;
     int sfX;
     int typ;
+    int jsn_freq;   // freq/kHz (SDR)
     float frm_rate;
     int auto_detect;
     int reset_dsp;
@@ -760,6 +761,9 @@ static void print_frame(gpx_t *gpx, int crc_err, int len) {
                            gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV );
                     printf(", \"gpstow\": %d", gpx->gpstow );
                     printf(", \"subtype\": \"%c\"", sntyp[3]); // "6":LMS6-403, "X":lms6X, "MK2A":LMS6-1680/Mk2a
+                    if (gpx->jsn_freq > 0) {
+                        printf(", \"freq\": %d", gpx->jsn_freq);
+                    }
                     printf(" }\n");
                     printf("\n");
                 }
@@ -957,6 +961,7 @@ int main(int argc, char **argv) {
     int wavloaded = 0;
     int sel_wavch = 0;     // audio channel: left
     int gpsweek = 0;
+    int cfreq = -1;
 
     FILE *fp = NULL;
     char *fpname = NULL;
@@ -1103,6 +1108,13 @@ int main(int argc, char **argv) {
             gpx->option.ecc = 1;
             gpx->option.vit = 1;
         }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
             ++argv;
@@ -1151,6 +1163,8 @@ int main(int argc, char **argv) {
 
     gpx->week = gpsweek;
 
+    if (cfreq > 0) gpx->jsn_freq = (cfreq+500)/1000;
+
 
     #ifdef EXT_FSK
     if (!option_softin) {
@@ -1180,6 +1194,11 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "error: wav header\n");
                 return -1;
             }
+        }
+
+        if (cfreq > 0) {
+            int fq_kHz = (cfreq - dsp.xlt_fq*pcm.sr + 500)/1e3;
+            gpx->jsn_freq = fq_kHz;
         }
 
         symlen = 1;
