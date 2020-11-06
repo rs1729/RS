@@ -720,11 +720,14 @@ int main(int argc, char **argv) {
 
                             if ((counter % 2 == 0)) {
                                 //offset=24+16+1;
+                                int _y = 0;
 
                                 dat2 = bits2val(subframe_bits+HEADLEN, 16);
                                 gpx.tag = dat2/1000;
                                 gpx.monat = (dat2/10)%100;
-                                gpx.jahr = 2000 + (dat2%10)+10;
+                                _y = (dat2%10)+10;
+                                if (_y < 14) _y += 10; // 2020
+                                gpx.jahr = 2000 + _y;
                                 //if (option_verbose) printf("%05u  ", dat2);
                                 //printf("(%02d-%02d-%02d) ", gpx.tag, gpx.monat, gpx.jahr%100); // 2020: +20 ?
                                 printf("(%04d-%02d-%02d) ", gpx.jahr, gpx.monat, gpx.tag); // 2020: +20 ?
