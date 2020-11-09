@@ -17,7 +17,7 @@ def print_cdf(dat):
     ts = dat.variables['time'][:].data
     sn = dat.variables['serial_number'][:]
     rs = dat.variables['sounding_system_used'][:].data  # rs[]: BUFR 002011 , rs[]%100: r_ar_a 3685
-    tls = dat.variables['time_from_launch']
+    tls = dat.variables['time_from_launch'][:].data
     N = len(ts)
     for n in range(N):
         print('{0} # SN="{1}" # type={2:d}'.format(datetime.utcfromtimestamp( ts[n] ).strftime('%Y-%m-%dT%H:%M:%SZ'), sn[n], rs[n]) )
@@ -32,7 +32,7 @@ def print_cdf(dat):
         for k in range(len(alt)):
             if (alt[k] > -900.0):
                 fgpx.write('<trkpt lat="{:.6f}" lon="{:.6f}"><ele>{:.2f}</ele>'.format(lat[k], lon[k], alt[k]) )
-                fgpx.write('<time>{0}</time></trkpt>\n'.format(datetime.utcfromtimestamp( ts[n]+tls[k].data ).strftime('%Y-%m-%dT%H:%M:%SZ')) )
+                fgpx.write('<time>{0}</time></trkpt>\n'.format(datetime.utcfromtimestamp( ts[n]+tls[k] ).strftime('%Y-%m-%dT%H:%M:%SZ')) )
         fgpx.write('</trkseg></trk>\n')
         fgpx.write('</gpx>')
         fgpx.close()
