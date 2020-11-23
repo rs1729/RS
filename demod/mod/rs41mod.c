@@ -96,7 +96,8 @@ typedef struct {
     int std; int min; float sek;
     double lat; double lon; double alt;
     double vH; double vD; double vV;
-    float T; float RH;
+    float T; float RH; float TH;
+    float P; float RH2;
     ui32_t crc;
     ui8_t frame[FRAME_LEN];
     //ui8_t dfrm_shiftsgn[FRAME_LEN];
@@ -110,6 +111,10 @@ typedef struct {
     float ptu_co2[3];   // { -243.911 , 0.187654 , 8.2e-06 }
     float ptu_calT2[3]; // calibration T2-Hum
     float ptu_calH[2];  // calibration Hum
+    float ptu_mtxH[42];
+    float ptu_Cf1;
+    float ptu_Cf2;
+    float ptu_calP[25];
     ui32_t freq;    // freq/kHz (RS41)
     int jsn_freq;   // freq/kHz (SDR)
     float batt;     // battery voltage (V)
@@ -223,6 +228,13 @@ static int i3(ui8_t *bytes) {  // 24bit signed int
 
 static ui32_t u2(ui8_t *bytes) {  // 16bit unsigned int
     return  bytes[0] | (bytes[1]<<8);
+}
+
+static int i2(ui8_t *bytes) { // 16bit signed int
+    //return (i16_t)u2(bytes);
+    int val = bytes[0] | (bytes[1]<<8);
+    if (val & 0x8000) val -= 0x10000;
+    return val;
 }
 
 /*
@@ -430,6 +442,8 @@ static int get_SondeID(gpx_t *gpx, int crc, int ofs) {
             // don't reset gpx->frame[] !
             gpx->T = -273.15;
             gpx->RH = -1.0;
+            gpx->P = -1.0;
+            gpx->RH2 = -1.0;
             // new ID:
             memcpy(gpx->id, sondeid_bytes, 8);
             gpx->id[8] = '\0';
@@ -473,6 +487,8 @@ static int get_FrameConf(gpx_t *gpx, int ofs) {
 
 static int get_CalData(gpx_t *gpx) {
 
+    int j;
+
     memcpy(&(gpx->ptu_Rf1), gpx->calibytes+61, 4);  // 0x03*0x10+13
     memcpy(&(gpx->ptu_Rf2), gpx->calibytes+65, 4);  // 0x04*0x10+ 1
 
@@ -483,6 +499,7 @@ static int get_CalData(gpx_t *gpx) {
     memcpy(gpx->ptu_calT1+0, gpx->calibytes+89, 4);  // 0x05*0x10+ 9
     memcpy(gpx->ptu_calT1+1, gpx->calibytes+93, 4);  // 0x05*0x10+13
     memcpy(gpx->ptu_calT1+2, gpx->calibytes+97, 4);  // 0x06*0x10+ 1
+    // ptu_calT1[3..6]
 
     memcpy(gpx->ptu_calH+0, gpx->calibytes+117, 4);  // 0x07*0x10+ 5
     memcpy(gpx->ptu_calH+1, gpx->calibytes+121, 4);  // 0x07*0x10+ 9
@@ -494,6 +511,34 @@ static int get_CalData(gpx_t *gpx) {
     memcpy(gpx->ptu_calT2+0, gpx->calibytes+305, 4);  // 0x13*0x10+ 1
     memcpy(gpx->ptu_calT2+1, gpx->calibytes+309, 4);  // 0x13*0x10+ 5
     memcpy(gpx->ptu_calT2+2, gpx->calibytes+313, 4);  // 0x13*0x10+ 9
+    // ptu_calT2[3..6]
+
+
+    // cf. DF9DQ
+    memcpy(&(gpx->ptu_Cf1), gpx->calibytes+69, 4);  // 0x04*0x10+ 5
+    memcpy(&(gpx->ptu_Cf2), gpx->calibytes+73, 4);  // 0x04*0x10+ 9
+    for (j = 0; j < 42; j++) {  // 0x07*0x10+13 = 0x07D = 125
+        memcpy(gpx->ptu_mtxH+j, gpx->calibytes+125+4*j, 4);
+    }
+    // cf. DF9DQ or stsst/RS-fork
+    memcpy(gpx->ptu_calP+0,  gpx->calibytes+606, 4); // 0x25*0x10+14 = 0x25E
+    memcpy(gpx->ptu_calP+4,  gpx->calibytes+610, 4); // ..
+    memcpy(gpx->ptu_calP+8,  gpx->calibytes+614, 4);
+    memcpy(gpx->ptu_calP+12, gpx->calibytes+618, 4);
+    memcpy(gpx->ptu_calP+16, gpx->calibytes+622, 4);
+    memcpy(gpx->ptu_calP+20, gpx->calibytes+626, 4);
+    memcpy(gpx->ptu_calP+24, gpx->calibytes+630, 4);
+    memcpy(gpx->ptu_calP+1,  gpx->calibytes+634, 4);
+    memcpy(gpx->ptu_calP+5,  gpx->calibytes+638, 4);
+    memcpy(gpx->ptu_calP+9,  gpx->calibytes+642, 4);
+    memcpy(gpx->ptu_calP+13, gpx->calibytes+646, 4);
+    memcpy(gpx->ptu_calP+2,  gpx->calibytes+650, 4);
+    memcpy(gpx->ptu_calP+6,  gpx->calibytes+654, 4);
+    memcpy(gpx->ptu_calP+10, gpx->calibytes+658, 4);
+    memcpy(gpx->ptu_calP+14, gpx->calibytes+662, 4);
+    memcpy(gpx->ptu_calP+3,  gpx->calibytes+666, 4);
+    memcpy(gpx->ptu_calP+7,  gpx->calibytes+670, 4); // ..
+    memcpy(gpx->ptu_calP+11, gpx->calibytes+674, 4); // 0x2A*0x10+ 2
 
     return 0;
 }
@@ -515,6 +560,7 @@ static float get_T(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float *ptu_co, fl
 // rel.hum., capacitor
 // (data:) ftp://ftp-cdc.dwd.de/climate_environment/CDC/observations_germany/radiosondes/
 // (diffAlt: Ellipsoid-Geoid)
+// (note: humidity sensor significant has time lag at low temperatures)
 static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     float a0 = 7.5;                    // empirical
     float a1 = 350.0/gpx->ptu_calH[0]; // empirical
@@ -530,15 +576,98 @@ static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     return rh;
 }
 
+// ---------------------------------------------------------------------------------------
+//
+// cf. github DF9DQ
+// water vapor saturation pressure (Hyland and Wexler)
+static float vaporSatP(float Tc) {
+    double T = Tc + 273.15;
+
+    // Apply some correction magic
+    // T = -0.4931358 + (1.0 + 4.61e-3) * T - 1.3746454e-5 * T*T + 1.2743214e-8 * T*T*T;
+
+    // H+W equation
+    double p = expf(-5800.2206 / T
+                    +1.3914993
+                    +6.5459673 * log(T)
+                    -4.8640239e-2 * T
+                    +4.1764768e-5 * T*T
+                    -1.4452093e-8 * T*T*T
+                   );
+
+    return (float)p; // [Pa]
+}
+// cf. github DF9DQ  // offset stratosphere rh=5% ?
+static float get_RH2adv(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T, float TH) {
+    float rh  = 0.0;
+    float cfh = (f-f1)/(float)(f2-f1);
+    float cap = gpx->ptu_Cf1+(gpx->ptu_Cf2-gpx->ptu_Cf1)*cfh;
+    double Cp = (cap / gpx->ptu_calH[0] - 1.0) * gpx->ptu_calH[1];
+    double Trh = TH;
+    double _rh = 0.0;
+    double aj = 1.0;
+    double bk = 1.0, b[6];
+    int j, k;
+
+    bk = 1.0;
+    for (k = 0; k < 6; k++) {
+        b[k] = bk;
+        bk *= (Trh - 20.0) / 180.0;
+    }
+
+    aj = 1.0;
+    for (j = 0; j < 7; j++) {
+        for (k = 0; k < 6; k++) {
+            _rh += aj * b[k] * gpx->ptu_mtxH[6*j+k];
+        }
+        aj *= Cp;
+    }
+
+    rh = _rh * vaporSatP(TH)/vaporSatP(T);
+
+    if (rh < 0.0) rh = 0.0;
+    if (rh > 100.0) rh = 100.0;
+    return rh;
+}
+//
+// cf. github DF9DQ or stsst/RS-fork
+static float get_P(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, int fx)
+{
+    double p = 0.0;
+    double a0, a1, a0j, a1k;
+    int j, k;
+    if (f1 == f2 || f1 == f) return 0.0;
+    a0 = gpx->ptu_calP[24] / ((float)(f - f1) / (float)(f2 - f1));
+    a1 = fx * 0.01;
+
+    a0j = 1.0;
+    for (j = 0; j < 6; j++) {
+        a1k = 1.0;
+        for (k = 0; k < 4; k++) {
+            p += a0j * a1k * gpx->ptu_calP[j*4+k];
+            a1k *= a1;
+        }
+        a0j *= a0;
+    }
+
+    return (float)p;
+}
+// ---------------------------------------------------------------------------------------
+
+
 static int get_PTU(gpx_t *gpx, int ofs, int pck) {
     int err=0, i;
     int bR, bc1, bT1,
             bc2, bT2;
     int bH;
+    int bH2;
+    int bP;
     ui32_t meas[12];
     float Tc = -273.15;
     float TH = -273.15;
     float RH = -1.0;
+    float RH2 = -1.0;
+    float P = -1.0;
 
     get_CalData(gpx);
 
@@ -560,6 +689,15 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
         bT2 = gpx->calfrchk[0x13];
         bH  = gpx->calfrchk[0x07];
 
+        bH2 = gpx->calfrchk[0x08] && gpx->calfrchk[0x09]
+           && gpx->calfrchk[0x10] && gpx->calfrchk[0x11]
+           && gpx->calfrchk[0x12] && gpx->calfrchk[0x13];
+
+        bP  = gpx->calfrchk[0x21] && gpx->calibytes[0x21F] == 'P'
+           && gpx->calfrchk[0x25] && gpx->calfrchk[0x26]
+           && gpx->calfrchk[0x27] && gpx->calfrchk[0x28]
+           && gpx->calfrchk[0x29] && gpx->calfrchk[0x2A];
+
         if (bR && bc1 && bT1) {
             Tc = get_T(gpx, meas[0], meas[1], meas[2], gpx->ptu_co1, gpx->ptu_calT1);
         }
@@ -568,11 +706,24 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
         if (bR && bc2 && bT2) {
             TH = get_T(gpx, meas[6], meas[7], meas[8], gpx->ptu_co2, gpx->ptu_calT2);
         }
+        gpx->TH = TH;
 
-        if (bH) {
+        if (bH && Tc > -273.0) {
             RH = get_RH(gpx, meas[3], meas[4], meas[5], Tc); // TH, TH-Tc (sensorT - T)
         }
         gpx->RH = RH;
+
+         // cf. DF9DQ, stsst/RS-fork
+        if (gpx->option.ptu == 2) {
+            if (bH && bH2 && Tc > -273.0 && TH > -273.0) {
+                RH2 = get_RH2adv(gpx, meas[3], meas[4], meas[5], Tc, TH);
+            }
+        }
+        gpx->RH2 = RH2;
+        if (bP) {
+            P = get_P(gpx, meas[9], meas[10], meas[11], i2(gpx->frame+pos_PTU+ofs+2+38));
+        }
+        gpx->P = P;
 
 
         if (gpx->option.vbs == 4 && (gpx->crc & (crc_PTU | crc_GPS3))==0)
@@ -697,6 +848,7 @@ static int get_GPS2(gpx_t *gpx, int ofs) {
     return err;
 }
 
+// WGS84/GRS80 Ellipsoid
 #define EARTH_a  6378137.0
 #define EARTH_b  6356752.31424518
 #define EARTH_a2_b2  (EARTH_a*EARTH_a - EARTH_b*EARTH_b)
@@ -1290,6 +1442,13 @@ static int prn_ptu(gpx_t *gpx) {
     fprintf(stdout, " ");
     if (gpx->T > -273.0) fprintf(stdout, " T=%.1fC ", gpx->T);
     if (gpx->RH > -0.5)  fprintf(stdout, " RH=%.0f%% ", gpx->RH);
+    if (gpx->P > 0.0) {
+        if (gpx->P < 100.0) fprintf(stdout, " P=%.2fhPa ", gpx->P);
+        else                fprintf(stdout, " P=%.1fhPa ", gpx->P);
+    }
+    if (gpx->option.ptu == 2) {
+        if (gpx->RH2 > -0.5)  fprintf(stdout, " RH2=%.0f%% ", gpx->RH2);
+    }
     return 0;
 }
 
@@ -1545,6 +1704,9 @@ static int print_position(gpx_t *gpx, int ec) {
                         }
                         if (gpx->option.ptu && !err0 && gpx->RH > -0.5) {
                             fprintf(stdout, ", \"humidity\": %.1f",  gpx->RH );
+                        }
+                        if (gpx->option.ptu && !err0 && gpx->P > 0.0) {
+                            fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
                         }
                         if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
                             fprintf(stdout, ", \"aux\": \"%s\"",  gpx->xdata );
@@ -1807,7 +1969,8 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--ecc3") == 0) { gpx.option.ecc = 3; }
         else if   (strcmp(*argv, "--ecc4") == 0) { gpx.option.ecc = 4; }
         else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
-        else if   (strcmp(*argv, "--ptu") == 0) { gpx.option.ptu = 1; }
+        else if   (strcmp(*argv, "--ptu" ) == 0) { gpx.option.ptu = 1; }
+        else if   (strcmp(*argv, "--ptu2") == 0) { gpx.option.ptu = 2; }
         else if   (strcmp(*argv, "--silent") == 0) { gpx.option.slt = 1; }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--auto") == 0) { gpx.option.aut = 1; }
