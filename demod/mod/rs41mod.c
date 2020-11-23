@@ -498,50 +498,18 @@ static int get_CalData(gpx_t *gpx) {
     return 0;
 }
 
-/*
-static float get_Tc0(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
-    // y  = (f - f1) / (f2 - f1);
-    // y1 = (f - f1) / f2; // = (1 - f1/f2)*y
-    float a =  3.9083e-3, // Pt1000 platinum resistance
-          b = -5.775e-7,
-          c = -4.183e-12; // below 0C, else C=0
-    float *cal = gpx->ptu_calT1;
-    float Rb = (f1*gpx->ptu_Rf2-f2*gpx->ptu_Rf1)/(f2-f1), // ofs
-          Ra = f * (gpx->ptu_Rf2-gpx->ptu_Rf1)/(f2-f1) - Rb,
-          raw = Ra/1000.0,
-          g_r = 0.8024*cal[0] + 0.0176,  // empirisch
-          r_o = 0.0705*cal[1] + 0.0011,  // empirisch
-          r = raw * g_r + r_o,
-          t = (-a + sqrt(a*a + 4*b*(r-1)))/(2*b); // t>0: c=0
-    // R/R0 = 1 + at + bt^2 + c(t-100)t^3 , R0 = 1000 Ohm, t/Celsius
-    return t;
-}
-*/
-// T_RH-sensor
-static float get_TH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
-    float *p = gpx->ptu_co2;
-    float *c  = gpx->ptu_calT2;
+// temperature, platinum resistor
+// T-sensor:    gpx->ptu_co1 , gpx->ptu_calT1
+// T_RH-sensor: gpx->ptu_co2 , gpx->ptu_calT2
+static float get_T(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float *ptu_co, float *ptu_calT) {
+    float *p = ptu_co;
+    float *c = ptu_calT;
     float  g = (float)(f2-f1)/(gpx->ptu_Rf2-gpx->ptu_Rf1),       // gain
           Rb = (f1*gpx->ptu_Rf2-f2*gpx->ptu_Rf1)/(float)(f2-f1), // ofs
           Rc = f/g - Rb,
-          //R = (Rc + c[1]) * c[0],
-          //T = p[0] + p[1]*R + p[2]*R*R;
           R = Rc * c[0],
           T = (p[0] + p[1]*R + p[2]*R*R + c[1])*(1.0 + c[2]);
-    return T;
-}
-// T-sensor, platinum resistor
-static float get_Tc(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
-    float *p = gpx->ptu_co1;
-    float *c  = gpx->ptu_calT1;
-    float  g = (float)(f2-f1)/(gpx->ptu_Rf2-gpx->ptu_Rf1),       // gain
-          Rb = (f1*gpx->ptu_Rf2-f2*gpx->ptu_Rf1)/(float)(f2-f1), // ofs
-          Rc = f/g - Rb,
-          //R = (Rc + c[1]) * c[0],
-          //T = p[0] + p[1]*R + p[2]*R*R;
-          R = Rc * c[0],
-          T = (p[0] + p[1]*R + p[2]*R*R + c[1])*(1.0 + c[2]);
-    return T;
+    return T; // [Celsius]
 }
 
 // rel.hum., capacitor
@@ -552,9 +520,10 @@ static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     float a1 = 350.0/gpx->ptu_calH[0]; // empirical
     float fh = (f-f1)/(float)(f2-f1);
     float rh = 100.0 * ( a1*fh - a0 );
-    float T0 = 0.0, T1 = -25.0; // T/C
-    rh += T0 - T/5.5;                    // empir. temperature compensation
-    if (T < T1) rh *= 1.0 + (T1-T)/90.0; // empir. temperature compensation
+    float T0 = 0.0, T1 = -25.0, T2 = -40.0; // T/C
+    rh += T0 - T/5.5;                       // empir. temperature compensation
+    if (T < T1) rh *= 1.0 + (T1-T)/90.0;    // empir. temperature compensation
+    if (T < T2) rh *= 1.0 + (T2-T)/100.0;   // empir. temperature compensation v0.3
     if (rh < 0.0) rh = 0.0;
     if (rh > 100.0) rh = 100.0;
     if (T < -273.0) rh = -1.0;
@@ -592,13 +561,12 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
         bH  = gpx->calfrchk[0x07];
 
         if (bR && bc1 && bT1) {
-            Tc = get_Tc(gpx, meas[0], meas[1], meas[2]);
-            //Tc0 = get_Tc0(gpx, meas[0], meas[1], meas[2]);
+            Tc = get_T(gpx, meas[0], meas[1], meas[2], gpx->ptu_co1, gpx->ptu_calT1);
         }
         gpx->T = Tc;
 
         if (bR && bc2 && bT2) {
-            TH = get_TH(gpx, meas[6], meas[7], meas[8]);
+            TH = get_T(gpx, meas[6], meas[7], meas[8], gpx->ptu_co2, gpx->ptu_calT2);
         }
 
         if (bH) {
