@@ -95,6 +95,27 @@ static char dfm_header[] = "0100010111001111";
 #define BAUD_RATE   2500
 
 /* ------------------------------------------------------------------------------------ */
+static int datetime2GPSweek(int yy, int mm, int dd,
+                            int hr, int min, int sec,
+                            int *week, int *tow) {
+    int ww = 0;
+    int tt = 0;
+    int gpsDays = 0;
+
+    if ( mm < 3 ) { yy -= 1; mm += 12; }
+
+    gpsDays = (int)(365.25*yy) + (int)(30.6001*(mm+1.0)) + dd - 723263; // 1980-01-06
+
+    ww = gpsDays / 7;
+    tt = gpsDays % 7;
+    tt = tt*86400 + hr*3600 + min*60 + sec;
+
+    *week = ww;
+    *tow  = tt;
+
+    return 0;
+}
+/* ------------------------------------------------------------------------------------ */
 
 
 #define B 8 // codeword: 8 bit
@@ -758,9 +779,11 @@ static void print_gpx(gpx_t *gpx) {
             printf("\n");
         }
 
-        if (gpx->option.jsn && jsonout)
+        if (gpx->option.jsn && jsonout && gpx->sek < 60.0)
         {
-            // JSON Buffer to store sonde ID
+            unsigned long sec_gps = 0;
+            int week = 0;
+            int tow = 0;
             char json_sonde_id[] = "DFM-xxxxxxxx\0\0";
             ui8_t dfm_typ = (gpx->sonde_typ & 0xF);
             switch ( dfm_typ ) {
@@ -771,10 +794,15 @@ static void print_gpx(gpx_t *gpx) {
                 default : sprintf(json_sonde_id, "DFM-%6u", gpx->SN);
             }
 
+            // JSON frame counter: seconds since GPS (ignoring leap seconds, DFM=UTC)
+            datetime2GPSweek(gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, (int)(gpx->sek+0.5), &week, &tow);
+            sec_gps = week*604800 + tow; // SECONDS_IN_WEEK=7*86400=604800
+
             // Print JSON blob     // valid sonde_ID?
             printf("{ \"type\": \"%s\"", "DFM");
-            printf(", \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                   gpx->frnr, json_sonde_id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->horiV, gpx->dir, gpx->vertV, gpx->gps.nSV);
+            printf(", \"frame\": %lu, ", sec_gps); // gpx->frnr
+            printf("\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
+                   json_sonde_id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->horiV, gpx->dir, gpx->vertV, gpx->gps.nSV);
             if (gpx->ptu_out >= 0xA && gpx->status[0] > 0) { // DFM>=09(P): Battery (STM32)
                 printf(", \"batt\": %.2f", gpx->status[0]);
             }
