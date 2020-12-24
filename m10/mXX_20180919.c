@@ -456,18 +456,51 @@ int dpsk_bpm(char* frame_rawbits, char *frame_bits, int len) {
 
 /* -------------------------------------------------------------------------- */
 
-#define stdFLEN        0x43  // pos[0]=0x43
-#define pos_GPSTOW     0x0F  // 3 byte
-#define pos_GPSlat     0x1C  // 4 byte
-#define pos_GPSlon     0x20  // 4 byte
-#define pos_GPSalt     0x08  // 3 byte
-#define pos_GPSweek    0x1A  // 2 byte
-//Velocity East-North-Up (ENU)
-#define pos_GPSvE  0x0B  // 2 byte
-#define pos_GPSvN  0x0D  // 2 byte
-#define pos_GPSvU  0x18  // 2 byte
+/*
+M20
 
+GPS data: Big Endian
+PTU/ADC data: little endian
+
+frame[0x0] = framelen        // (0x43,) 0x45
+frame[0x1] = 0x20 (type M20)
+
+frame[0x02..0x18]: most important data at beginning (incl. counter + M10check)
+frame[0x02..0x03]: ADC
+frame[0x04..0x05]: ADC
+frame[0x06..0x07]: ADC temperature
+frame[0x08..0x0A]: GPS altitude
+frame[0x0B..0x0E]: GPS hor.Vel. (velE,velN)
+frame[0x0F..0x11]: GPS TOW
+frame[0x15]:       counter
+frame[0x16..0x17]: block check
+
+frame[0x18..0x19]: GPS ver.Vel. (velU)
+frame[0x1A..0x1B]: GPS week
+frame[0x1C..0x1F]: GPS latitude
+frame[0x20..0x23]: GPS longitude
+
+frame[0x44..0x45]: frame check
+
+*/
+
+#define stdFLEN       0x43  // pos[0]=0x43
+#define pos_GPSTOW    0x0F  // 3 byte
+#define pos_GPSlat    0x1C  // 4 byte
+#define pos_GPSlon    0x20  // 4 byte
+#define pos_GPSalt    0x08  // 3 byte
+#define pos_GPSweek   0x1A  // 2 byte
+//Velocity East-North-Up (ENU)
+#define pos_GPSvE     0x0B  // 2 byte
+#define pos_GPSvN     0x0D  // 2 byte
+#define pos_GPSvU     0x18  // 2 byte
+
+#define pos_Cnt       0x15  // 1 byte
+#define pos_BlkChk    0x16  // 2 byte
 #define pos_Check     (stdFLEN-1)  // 2 byte
+
+#define len_BlkChk    0x16 // frame[0x02..0x17] , incl. chk16
+
 
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
@@ -597,7 +630,7 @@ int get_GPSvel() {
 
 /* -------------------------------------------------------------------------- */
 
-static float get_Tntc0(ui8_t *frame, int csOK) {
+float get_Tntc0(ui8_t *frame, int csOK) {
 // SMD ntc
     float Rs = 22.1e3;          // P5.6=Vcc
   float R25 = 2.2e3;// 0.119e3; //2.2e3;
@@ -673,7 +706,7 @@ int update_checkM10(int c, ui8_t b) {
 }
 
 int checkM10(ui8_t *msg, int len) {
-    int i, cs;
+    int i, cs;  // msg[0] = len+1
 
     cs = 0;
     for (i = 0; i < len; i++) {
@@ -682,10 +715,24 @@ int checkM10(ui8_t *msg, int len) {
 
     return cs & 0xFFFF;
 }
+// checkM10(frame, frame[0]-1) = blk_checkM10(frame[0], frame+1)
+int blk_checkM10(int len, ui8_t *msg) {
+    int i, cs;
+    ui8_t pre = len & 0xFF; // len(block+chk16)
+    cs = 0;
+
+    cs = update_checkM10(cs, pre);
+
+    for (i = 0; i < len-2; i++) {
+        cs = update_checkM10(cs, msg[i]);
+    }
+
+    return cs & 0xFFFF;
+}
 
 /* -------------------------------------------------------------------------- */
 
-int print_pos(int csOK) {
+int print_pos(int bcOK, int csOK) {
     int err;
 
     err = 0;
@@ -717,6 +764,8 @@ int print_pos(int csOK) {
 
             if (option_verbose >= 1) {
                 fprintf(stdout, "  # ");
+                if (bcOK) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
+                else      fprintf(stdout, " "col_CSno"(no)"col_TXT);
                 if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                 else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
@@ -742,6 +791,7 @@ int print_pos(int csOK) {
 
             if (option_verbose >= 1) {
                 fprintf(stdout, "  # ");
+                if (bcOK) fprintf(stdout, " (ok)"); else fprintf(stdout, " (no)");
                 if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
 
@@ -761,6 +811,7 @@ void print_frame(int pos) {
     int i;
     ui8_t byte;
     int cs1, cs2;
+    int bc1, bc2;
     int flen = stdFLEN; // xxFLEN=0x43
 
     if (option_b < 2) {
@@ -777,6 +828,9 @@ void print_frame(int pos) {
     cs1 = (frame_bytes[pos_Check+auxlen] << 8) | frame_bytes[pos_Check+auxlen+1];
     cs2 = checkM10(frame_bytes, pos_Check+auxlen);
 
+    bc1 = (frame_bytes[pos_BlkChk] << 8) | frame_bytes[pos_BlkChk+1];
+    bc2 = blk_checkM10(len_BlkChk, frame_bytes+2); // len(essentialBlock+chk16) = 0x16
+
     if (option_raw) {
 
         if (option_color  /*&&  frame_bytes[1] != 0x49*/) {
@@ -791,12 +845,15 @@ void print_frame(int pos) {
                 if ((i >= pos_GPSvE)    &&  (i < pos_GPSvE+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_GPSvN)    &&  (i < pos_GPSvN+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_GPSvU)    &&  (i < pos_GPSvU+2))    fprintf(stdout, col_GPSvel);
+                if ((i >= pos_BlkChk)   &&  (i < pos_BlkChk+2))   fprintf(stdout, col_Check);
                 if ((i >= pos_Check+auxlen)  &&  (i < pos_Check+auxlen+2))  fprintf(stdout, col_Check);
                 fprintf(stdout, "%02x", byte);
                 fprintf(stdout, col_FRTXT);
             }
             if (option_verbose) {
                 fprintf(stdout, " # "col_Check"%04x"col_FRTXT, cs2);
+                if (bc1 == bc2) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
+                else            fprintf(stdout, " "col_CSno"(no)"col_TXT);
                 if (cs1 == cs2) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                 else            fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
@@ -809,13 +866,14 @@ void print_frame(int pos) {
             }
             if (option_verbose) {
                 fprintf(stdout, " # %04x", cs2);
+                if (bc1 == bc2) fprintf(stdout, " (ok)"); else fprintf(stdout, " (no)");
                 if (cs1 == cs2) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
             fprintf(stdout, "\n");
         }
 
     }
-    else print_pos(cs1 == cs2);
+    else print_pos(bc1 == bc2, cs1 == cs2);
 
 }
 
