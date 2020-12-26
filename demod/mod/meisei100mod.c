@@ -96,17 +96,16 @@ e.g. -b --br 2398
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
 #ifdef CYGWIN
   #include <fcntl.h>  // cygwin: _setmode()
   #include <io.h>
 #endif
 
-/*
-typedef unsigned char  ui8_t;
-typedef unsigned short ui16_t;
-typedef unsigned int   ui32_t;
-typedef short i16_t;
-*/
+//typedef unsigned char  ui8_t;
+//typedef unsigned short ui16_t;
+//typedef unsigned int   ui32_t;
+//typedef short i16_t;
 
 #include "demod_mod.h"
 
