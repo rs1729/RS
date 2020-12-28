@@ -47,7 +47,8 @@ typedef struct {
     i8_t crc;  // CRC check output
     i8_t ecc;  // Reed-Solomon ECC
     i8_t sat;  // GPS sat data
-    i8_t ptu;  // PTU: temperature
+    i8_t ptu;  // PTU: temperature humidity (pressure)
+    i8_t dwp;  // PTU derived: dew point
     i8_t inv;
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
@@ -560,7 +561,7 @@ static float get_T(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float *ptu_co, fl
 // rel.hum., capacitor
 // (data:) ftp://ftp-cdc.dwd.de/climate_environment/CDC/observations_germany/radiosondes/
 // (diffAlt: Ellipsoid-Geoid)
-// (note: humidity sensor significant has time lag at low temperatures)
+// (note: humidity sensor has significant time-lag at low temperatures)
 static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     float a0 = 7.5;                    // empirical
     float a1 = 350.0/gpx->ptu_calH[0]; // empirical
@@ -1446,13 +1447,26 @@ static int prn_frm(gpx_t *gpx) {
 static int prn_ptu(gpx_t *gpx) {
     fprintf(stdout, " ");
     if (gpx->T > -273.0) fprintf(stdout, " T=%.1fC ", gpx->T);
-    if (gpx->RH > -0.5)  fprintf(stdout, " RH=%.0f%% ", gpx->RH);
+    if (gpx->RH > -0.5 && gpx->option.ptu != 2)  fprintf(stdout, " RH=%.0f%% ", gpx->RH);
     if (gpx->P > 0.0) {
         if (gpx->P < 100.0) fprintf(stdout, " P=%.2fhPa ", gpx->P);
         else                fprintf(stdout, " P=%.1fhPa ", gpx->P);
     }
     if (gpx->option.ptu == 2) {
         if (gpx->RH2 > -0.5)  fprintf(stdout, " RH2=%.0f%% ", gpx->RH2);
+    }
+
+    // dew point
+    if (gpx->option.dwp)
+    {
+        float rh = gpx->RH;
+        float Td = -273.15f; // dew point Td
+        if (gpx->option.ptu == 2) rh = gpx->RH2;
+        if (rh > 0.0f && gpx->T > -273.0f) {
+            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
+            Td = 243.04f * gamma / (17.625f - gamma);
+            fprintf(stdout, " Td=%.1fC ", Td);
+        }
     }
     return 0;
 }
@@ -1980,6 +1994,7 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
         else if   (strcmp(*argv, "--ptu" ) == 0) { gpx.option.ptu = 1; }
         else if   (strcmp(*argv, "--ptu2") == 0) { gpx.option.ptu = 2; }
+        else if   (strcmp(*argv, "--dewp") == 0) { gpx.option.dwp = 1; }
         else if   (strcmp(*argv, "--silent") == 0) { gpx.option.slt = 1; }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--auto") == 0) { gpx.option.aut = 1; }

@@ -8,12 +8,15 @@
 #endif
 
 
+#ifndef INTTYPES
+#define INTTYPES
 typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
 typedef unsigned int   ui32_t;
 typedef char  i8_t;
 typedef short i16_t;
 typedef int   i32_t;
+#endif
 
 
 typedef struct {
