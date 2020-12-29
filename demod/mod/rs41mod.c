@@ -130,6 +130,8 @@ typedef struct {
     option_t option;
     RS_t RS;
     ecdat_t ecdat;
+    float pDOP;
+    float sAcc;
 } gpx_t;
 
 
@@ -948,6 +950,8 @@ static int get_GPSkoord(gpx_t *gpx, int ofs) {
     gpx->vV = vU;
 
     gpx->numSV = gpx->frame[pos_numSats+ofs];
+    gpx->pDOP = gpx->frame[pos_pDOP+ofs]/10.0; if (gpx->frame[pos_pDOP+ofs] == 0xFF) gpx->pDOP = -1.0;
+    gpx->sAcc = gpx->frame[pos_sAcc+ofs]/10.0; if (gpx->frame[pos_sAcc+ofs] == 0xFF) gpx->sAcc = -1.0;
 
     return 0;
 }
@@ -1447,7 +1451,7 @@ static int prn_frm(gpx_t *gpx) {
 static int prn_ptu(gpx_t *gpx) {
     fprintf(stdout, " ");
     if (gpx->T > -273.0) fprintf(stdout, " T=%.1fC ", gpx->T);
-    if (gpx->RH > -0.5 && gpx->option.ptu != 2)  fprintf(stdout, " RH=%.0f%% ", gpx->RH);
+    if (gpx->RH > -0.5)  fprintf(stdout, " RH=%.0f%% ", gpx->RH);
     if (gpx->P > 0.0) {
         if (gpx->P < 100.0) fprintf(stdout, " P=%.2fhPa ", gpx->P);
         else                fprintf(stdout, " P=%.1fhPa ", gpx->P);
@@ -1461,7 +1465,7 @@ static int prn_ptu(gpx_t *gpx) {
     {
         float rh = gpx->RH;
         float Td = -273.15f; // dew point Td
-        if (gpx->option.ptu == 2) rh = gpx->RH2;
+        if (gpx->option.ptu == 2 && gpx->RH2 > 0) rh = gpx->RH2;
         if (rh > 0.0f && gpx->T > -273.0f) {
             float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
             Td = 243.04f * gamma / (17.625f - gamma);
@@ -1716,17 +1720,28 @@ static int print_position(gpx_t *gpx, int ec) {
                     if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                         // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
                         fprintf(stdout, "{ \"type\": \"%s\"", "RS41");
-                        fprintf(stdout, ", \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"bt\": %d, \"batt\": %.2f",
-                                       gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV, gpx->conf_cd, gpx->batt );
-                        if (gpx->option.ptu && !err0) {
-                            float _RH = gpx->RH;
-                            if (gpx->option.ptu == 2) _RH = gpx->RH2;
+                        fprintf(stdout, ", \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"bt\": %d, \"batt\": %.2f",gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV, gpx->conf_cd, gpx->batt );
+                        fprintf(stdout, ", \"pDOP\": %.1f, \"sAcc\": %.1f",gpx->pDOP,gpx->sAcc);
+
+                    if (gpx->option.ptu && !err0) {
+                            float rh = gpx->RH;
+                            if (gpx->option.ptu == 2  && gpx->RH2 > 0) {
+                                rh = gpx->RH2;
+                            }
                             if (gpx->T > -273.0) {
                                 fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
                             }
-                            if (_RH > -0.5) {
-                                fprintf(stdout, ", \"humidity\": %.1f",  _RH );
+                            if (rh > -0.5) {
+                                fprintf(stdout, ", \"humidity\": %.1f",  rh );
                             }
+                            if (gpx->option.dwp) {
+                                float Td = -273.15f; // dew point Td
+                                if (rh > 0.0f && gpx->T > -273.0f) {
+                                    float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
+                                    Td = 243.04f * gamma / (17.625f - gamma);
+                                    fprintf(stdout, ", \"dew\": %.1f", Td);
+                                }  
+                            }  
                             if (gpx->P > 0.0) {
                                 fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
                             }
@@ -2045,7 +2060,7 @@ int main(int argc, char *argv[]) {
         }
         else if   (strcmp(*argv, "--json") == 0) {
             gpx.option.jsn = 1;
-            gpx.option.ecc = 2;
+            if (gpx.option.ecc < 3) gpx.option.ecc = 2;
             gpx.option.crc = 1;
         }
         else if   (strcmp(*argv, "--jsn_cfq") == 0) {
