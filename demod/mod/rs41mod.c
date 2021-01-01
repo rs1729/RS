@@ -52,7 +52,7 @@ typedef struct {
     i8_t inv;
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
-    i8_t slt;  // silent
+    i8_t slt;  // silent (only raw/json)
 } option_t;
 
 typedef struct {
@@ -1472,7 +1472,7 @@ static int prn_ptu(gpx_t *gpx) {
 }
 
 static int prn_gpstime(gpx_t *gpx) {
-    Gps2Date(gpx);
+    //Gps2Date(gpx);
     fprintf(stdout, "%s ", weekday[gpx->wday]);
     fprintf(stdout, "%04d-%02d-%02d %02d:%02d:%06.3f",
             gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
@@ -1638,6 +1638,7 @@ static int print_position(gpx_t *gpx, int ec) {
                             ofs = pos - pos_GPS1;
                             err1 = get_GPS1(gpx, ofs);
                             if ( !err1 ) {
+                                Gps2Date(gpx);
                                 if (out) prn_gpstime(gpx);
                                 if (sat) prn_sat1(gpx, ofs);
                             }
@@ -1780,6 +1781,7 @@ static int print_position(gpx_t *gpx, int ec) {
             err1 = get_GPS1(gpx, ofs);
             err2 = get_GPS2(gpx, ofs);
             err3 = get_GPS3(gpx, ofs);
+            if (!err1) Gps2Date(gpx);
 
             if (out) {
 
@@ -1894,6 +1896,9 @@ static void print_frame(gpx_t *gpx, int len) {
             }
         }
         fprintf(stdout, "\n");
+        if (gpx->option.slt /*&& gpx->option.jsn*/) {
+            print_position(gpx, ec);
+        }
     }
     else {
         print_position(gpx, ec);
@@ -1995,11 +2000,11 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--ptu" ) == 0) { gpx.option.ptu = 1; }
         else if   (strcmp(*argv, "--ptu2") == 0) { gpx.option.ptu = 2; }
         else if   (strcmp(*argv, "--dewp") == 0) { gpx.option.dwp = 1; }
-        else if   (strcmp(*argv, "--silent") == 0) { gpx.option.slt = 1; }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--auto") == 0) { gpx.option.aut = 1; }
         else if   (strcmp(*argv, "--bin") == 0) { option_bin = 1; }  // bit/byte binary input
         else if   (strcmp(*argv, "--softin") == 0) { option_softin = 1; }  // float32 soft input
+        else if   (strcmp(*argv, "--silent") == 0) { gpx.option.slt = 1; }
         else if   (strcmp(*argv, "--ths") == 0) {
             ++argv;
             if (*argv) {
@@ -2085,6 +2090,8 @@ int main(int argc, char *argv[]) {
     }
     if (!wavloaded) fp = stdin;
 
+
+    if (gpx.option.raw && gpx.option.jsn) gpx.option.slt = 1;
 
     if (gpx.option.ecc < 2) gpx.option.ecc = 1;  // turn off for ber-measurement
 
