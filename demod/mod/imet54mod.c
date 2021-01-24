@@ -67,18 +67,22 @@ typedef struct {
 } gpx_t;
 
 
-#define HEADLEN 140
+#define HEADLEN 40
 #define FRAMESTART ((HEADLEN)/BITS)
 
-
+// header = preamble + sync: 8N1 , 10x 0x00 0xAA + 4x 0x24
+// shorter header correlation, such that, in mixed signal/noise,
+// signal samples have more weight: header = 0x00 0xAA 0x24 0x24
+// (in particular for soft bit input!)
 static char imet54_header[] = //"0000000001""0101010101""0000000001""0101010101"
                               //"0000000001""0101010101""0000000001""0101010101"
-                                "0000000001""0101010101""0000000001""0101010101"
-                                "0000000001""0101010101""0000000001""0101010101"
-                                "0000000001""0101010101""0000000001""0101010101"  // 10x2: 8N1 0x00 0xAA
-                                "0001001001""0001001001";//"0001001001""0001001001"; // 8N1 4x 0x24
+                              //"0000000001""0101010101""0000000001""0101010101"
+                              //"0000000001""0101010101""0000000001""0101010101"
+                              //"0000000001""0101010101"
+                                "0000000001""0101010101""0001001001""0001001001"; // 0x00 0xAA 0x24 0x24
+                              //"0001001001""0001001001";
 
-//  preamble 10x 0x00 0xAA , sync: 4x 0x24 (, 0x42)
+// preamble 10x 0x00 0xAA , sync: 4x 0x24 (, 0x42)
 //static ui8_t imet54_header_bytes[8] = { 0x00, 0xAA, 0x00, 0xAA, 0x24, 0x24, 0x24, 0x24 }; // 0x42
 
 /* ------------------------------------------------------------------------------------ */
@@ -664,7 +668,7 @@ int main(int argc, char *argv[]) {
                 return -1;
             }
             */
-            hdb.ths = 0.7; // caution/test false positive
+            hdb.ths = 0.8; // caution/test false positive
             hdb.sbuf = calloc(hdb.len, sizeof(float));
             if (hdb.sbuf == NULL) {
                 fprintf(stderr, "error: malloc\n");
