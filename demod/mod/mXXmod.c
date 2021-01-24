@@ -35,7 +35,7 @@ typedef struct {
     i8_t vbs;  // verbose output
     i8_t raw;  // raw frames
     i8_t crc;  // CRC check output
-    i8_t ecc;  // Reed-Solomon ECC
+    i8_t ecc;  // M10/M20: no ECC
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature
     i8_t inv;
@@ -1107,7 +1107,7 @@ int main(int argc, char **argv) {
                         else {
                             bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos, -1, 0); // symlen=2
                         }
-                        if ( bitQ == EOF) break;
+                        if (bitQ == EOF) break;
                         bitpos++;
                     }
                 }
