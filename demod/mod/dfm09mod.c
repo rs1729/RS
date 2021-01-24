@@ -28,7 +28,7 @@ typedef struct {
     i8_t vbs;  // verbose output
     i8_t raw;  // raw frames
     i8_t crc;  // CRC check output
-    i8_t ecc;  // Reed-Solomon ECC
+    i8_t ecc;  // Hamming ECC
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature
     i8_t inv;
