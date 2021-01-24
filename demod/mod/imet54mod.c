@@ -654,13 +654,16 @@ int main(int argc, char *argv[]) {
             // init circular header bit buffer
             hdb.hdr = imet54_header;
             hdb.len = strlen(imet54_header);
-            hdb.thb = 1.0 - 3.1/(float)hdb.len; // 1.0-max_bit_errors/hdrlen
+            //db.thb = 1.0 - 3.1/(float)hdb.len; // 1.0-max_bit_errors/hdrlen
             hdb.bufpos = -1;
+            hdb.buf = NULL;
+            /*
             hdb.buf = calloc(hdb.len, sizeof(char));
             if (hdb.buf == NULL) {
                 fprintf(stderr, "error: malloc\n");
                 return -1;
             }
+            */
             hdb.ths = 0.7; // caution/test false positive
             hdb.sbuf = calloc(hdb.len, sizeof(float));
             if (hdb.sbuf == NULL) {
@@ -712,21 +715,24 @@ int main(int argc, char *argv[]) {
                     }
                     if ( bitQ == EOF ) break; // liest 2x EOF
 
-                    gpx.frame_bits[pos] = hsbit.hb & 1;
+                    if (gpx.option.inv) {
+                        hsbit.hb ^= 1;
+                        hsbit.sb = -hsbit.sb;
+                        bit ^= 1;
+                    }
 
-                    if (gpx.option.inv) bit ^= 1;
+                    gpx.frame_bits[pos] = hsbit.hb & 1;
 
                     bitpos += 1;
                     pos++;
                 }
 
-                gpx.frame_bits[pos] = 0;
                 print_frame(&gpx, pos, 1);
                 if (pos < BITFRAME_LEN) break;
                 header_found = 0;
 
-                // bis Ende der Sekunde vorspulen; allerdings Doppel-Frame alle 10 sek
-                while ( 0 && bitpos < 3*BITFRAME_LEN/4 ) {
+                // bis Ende der Sekunde vorspulen
+                while ( 0 && bitpos < 4*BITFRAME_LEN/3 ) {
                     if (option_softin) {
                         float s = 0.0;
                         bitQ = f32soft_read(fp, &s);
