@@ -403,6 +403,8 @@ int main(int argc, char *argv[]) {
     int rawhex = 0;
     int cfreq = -1;
 
+    float baudrate = -1;
+
     FILE *fp;
     char *fpname = NULL;
 
@@ -485,6 +487,14 @@ int main(int argc, char *argv[]) {
                 shift = atoi(*argv);
                 if (shift >  4) shift =  4;
                 if (shift < -4) shift = -4;
+            }
+            else return -1;
+        }
+        else if ( (strcmp(*argv, "--br") == 0) ) {
+            ++argv;
+            if (*argv) {
+                baudrate = atof(*argv);
+                if (baudrate < 4600 || baudrate > 5000) baudrate = BAUD_RATE; // default: 4798
             }
             else return -1;
         }
@@ -621,10 +631,15 @@ int main(int argc, char *argv[]) {
             dsp.opt_dc = option_dc;
             dsp.opt_IFmin = option_min;
 
-            if ( dsp.sps < 8 ) {
+            if ( dsp.sps < 5 ) {
                 fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
             }
 
+            if (baudrate > 0) {
+                dsp.br = (float)baudrate;
+                dsp.sps = (float)dsp.sr/dsp.br;
+                fprintf(stderr, "sps corr: %.4f\n", dsp.sps);
+            }
 
             k = init_buffers(&dsp); // BT=0.5  (IQ-Int: BT > 0.5 ?)
             if ( k < 0 ) {
