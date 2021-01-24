@@ -60,6 +60,7 @@ typedef struct {
     int std; int min; float sek;
     double lat; double lon; double alt;
     double vH; double vD; double vV;
+    float T; float RH; float Trh;
     ui8_t frame[FRAME_LEN+4];
     ui8_t frame_bits[BITFRAME_LEN+8];
     int jsn_freq;   // freq/kHz (SDR)
@@ -233,10 +234,21 @@ static i32_t i4be(ui8_t *bytes) {  // 32bit signed int
 
 
 #define pos_SN        0x00  // 4 byte
+// GPS
 #define pos_GPStime   0x04  // 4 byte
 #define pos_GPSlat    0x08  // 4 byte
 #define pos_GPSlon    0x0C  // 4 byte
 #define pos_GPSalt    0x10  // 4 byte
+// PTU
+#define pos_PTU_T     0x1C  // float32
+#define pos_PTU_RH    0x20  // float32
+#define pos_PTU_Trh   0x24  // float32 // ?
+
+
+static int get_SN(gpx_t *gpx) {
+    gpx->SNu32 = u4be(gpx->frame+pos_SN);
+    return 0;
+}
 
 static int get_GPS(gpx_t *gpx) {
     int val;
@@ -272,8 +284,26 @@ static int get_GPS(gpx_t *gpx) {
     return 0;
 }
 
-static int get_SN(gpx_t *gpx) {
-    gpx->SNu32 = u4be(gpx->frame+pos_SN);
+static int get_PTU(gpx_t *gpx) {
+    int val = 0;
+    float *f = (float*)&val;
+
+    val = i4be(gpx->frame + pos_PTU_T);
+    if (*f > -120.0f && *f < 80.0f)  gpx->T = *f;
+    else gpx->T = -273.15f;
+
+    // raw RH?
+    // water vapor saturation pressure (Hyland and Wexler)?
+    val = i4be(gpx->frame + pos_PTU_RH);
+    if      (*f <   0.0f)  gpx->RH =   0.0f;
+    else if (*f > 100.0f)  gpx->RH = 100.0f;
+    else gpx->RH = *f;
+
+    // temperatur of r.h. sensor?
+    val = i4be(gpx->frame + pos_PTU_Trh);
+    if (*f > -120.0f && *f < 80.0f)  gpx->Trh = *f;
+    else gpx->Trh = -273.15f;
+
     return 0;
 }
 
@@ -283,6 +313,7 @@ static int print_position(gpx_t *gpx, int ecc, int ecc_gps) {
 
     get_SN(gpx);
     get_GPS(gpx);
+    get_PTU(gpx);
 
     if ( !gpx->option.slt )
     {
@@ -293,6 +324,12 @@ static int print_position(gpx_t *gpx, int ecc, int ecc_gps) {
         fprintf(stdout, " lon: %.5f ", gpx->lon);
         fprintf(stdout, " alt: %.1f ", gpx->alt);
 
+        if (gpx->option.ptu) {
+            fprintf(stdout, " ");
+            if (gpx->T > -273.0)   fprintf(stdout, " T=%.1fC ", gpx->T);
+            if (gpx->RH > -0.5)    fprintf(stdout, " _RH=%.0f%% ", gpx->RH);
+            if (gpx->Trh > -273.0) fprintf(stdout, " Trh=%.1fC ", gpx->Trh);
+        }
 
         if (gpx->option.ecc && ecc != 0) {
             fprintf(stdout, " # (%d)", ecc);
@@ -308,6 +345,14 @@ static int print_position(gpx_t *gpx, int ecc, int ecc_gps) {
         fprintf(stdout, ", \"frame\": %lu", count_day);
         fprintf(stdout, ", \"id\": \"IMET54-%u\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
                 gpx->SNu32, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt);
+        if (gpx->option.ptu) {
+            if (gpx->T > -273.0) {
+                fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
+            }
+            if (gpx->RH > -0.5) {
+                fprintf(stdout, ", \"humidity\": %.1f",  gpx->RH );
+            }
+        }
         //fprintf(stdout, ", \"subtype\": \"%s\"", "IMET54");
         if (gpx->jsn_freq > 0) {
             fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
