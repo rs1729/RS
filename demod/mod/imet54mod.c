@@ -78,7 +78,8 @@ static char imet54_header[] = //"0000000001""0101010101""0000000001""0101010101"
                                 "0000000001""0101010101""0000000001""0101010101"  // 10x2: 8N1 0x00 0xAA
                                 "0001001001""0001001001";//"0001001001""0001001001"; // 8N1 4x 0x24
 
-static ui8_t imet54_header_bytes[8] = { 0x00, 0xAA, 0x00, 0xAA, 0x24, 0x24, 0x24, 0x24 };
+//  preamble 10x 0x00 0xAA , sync: 4x 0x24 (, 0x42)
+//static ui8_t imet54_header_bytes[8] = { 0x00, 0xAA, 0x00, 0xAA, 0x24, 0x24, 0x24, 0x24 }; // 0x42
 
 /* ------------------------------------------------------------------------------------ */
 
@@ -177,7 +178,7 @@ static ui8_t ham_lut[16] = { 0x00, 0x87, 0x99, 0x1E, 0xAA, 0x2D, 0x33, 0xB4,
                              0x4B, 0xCC, 0xD2, 0x55, 0xE1, 0x66, 0x78, 0xFF };
 
 static ui8_t hamming(int opt_ecc, ui8_t *cwb, ui8_t *sym) {
-    int i, j;
+    int j;
     int ecc = 0;
     ui8_t byt = 0;
     ui8_t nib = 0;
@@ -274,33 +275,52 @@ static int get_SN(gpx_t *gpx) {
 
 /* ------------------------------------------------------------------------------------ */
 
-static int print_position(gpx_t *gpx, int ecc) {
+static int print_position(gpx_t *gpx, int ecc, int ecc_gps) {
 
     get_SN(gpx);
-    fprintf(stdout, " (%d) ", gpx->SNu32);
-
     get_GPS(gpx);
-    fprintf(stdout, " %02d:%02d:%06.3f ", gpx->std, gpx->min, gpx->sek);
-    fprintf(stdout, " lat: %.5f ", gpx->lat);
-    fprintf(stdout, " lon: %.5f ", gpx->lon);
-    fprintf(stdout, " alt: %.1f ", gpx->alt);
+
+    if ( !gpx->option.slt )
+    {
+        fprintf(stdout, " (%d) ", gpx->SNu32);
+
+        fprintf(stdout, " %02d:%02d:%06.3f ", gpx->std, gpx->min, gpx->sek);
+        fprintf(stdout, " lat: %.5f ", gpx->lat);
+        fprintf(stdout, " lon: %.5f ", gpx->lon);
+        fprintf(stdout, " alt: %.1f ", gpx->alt);
 
 
-    if (gpx->option.ecc && ecc != 0) fprintf(stdout, " # (%d)", ecc);
+        if (gpx->option.ecc && ecc != 0) {
+            fprintf(stdout, " # (%d)", ecc);
+            fprintf(stdout, " [%d]", ecc_gps);
+        }
 
-    fprintf(stdout, "\n");
+        fprintf(stdout, "\n");
+    }
+
+    if (gpx->option.jsn && ecc >= 0) { // ecc_gps >= 0 not reliable?
+        fprintf(stdout, "{ \"type\": \"%s\"", "IMET5");
+        fprintf(stdout, ", \"id\": \"%u\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
+                gpx->SNu32, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt);
+        //fprintf(stdout, ", \"subtype\": \"%s\"", "IMET54");
+        if (gpx->jsn_freq > 0) {
+            fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
+        }
+        fprintf(stdout, " }\n");
+        fprintf(stdout, "\n");
+    }
 
     return 0;
 }
 
 static void print_frame(gpx_t *gpx, int len, int b2B) {
     int i, j;
-    int ecc = 0;
+    int ecc = 0, ecc_gps = 0;
     ui8_t bits8n1[BITFRAME_LEN+10]; // (RAW)BITFRAME_LEN
     ui8_t bits[BITFRAME_LEN]; // 8/10 (RAW)BITFRAME_LEN
     ui8_t nib[FRAME_LEN];
     ui8_t ec[FRAME_LEN];
-    ui32_t ofs = 24; // (0x24 0x24) 0x24 0x24 0x42 : 3*8
+    ui32_t ofs = 3*8; // (0x24 0x24) 0x24 0x24 0x42 : 3*8
 
 
     if (b2B)
@@ -324,16 +344,17 @@ static void print_frame(gpx_t *gpx, int len, int b2B) {
         for (j = 0; j < len/16; j++) gpx->frame[j] = (nib[2*j]<<4) | (nib[2*j+1] & 0xF);
 
         ecc = 0;
+        ecc_gps = 0;
         for (j = 0; j < len/8; j++) { // alt. only GPS block
             ecc += ec[j];
-            if (ec[j] > 0x10) {
-                ecc = -1;
-                break;
-            }
+            if (ec[j] > 0x10) ecc = -1;
+            if (j < pos_GPSalt+4+8) ecc_gps = ecc;
+            if (ecc < 0) break;
         }
     }
     else {
         ecc = -2; // TODO: parse ecc-info from raw file
+        ecc_gps = ecc;
     }
 
     if (gpx->option.raw)
@@ -346,12 +367,19 @@ static void print_frame(gpx_t *gpx, int len, int b2B) {
                 if (gpx->option.raw == 4 && i % 4 == 3) fprintf(stdout, " ");
             }
         }
-        if (gpx->option.ecc && ecc != 0) fprintf(stdout, " # (%d)", ecc);
+        if (gpx->option.ecc && ecc != 0) {
+            fprintf(stdout, " # (%d)", ecc);
+            fprintf(stdout, " [%d]", ecc_gps);
+        }
         fprintf(stdout, "\n");
+
+        if (gpx->option.slt /*&& gpx->option.jsn*/) {
+            print_position(gpx, ecc, ecc_gps);
+        }
     }
     else
     {
-        print_position(gpx, ecc);
+        print_position(gpx, ecc, ecc_gps);
     }
 }
 
@@ -380,7 +408,7 @@ int main(int argc, char *argv[]) {
 
     int bitpos = 0,
         pos = 0;
-    int bit, byte;
+    int bit;
     int bitQ;
     hsbit_t hsbit, hsbit1;
 
@@ -401,7 +429,6 @@ int main(int argc, char *argv[]) {
     gpx_t gpx = {0};
 
     hdb_t hdb = {0};
-    float softbits[BITS];
 
 
 #ifdef CYGWIN
@@ -527,8 +554,7 @@ int main(int argc, char *argv[]) {
     if (!wavloaded) fp = stdin;
 
 
-    // init gpx
-    memcpy(gpx.frame, imet54_header_bytes+6, sizeof(imet54_header_bytes+6)); // 8 header bytes
+    if (gpx.option.raw && gpx.option.jsn) gpx.option.slt = 1;
 
     if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
@@ -681,6 +707,20 @@ int main(int argc, char *argv[]) {
                 print_frame(&gpx, pos, 1);
                 if (pos < BITFRAME_LEN) break;
                 header_found = 0;
+
+                // bis Ende der Sekunde vorspulen; allerdings Doppel-Frame alle 10 sek
+                while ( 0 && bitpos < 3*BITFRAME_LEN/4 ) {
+                    if (option_softin) {
+                        float s = 0.0;
+                        bitQ = f32soft_read(fp, &s);
+                    }
+                    else {
+                        bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos, -1, 0); // symlen=1
+                    }
+                    if (bitQ == EOF) break;
+                    bitpos++;
+                }
+
             }
         }
 
