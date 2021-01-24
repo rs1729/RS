@@ -299,8 +299,10 @@ static int print_position(gpx_t *gpx, int ecc, int ecc_gps) {
     }
 
     if (gpx->option.jsn && ecc >= 0) { // ecc_gps >= 0 not reliable?
+        unsigned long count_day = (unsigned long)(gpx->std*3600 + gpx->min*60 + gpx->sek+0.5);  // (gpx->timems/1e3+0.5) has gaps
         fprintf(stdout, "{ \"type\": \"%s\"", "IMET5");
-        fprintf(stdout, ", \"id\": \"%u\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
+        fprintf(stdout, ", \"frame\": %lu", count_day);
+        fprintf(stdout, ", \"id\": \"IMET54-%u\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
                 gpx->SNu32, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt);
         //fprintf(stdout, ", \"subtype\": \"%s\"", "IMET54");
         if (gpx->jsn_freq > 0) {
