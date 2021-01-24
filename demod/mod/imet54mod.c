@@ -326,8 +326,8 @@ static int print_position(gpx_t *gpx, int ecc, int ecc_gps) {
 
         if (gpx->option.ptu) {
             fprintf(stdout, " ");
-            if (gpx->T > -273.0) fprintf(stdout, " T=%.1fC ", gpx->T);
-            if (gpx->RH > -0.5)  fprintf(stdout, " _RH=%.0f%% ", gpx->RH);
+            if (gpx->T > -273.0)   fprintf(stdout, " T=%.1fC ", gpx->T);
+            if (gpx->RH > -0.5)    fprintf(stdout, " _RH=%.0f%% ", gpx->RH);
             if (gpx->Trh > -273.0) fprintf(stdout, " Trh=%.1fC ", gpx->Trh);
         }
 
@@ -353,8 +353,6 @@ static int print_position(gpx_t *gpx, int ecc, int ecc_gps) {
                 fprintf(stdout, ", \"humidity\": %.1f",  gpx->RH );
             }
         }
-
-
         //fprintf(stdout, ", \"subtype\": \"%s\"", "IMET54");
         if (gpx->jsn_freq > 0) {
             fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
