@@ -35,6 +35,7 @@ typedef struct {
     i8_t aut;
     i8_t col;  // colors
     i8_t jsn;  // JSON output (auto_rx)
+    i8_t slt;  // silent (only raw/json)
 } option_t;
 
 
@@ -870,6 +871,8 @@ static int print_pos(gpx_t *gpx, int csOK) {
         get_SN(gpx);
 
 
+        if ( !gpx->option.slt )
+        {
         if (gpx->option.col) {
             fprintf(stdout, col_TXT);
             if (gpx->type == t_M10)
@@ -946,6 +949,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
             }
         }
         fprintf(stdout, "\n");
+        }
 
 
         if (gpx->option.jsn) {
@@ -1092,7 +1096,9 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
             }
             fprintf(stdout, "\n");
         }
-
+        if (gpx->option.slt /*&& gpx->option.jsn*/) {
+            print_pos(gpx, cs1 == cs2);
+        }
     }
     else if (gpx->frame_bytes[1] == 0x49) {
         if (gpx->option.vbs == 3) {
@@ -1113,12 +1119,7 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
 
 int main(int argc, char **argv) {
 
-    int option_verbose = 0;  // ausfuehrliche Anzeige
-    int option_raw = 0;      // rohe Frames
-    int option_inv = 0;      // invertiert Signal
     //int option_res = 0;      // genauere Bitmessung
-    int option_color = 0;
-    int option_ptu = 0;
     int option_min = 0;
     int option_iq = 0;
     int option_iqdc = 0;
@@ -1181,22 +1182,22 @@ int main(int argc, char **argv) {
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
-            option_verbose = 1;
+            gpx.option.vbs = 1;
         }
-        else if ( (strcmp(*argv, "-vv" ) == 0) ) option_verbose = 2;
-        else if ( (strcmp(*argv, "-vvv") == 0) ) option_verbose = 3;
+        else if ( (strcmp(*argv, "-vv" ) == 0) ) gpx.option.vbs = 2;
+        else if ( (strcmp(*argv, "-vvv") == 0) ) gpx.option.vbs = 3;
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
-            option_raw = 1;
+            gpx.option.raw = 1;
         }
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
-            option_inv = 1;  // nicht noetig
+            gpx.option.inv = 1;  // nicht noetig
         }
         else if ( (strcmp(*argv, "-c") == 0) || (strcmp(*argv, "--color") == 0) ) {
-            option_color = 1;
+            gpx.option.col = 1;
         }
         //else if   (strcmp(*argv, "--res") == 0) { option_res = 1; }
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
-            option_ptu = 1;
+            gpx.option.ptu = 1;
         }
         else if ( (strcmp(*argv, "--spike") == 0) ) {
             spike = 1;
@@ -1204,6 +1205,7 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--chk3") == 0) { option_chk = 3; }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--softin") == 0) { option_softin = 1; }  // float32 soft input
+        else if   (strcmp(*argv, "--silent") == 0) { gpx.option.slt = 1; }
         else if   (strcmp(*argv, "--ths") == 0) {
             ++argv;
             if (*argv) {
@@ -1278,11 +1280,7 @@ int main(int argc, char **argv) {
 
 
     // init gpx
-    gpx.option.inv = option_inv; // irrelevant
-    gpx.option.vbs = option_verbose;
-    gpx.option.raw = option_raw;
-    gpx.option.ptu = option_ptu;
-    gpx.option.col = option_color;
+    if (gpx.option.raw && gpx.option.jsn) gpx.option.slt = 1;
 
     if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 

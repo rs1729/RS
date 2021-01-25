@@ -1,6 +1,7 @@
 
 CC = gcc
-COPTS = -O3
+COPTS = -DCYGWIN -O3
+#COPTS = -O3
 
 .PHONY: all
 all: rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod
