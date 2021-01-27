@@ -179,9 +179,17 @@ static int check(ui8_t code[8]) {
     return ret;
 }
 
+//static ui8_t R[4][8] =
+//                       {{ 0, 0, 1, 0, 0, 0, 0, 0},
+//                        { 0, 0, 0, 0, 1, 0, 0, 0},
+//                        { 0, 0, 0, 0, 0, 1, 0, 0},
+//                        { 0, 0, 0, 0, 0, 0, 1, 0}};
+// RG=E
+
 static ui8_t ham_lut[16] = { 0x00, 0x87, 0x99, 0x1E, 0xAA, 0x2D, 0x33, 0xB4,
                              0x4B, 0xCC, 0xD2, 0x55, 0xE1, 0x66, 0x78, 0xFF };
-
+// c=(c0,...,c7) <-> m=(m0,..,m3) ; c=Gm, m=Rc
+// m0=c2, m1=c4, m2=c5, m3=c6
 static ui8_t hamming(int opt_ecc, ui8_t *cwb, ui8_t *sym) {
     int j;
     int ecc = 0;
