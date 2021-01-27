@@ -322,9 +322,14 @@ static int get_PTU(gpx_t *gpx) {
     else gpx->Trh = -273.15f;
 
     // (Hyland and Wexler)
-    rh = gpx->_RH * vaporSatP(gpx->Trh)/vaporSatP(gpx->T);
-    if (rh < 0.0f) rh = 0.0;
-    if (rh > 100.0f) rh = 100.0;
+    if (gpx->T > -273.0f && gpx->Trh > -273.0f) {
+        rh = gpx->_RH * vaporSatP(gpx->Trh)/vaporSatP(gpx->T);
+        if (rh < 0.0f) rh = 0.0;
+        if (rh > 100.0f) rh = 100.0;
+    }
+    else { // if Trh unusable, sensor damaged?
+        // rh = gpx->_RH;
+    }
     gpx->RH = rh;
 
     return 0;
@@ -363,16 +368,17 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
 
         if (gpx->option.ptu && prnPTU) {
             fprintf(stdout, " ");
-            if (gpx->T > -273.0)   fprintf(stdout, " T=%.1fC ", gpx->T);
-            if (gpx->_RH > -0.5)   fprintf(stdout, " _RH=%.0f%% ", gpx->_RH);
-            if (gpx->Trh > -273.0) fprintf(stdout, " _Trh=%.1fC ", gpx->Trh);
-
+            if (gpx->T > -273.0)  fprintf(stdout, " T=%.1fC ", gpx->T);
+            if (gpx->option.vbs) {
+                if (gpx->_RH > -0.5)   fprintf(stdout, " _RH=%.0f%% ", gpx->_RH);
+                if (gpx->Trh > -273.0) fprintf(stdout, " _Trh=%.1fC ", gpx->Trh);
+            }
             if (gpx->RH > -0.5)   fprintf(stdout, " RH=%.0f%% ", gpx->RH);
         }
 
         if (gpx->option.ecc && ecc_frm != 0) {
-            fprintf(stdout, " # (%d)", ecc_frm);
-            fprintf(stdout, " [%d]", ecc_gps);
+            fprintf(stdout, " #  (%d)", ecc_frm);
+            if (gpx->option.vbs) fprintf(stdout, " [%d]", ecc_gps);
         }
 
         fprintf(stdout, "\n");
