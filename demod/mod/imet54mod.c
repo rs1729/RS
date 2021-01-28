@@ -313,12 +313,14 @@ static int get_PTU(gpx_t *gpx) {
     float *f = (float*)&val;
     float rh = -1.0;
 
+    // air temperature
     val = i4be(gpx->frame + pos_PTU_T);
     if (*f > -120.0f && *f < 80.0f)  gpx->T = *f;
     else gpx->T = -273.15f;
 
     // raw RH?
     // water vapor saturation pressure (Hyland and Wexler)?
+    // (note: humidity sensor has significant time-lag at low temperatures)
     val = i4be(gpx->frame + pos_PTU_RH);
     if      (*f <   0.0f)  gpx->_RH =   0.0f;
     else if (*f > 100.0f)  gpx->_RH = 100.0f;
