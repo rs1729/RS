@@ -9,19 +9,18 @@ RS
   `RS/rs92`: RS92-SGP, RS92-AGP <br />
   `RS/rs41`: RS41-SG(P) <br />
   `RS/dropsonde`: RD94 <br />
-  `RS/m10`: M10 <br />
-  `RS/dfm`: DFM-06, DFM-09 <br />
-  `RS/imet`: iMet-1-AB, iMet-1-RS (iMet-4) <br />
+  `RS/m10`: M10, M20 <br />
+  `RS/dfm`: DFM-06, DFM-09, DFM-17 <br />
+  `RS/imet`: iMet-1-AB, iMet-1-RS (iMet-4), iMet-54 <br />
   `RS/c34`: C34, C50 <br />
   `RS/lms6`: LMS6 (403 MHz) <br />
   `RS/mk2a`: MkIIa (LMS6-1680MHz) <br />
-  `RS/meisei`: Meisei <br />
+  `RS/meisei`: Meisei (iMS-100, RS-11G) <br />
 
   `RS/demod/mod`: alternative decoders using cross-correlation for header-synchronization <br />
+  &nbsp;&nbsp;&nbsp;&nbsp; RS41, M10, M20, DFM-06/09/17, LMS6-403, Meisei (iMS-100, RS-11G), iMet-54, RS92-SGP
 
   `RS/ecc`: error correction codes (Reed-Solomon/BCH) <br />
-
-  `RS/rs_module`: separate Module, z.Z. RS92, RS41 (not up-to-date)<br />
 
 
   Die Decoder erwarten das FM-demodulierte wav-Audio des empfangenen Signals (kann auch mit 
@@ -61,5 +60,8 @@ wird DFT verwendet). Je nach Empfangsgeraet oder SDR-Software kann das Signal in
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2425#p203315  
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2825#p235868  
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2875#p245177  
+  https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=2950#p272805  
+  https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=3050#p336249  
+  https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=3100#p354503  
 
 
