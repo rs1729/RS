@@ -1,0 +1,29 @@
+
+iMet-54
+
+GFSK 4800 baud, 8N1
+
+preamble:
+(10x) 0x00 0xAA
+sync:
+0x24 0x24 0x24 0x24 0x42
+
+data: 27x64 bits, i.e. 27 raw blocks
+block:
+8 Hamming[8,4] codewords, interleaved 8x8 bits;
+8 codewords -> 8 msg-nibbles, i.e. 32 bits (4 bytes)
+
+
+
+SN         | GPS_time   | GPS_lat    | GPS_lon    | GPS_alt    |                         | f32 T      | f32 _RH    | f32 Trh    |      | status?
+03 48 37 BA  06 C4 25 B0  FE 7A 2B F6  01 AD 29 71  00 00 66 A1  00 00 00 00  00 00 00 00  41 6E 81 4E  42 8B 74 18  41 78 83 80  62 10  00 3E  ...
+03 48 37 BA  06 C4 29 98  FE 7A 2B DE  01 AD 29 5F  00 00 66 F4  00 00 00 00  00 00 00 00  41 6D 12 72  42 8B 60 EB  41 77 63 60  61 10  00 3E  ...
+03 48 37 BA  06 C4 2D 80  FE 7A 2B CA  01 AD 29 40  00 00 67 49  00 00 00 00  00 00 00 00  41 6B FC 5C  42 8B 2E 85  41 76 35 80  BE 11  00 3E  ...
+03 48 37 BA  06 C4 31 68  FE 7A 2B C3  01 AD 29 20  00 00 67 A2  00 00 00 00  00 00 00 00  41 6A E3 3B  42 8A E1 61  41 75 25 60  14 10  00 3E  ...
+
+ (55064506)  11:35:18.000  lat: -25.91298  lon: 28.20926  alt: 2627.3   T=14.9C  RH=73%
+ (55064506)  11:35:19.000  lat: -25.91302  lon: 28.20922  alt: 2635.6   T=14.8C  RH=73%
+ (55064506)  11:35:20.000  lat: -25.91305  lon: 28.20917  alt: 2644.1   T=14.7C  RH=73%
+ (55064506)  11:35:21.000  lat: -25.91306  lon: 28.20912  alt: 2653.0   T=14.7C  RH=72%
+
+
