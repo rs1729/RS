@@ -3,8 +3,8 @@
 
 /*
     compile options
-        (a) -DVERSION_JSN            (set global)
-        (b) -DVER_JSN_STR=\"0.0.2\"  (set local)
+        (a) -DVERSION_JSN  [-I<inc_dir>]  (set global)
+        (b) -DVER_JSN_STR=\"0.0.2\"       (set local)
 */
 
 // e.g. global option (a)

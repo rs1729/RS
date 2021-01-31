@@ -11,6 +11,17 @@
 #include <complex.h>
 #include <math.h>
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
+
+
 typedef  unsigned char  ui8_t;
 
 static int  option_verbose = 0,
@@ -325,6 +336,7 @@ static void printGPX() {
 
 static void printJSON() {
     // UTC or GPS time ?
+    char *ver_jsn = NULL;
     char json_sonde_id[] = "C50-xxxx\0\0\0\0\0\0\0";
     if (gpx.sn) {
         sprintf(json_sonde_id, "C50-%u", gpx.sn);
@@ -340,6 +352,10 @@ static void printJSON() {
     if (gpx.jsn_freq > 0) {
         printf(", \"freq\": %d", gpx.jsn_freq);
     }
+    #ifdef VER_JSN_STR
+        ver_jsn = VER_JSN_STR;
+    #endif
+    if (ver_jsn && *ver_jsn != '\0') printf(", \"version\": \"%s\"", ver_jsn);
     printf(" }\n");
     //printf("\n");
 }

@@ -10,6 +10,17 @@
 #include <complex.h>
 #include <math.h>
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
+
+
 typedef  unsigned char  ui8_t;
 
 int option_verbose = 0,  // ausfuehrliche Anzeige
@@ -429,15 +440,19 @@ int print_frame(int len) {
             if (option_json) {
                 if (gpx.gps_valid && gpx.ptu_valid) // frameNb part of PTU-pck
                 {
+                    char *ver_jsn = NULL;
                     fprintf(stdout, "{ \"type\": \"%s\"", "IMET");
                     fprintf(stdout, ", \"frame\": %d, \"id\": \"iMet\", \"datetime\": \"%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %d, \"sats\": %d, \"temp\": %.2f, \"humidity\": %.2f, \"pressure\": %.2f, \"batt\": %.1f",
                             gpx.frame, gpx.hour, gpx.min, gpx.sec, gpx.lat, gpx.lon, gpx.alt, gpx.sats, gpx.temp, gpx.humidity, gpx.pressure, gpx.batt);
+                    if (gpx.jsn_freq > 0) {
+                        fprintf(stdout, ", \"freq\": %d", gpx.jsn_freq);
+                    }
+                    #ifdef VER_JSN_STR
+                        ver_jsn = VER_JSN_STR;
+                    #endif
+                    if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
+                    fprintf(stdout, " }\n");
                 }
-                if (gpx.jsn_freq > 0) {
-                    fprintf(stdout, ", \"freq\": %d", gpx.jsn_freq);
-                }
-                fprintf(stdout, " }\n");
-
             }
 
             if (out) fprintf(stdout, "\n");

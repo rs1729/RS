@@ -20,9 +20,15 @@
   #include <io.h>
 #endif
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
 #ifdef VERSION_JSN
   #include "version_jsn.h"
 #endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
 
 
 //typedef unsigned char  ui8_t;
@@ -456,8 +462,8 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
         }
         #ifdef VER_JSN_STR
             ver_jsn = VER_JSN_STR;
-            if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
         #endif
+        if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
         fprintf(stdout, " }\n");
         fprintf(stdout, "\n");
     }

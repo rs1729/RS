@@ -102,6 +102,17 @@ e.g. -b --br 2398
   #include <io.h>
 #endif
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
+
+
 //typedef unsigned char  ui8_t;
 //typedef unsigned short ui16_t;
 //typedef unsigned int   ui32_t;
@@ -911,6 +922,7 @@ int main(int argc, char **argv) {
                                 printf("\n");
 
                                 if (option_jsn && err_frm==0 && gps_err==0) {
+                                    char *ver_jsn = NULL;
                                     char id_str[] = "xxxxxx\0\0\0\0\0\0";
                                     if (gpx.sn > 0 && gpx.sn < 1e9) {
                                         sprintf(id_str, "%.0f", gpx.sn);
@@ -922,6 +934,10 @@ int main(int argc, char **argv) {
                                     if (gpx.jsn_freq > 0) { // not gpx.fq, because gpx.sn not in every frame
                                         printf(", \"freq\": %d", gpx.jsn_freq);
                                     }
+                                    #ifdef VER_JSN_STR
+                                        ver_jsn = VER_JSN_STR;
+                                    #endif
+                                    if (ver_jsn && *ver_jsn != '\0') printf(", \"version\": \"%s\"", ver_jsn);
                                     printf(" }\n");
                                     printf("\n");
                                 }

@@ -9,6 +9,16 @@
 #include <string.h>
 #include <math.h>
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
+
 
 typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
@@ -639,6 +649,7 @@ void print_frame(int len) {
                 if (crc_err==0 && (gpx.id & 0xFFFF0000)) { // CRC-OK and FullID
                     if (gpx.prev_frnr != gpx.frnr) { //|| gpx.id != _id0
                         // UTC oder GPS?
+                        char *ver_jsn = NULL;
                         printf("{ \"type\": \"%s\"", "LMS");
                         printf(", \"frame\": %d, \"id\": \"LMS6-%d\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                                gpx.frnr, gpx.id, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vV );
@@ -646,6 +657,10 @@ void print_frame(int len) {
                         if (gpx.jsn_freq > 0) {
                             printf(", \"freq\": %d", gpx.jsn_freq);
                         }
+                        #ifdef VER_JSN_STR
+                            ver_jsn = VER_JSN_STR;
+                        #endif
+                        if (ver_jsn && *ver_jsn != '\0') printf(", \"version\": \"%s\"", ver_jsn);
                         printf(" }\n");
                         printf("\n");
                         gpx.prev_frnr = gpx.frnr;
