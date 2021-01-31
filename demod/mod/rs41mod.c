@@ -25,6 +25,17 @@
   #include <io.h>
 #endif
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
+
+
 //typedef unsigned char  ui8_t;
 //typedef unsigned short ui16_t;
 //typedef unsigned int   ui32_t;
@@ -1801,6 +1812,7 @@ static int print_position(gpx_t *gpx, int ec) {
                     // Print out telemetry data as JSON
                     if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                         // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
+                        char *ver_jsn = NULL;
                         fprintf(stdout, "{ \"type\": \"%s\"", "RS41");
                         fprintf(stdout, ", \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"bt\": %d, \"batt\": %.2f",
                                        gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV, gpx->conf_cd, gpx->batt );
@@ -1833,6 +1845,10 @@ static int print_position(gpx_t *gpx, int ec) {
                             if (gpx->freq > 0) fq_kHz = gpx->freq;
                             fprintf(stdout, ", \"freq\": %d", fq_kHz);
                         }
+                        #ifdef VER_JSN_STR
+                            ver_jsn = VER_JSN_STR;
+                        #endif
+                        if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
                         fprintf(stdout, " }\n");
                         fprintf(stdout, "\n");
                     }
