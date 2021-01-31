@@ -20,6 +20,11 @@
   #include <io.h>
 #endif
 
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+
+
 //typedef unsigned char  ui8_t;
 //typedef unsigned short ui16_t;
 //typedef unsigned int   ui32_t;
@@ -431,6 +436,7 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
 
     // prnGPS,prnTPU
     if (gpx->option.jsn && frm_ok && (gpx->status&0x30)==0x30) {
+        char *ver_jsn = NULL;
         unsigned long count_day = (unsigned long)(gpx->std*3600 + gpx->min*60 + gpx->sek+0.5);  // (gpx->timems/1e3+0.5) has gaps
         fprintf(stdout, "{ \"type\": \"%s\"", "IMET5");
         fprintf(stdout, ", \"frame\": %lu", count_day);
@@ -448,6 +454,10 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
         if (gpx->jsn_freq > 0) {
             fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
         }
+        #ifdef VER_JSN_STR
+            ver_jsn = VER_JSN_STR;
+            if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
+        #endif
         fprintf(stdout, " }\n");
         fprintf(stdout, "\n");
     }
