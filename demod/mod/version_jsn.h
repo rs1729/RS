@@ -1,8 +1,14 @@
 #ifndef VERSION_JSN_H
 #define VERSION_JSN_H
 
-// e.g.
-// #define VER_JSN_STR "0.0.1alpha1"
+/*
+    compile options
+        (a) -DVERSION_JSN            (set global)
+        (b) -DVER_JSN_STR=\"0.0.2\"  (set local)
+*/
+
+// e.g. global option (a)
+// #define VER_JSN_STR "0.0.1"
 
 #define VER_JSN_STR ""
 
