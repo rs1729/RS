@@ -123,11 +123,7 @@ static int deinter64(ui8_t *in, ui8_t *out, int len) {
     while (n+64 <= len)
     {
         for (i = 0; i < 8; i++) {
-            for (j = 0; j < 8; j++) bits64[i][j] = in[n + 8*i+j];
-        }
-        for (i = 0; i < 8; i++) {
-            //for (j = 0; j < 8; j++) out[n + 8*i+j] = bits64[j][7-i];
-            for (j = 0; j < 8; j++) out[n + 8*i+j] = bits64[j][i];
+            for (j = 0; j < 8; j++) out[n + 8*j+i] = in[n + 8*i+j];
         }
         n += 64;
     }
@@ -487,8 +483,6 @@ static void print_frame(gpx_t *gpx, int len, int b2B) {
 
         memset(bits8n1, 0, BITFRAME_LEN+10);
         memset(bits, 0, BITFRAME_LEN);
-        memset(bits, 0, BITFRAME_LEN);
-
 
         de8n1(gpx->frame_bits, bits8n1, len);
         len = (8*len)/10;
