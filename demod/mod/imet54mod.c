@@ -344,8 +344,8 @@ static int get_PTU(gpx_t *gpx) {
     // (Hyland and Wexler)
     if (gpx->T > -273.0f && gpx->Trh > -273.0f) {
         rh = gpx->_RH * vaporSatP(gpx->Trh)/vaporSatP(gpx->T);
-        if (rh < 0.0f) rh = 0.0;
-        if (rh > 100.0f) rh = 100.0;
+        if (rh < 0.0f) rh = 0.0f;
+        if (rh > 100.0f) rh = 100.0f;
     }
     else { // if Trh unusable, sensor damaged?
         // rh = gpx->_RH;
