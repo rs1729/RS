@@ -27,6 +27,16 @@
   #include <io.h>
 #endif
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
+
 
 #include "demod_mod.h"
 
@@ -633,6 +643,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
         if (gpx->option.jsn) {
             // Print out telemetry data as JSON
             if (csOK) {
+                char *ver_jsn = NULL;
                 int j;
                 char sn_id[4+12] = "M20-";
                 double sec_gps0 = (double)gpx->week*SECONDS_IN_WEEK + gpx->tow_ms/1e3;
@@ -650,6 +661,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 if (gpx->jsn_freq > 0) {
                     fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
                 }
+                #ifdef VER_JSN_STR
+                    ver_jsn = VER_JSN_STR;
+                #endif
+                if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
                 fprintf(stdout, " }\n");
                 fprintf(stdout, "\n");
             }
