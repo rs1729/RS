@@ -92,6 +92,9 @@ static char rawheader[] = "10011001100110010100110010011001";
 #define t_M20      0x20
 
 typedef struct {
+    ui32_t gps_cnt;
+    ui8_t cnt;
+    ui8_t _diffcnt;
     int week; int tow_ms; int gpssec;
     int jahr; int monat; int tag;
     int wday;
@@ -101,7 +104,7 @@ typedef struct {
     double vx; double vy; double vD2;
     ui8_t numSV;
     ui8_t utc_ofs;
-    char SN[12];
+    char SN[12+4];
     ui8_t SNraw[3];
     ui8_t frame_bytes[FRAME_LEN+AUX_LEN+4];
     char frame_bits[BITFRAME_LEN+BITAUX_LEN+8];
@@ -281,11 +284,12 @@ static int get_GPSweek(gpx_t *gpx) {
 static char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 static int get_GPStime(gpx_t *gpx) {
-    int i;
+    int i, ret = 0;
     unsigned byte;
     ui8_t gpstime_bytes[4];
     int gpstime, day;
     int ms;
+    double sec_gps0 = 0.0;
 
     for (i = 0; i < 3; i++) {
         byte = gpx->frame_bytes[pos_GPSTOW + i];
@@ -311,6 +315,15 @@ static int get_GPStime(gpx_t *gpx) {
     gpx->std =  gpstime/3600;
     gpx->min = (gpstime%3600)/60;
     gpx->sek =  gpstime%60 + ms/1000.0;
+
+
+    ret = get_GPSweek(gpx);
+    if (ret) return ret;
+
+    sec_gps0 = (double)gpx->week*SECONDS_IN_WEEK + gpx->tow_ms/1e3;
+    gpx->gps_cnt = (ui32_t)(sec_gps0+0.5);
+    gpx->cnt = gpx->frame_bytes[pos_CNT];
+    gpx->_diffcnt = (ui8_t)(gpx->gps_cnt - gpx->cnt);
 
     return 0;
 }
@@ -435,17 +448,28 @@ static int get_SN(gpx_t *gpx) {
     ui8_t ym = b0 & 0x7F;  // #{0x0,..,0x77}=120=10*12
     ui8_t y = ym / 12;
     ui8_t m = (ym % 12)+1; // there is b0=0x69<0x80 from 2018-09-19 ...
+    ui32_t sn_val = 0;
 
-    for (i = 0; i < 11; i++) gpx->SN[i] = ' '; gpx->SN[11] = '\0';
+    for (i =  0; i < 11; i++) gpx->SN[i] = ' ';  gpx->SN[11] = '\0';
+    for (i = 12; i < 15; i++) gpx->SN[i] = '\0'; gpx->SN[15] = '\0';
 
     for (i = 0; i < 3; i++) {
         gpx->SNraw[i] = gpx->frame_bytes[pos_SN + i];
     }
+    sn_val = (gpx->SNraw[0]<<16) | (gpx->SNraw[1]<<8) | gpx->SNraw[2];
 
     sprintf(gpx->SN, "%u%02u", y, m);           // more samples needed
-    sprintf(gpx->SN+3, " %u ", (s2&0x3)+2);     // (b0>>7)+1? (s2&0x3)+2?
+    sprintf(gpx->SN+3, "-%u-", (s2&0x3)+2);     // (b0>>7)+1? (s2&0x3)+2?
     sprintf(gpx->SN+6, "%u", (s2>>(2+13))&0x1); // ?(s2>>(2+13))&0x1 ?? (s2&0x3)?
     sprintf(gpx->SN+7, "%04u", (s2>>2)&0x1FFF);
+
+
+    if (sn_val == 0)
+    {   // get_GPStime(gpx);
+        // replace SN: 001-2-00000 -> 000-0-00000-[_diffcnt]
+        sprintf(gpx->SN, "%s", "000-0-00000");
+        sprintf(gpx->SN+11, "-%03u", gpx->_diffcnt & 0xFF);
+    }
 
     return 0;
 }
@@ -559,8 +583,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
     if (1 || gpx->type == t_M20)
     {
         err = 0;
-        err |= get_GPSweek(gpx);
-        err |= get_GPStime(gpx);
+        err |= get_GPStime(gpx); // incl. get_GPSweek(gpx)
         err |= get_GPSlat(gpx);
         err |= get_GPSlon(gpx);
         err |= get_GPSalt(gpx);
@@ -647,15 +670,13 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
             if (csOK) {
                 char *ver_jsn = NULL;
                 int j;
-                char sn_id[4+12] = "M20-";
-                double sec_gps0 = (double)gpx->week*SECONDS_IN_WEEK + gpx->tow_ms/1e3;
+                char sn_id[4+12+4] = "M20-";
 
-                strncpy(sn_id+4, gpx->SN, 12);
-                sn_id[15] = '\0';
-                for (j = 0; sn_id[j]; j++) { if (sn_id[j] == ' ') sn_id[j] = '-'; }
+                strncpy(sn_id+4, gpx->SN, 12+4);
+                sn_id[15+4] = '\0';
 
                 fprintf(stdout, "{ \"type\": \"%s\"", "M20");
-                fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)(sec_gps0+0.5));
+                fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
                 fprintf(stdout, "\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                                sn_id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV);
                 fprintf(stdout, ", \"rawid\": \"M20_%02X%02X%02X\"", gpx->frame_bytes[pos_SN], gpx->frame_bytes[pos_SN+1], gpx->frame_bytes[pos_SN+2]); // gpx->type
