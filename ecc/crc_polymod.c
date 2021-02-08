@@ -8,7 +8,7 @@
 // CRC16
 // Generatorpolynom x^16+x^12+x^5+1 = (1) 0001 0000 0010 0001 = 0x(1)1021
 #define CRC 16
-#define CODELEN_CRC (2*0xDF)
+#define CODELEN_CRC 1024 //(2*0xDF)
 unsigned char msg[CODELEN_CRC],
               par[8];
 char bitstr[CODELEN_CRC*8+1+32*8];
@@ -83,7 +83,7 @@ int polymodcheck(char *x) {
 }
 
 unsigned int crc16(unsigned char bytes[], int len) {
-    unsigned int rem = crc16init; // init value 
+    unsigned int rem = crc16init; // init value
     int i, j;
     for (i = 0; i < len; i++) {
         rem = rem ^ (bytes[i] << 8);
@@ -120,7 +120,7 @@ int main(int argc, char *argv[]) {
     if (option == CRC) {
 
         msglen = strlen(str)/2;
-        if (msglen > 2*CODELEN_CRC) {
+        if (msglen > CODELEN_CRC) {
             fprintf(stderr, "len > %d\n", CODELEN_CRC);
             return -3;
         }
