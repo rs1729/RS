@@ -358,7 +358,7 @@ static int get_SondeID(gpx_t *gpx) {
             gpx->calfrms = 0;
             for (i = 0; i < 32; i++) gpx->calfrms += (gpx->calfrchk[i]>0);
         }
-        if (gpx->calfrms == 32) {
+        if (gpx->calfrms == 32 && !gpx->option.ngp) {
             for (int j = 0; j < 66; j++) {
                 ui8_t idx = gpx->calibytes[0x40+5*j];
                 ui8_t *dat = gpx->calibytes+(0x40+5*j+1);
@@ -1417,6 +1417,8 @@ int main(int argc, char *argv[]) {
     float thres = 0.7;
     float _mv = 0.0;
 
+    float set_lpIQbw = -1.0f;
+
     int symlen = 2;
     int bitofs = 2; // +0 .. +3
     int shift = 0;
@@ -1587,6 +1589,14 @@ int main(int argc, char *argv[]) {
             option_iq = 5;
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
+        else if   (strcmp(*argv, "--lpbw") == 0) {  // IQ lowpass BW / kHz
+            float bw = 0.0;
+            ++argv;
+            if (*argv) bw = atof(*argv);
+            else return -1;
+            if (bw > 4.6f && bw < 48.0f) set_lpIQbw = bw*1e3f;
+            option_lp = 1;
+        }
         else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
         else if   (strcmp(*argv, "--min") == 0) {
             option_min = 1;
@@ -1651,6 +1661,8 @@ int main(int argc, char *argv[]) {
     if (gpx.option.ecc) {
         rs_init_RS255(&gpx.RS);
     }
+
+    if (gpx.option.ngp) gpx.option.ptu = 0;
 
     // init gpx
     memcpy(gpx.frame, rs92_header_bytes, sizeof(rs92_header_bytes)); // 6 header bytes
@@ -1721,6 +1733,7 @@ int main(int argc, char *argv[]) {
                 dsp.h = 3.8;        // RS92-NGP: 1680/400=4.2, 4.2*0.9=3.8=4.75*0.8
                 dsp.lpIQ_bw = 32e3; // IF lowpass bandwidth // 32e3=4.2*7.6e3
             }
+            if (set_lpIQbw > 0.0f) dsp.lpIQ_bw = set_lpIQbw;
 
             if ( dsp.sps < 8 ) {
                 fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
