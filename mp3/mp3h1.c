@@ -1,6 +1,12 @@
 
 /*
  *  unknown (26702) 2021-02-19
+ *  radiosonde MP3-H1
+ *  compile:
+ *          gcc mp3h1.c -lm -o mp3h1
+ *  usage:
+ *          ./mp3h1 [-b2] fm_audio.wav
+ *          (inverse polarity: -i)
  *
  */
 
