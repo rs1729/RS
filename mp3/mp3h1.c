@@ -1,7 +1,9 @@
 
 /*
- *  unknown (26702) 2021-02-19
+ *  (unknown (26702) 2021-02-19)
  *  radiosonde MP3-H1
+ *  author: zilog80
+ *
  *  compile:
  *          gcc mp3h1.c -lm -o mp3h1
  *  usage:
@@ -29,8 +31,7 @@ typedef short i16_t;
 typedef int i32_t;
 
 
-
-#define BITFRAME_LEN    ((40+816)/2)
+#define BITFRAME_LEN    ((51*16)/2)  // 52..53: AA AA (1..5) or 00 00 (6)
 #define RAWBITFRAME_LEN (BITFRAME_LEN*2)
 #define FRAMESTART      (HEADOFS+HEADLEN)
 
@@ -55,6 +56,14 @@ static int bits_ofs = 8;
 //Preamble
 //header[] = "10011001100110011001""10101010"; // 28, ofs=0
 static char header[] = "100110011001100110011001100110011001""10101010";
+
+// each frame 6x
+// AA BF 35 ........ AA AA
+// AA BF 35 ........ AA AA
+// AA BF 35 ........ AA AA
+// AA BF 35 ........ AA AA
+// AA BF 35 ........ AA AA
+// AA BF 35 ........ 00 00
 
 static char buf[HEADLEN+1] = "xxxxxxxxxx\0";
 static int bufpos = -1;
@@ -706,11 +715,13 @@ int main(int argc, char **argv) {
         if (len == 0) { // reset_frame();
             if (pos > RAWBITFRAME_LEN-10) {
                 print_frame(&gpx, pos);
-                header_found = 0;
-                pos = FRAMESTART;
+                //header_found = 0;
+                //pos = FRAMESTART;
             }
-            //inc_bufpos();
-            //buf[bufpos] = 'x';
+            header_found = 0;
+            pos = FRAMESTART;
+            inc_bufpos();
+            buf[bufpos] = 'x';
             continue;   // ...
         }
 
@@ -722,7 +733,6 @@ int main(int argc, char **argv) {
             if (!header_found) {
                 header_found = compare2();
                 if (header_found < 0) option_inv ^= 0x1;
-
             }
             else {
                 frame_rawbits[pos] = 0x30 + bit;  // Ascii
