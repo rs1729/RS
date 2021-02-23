@@ -456,7 +456,6 @@ static i16_t i2(ui8_t *bytes) { // 16bit signed int
     return val;
 }
 
-
 // -----------------------------------------------------------------------------
 
 #define OFS 0
@@ -466,6 +465,41 @@ static i16_t i2(ui8_t *bytes) { // 16bit signed int
 #define pos_GPSecefY    (OFS+12)  //   4 byte
 #define pos_GPSecefZ    (OFS+16)  //   4 byte
 #define pos_GPSecefV    (OFS+20)  // 3*2 byte
+#define pos_CRC         (OFS+48)  //   2 byte
+
+// -----------------------------------------------------------------------------
+
+static int crc16rev(gpx_t *gpx, int start, int len) {
+    int crc16poly = 0xA001; // rev 0x8005
+    int rem = 0xFFFF, i, j;
+    int byte;
+
+    if (start+len+2 > FRAME_LEN) return -1;
+
+    for (i = 0; i < len; i++) {
+        byte = gpx->frame[start+i];
+        rem ^= byte;
+        for (j = 0; j < 8; j++) {
+            if (rem & 0x0001) {
+                rem = (rem >> 1) ^ crc16poly;
+            }
+            else {
+                rem = (rem >> 1);
+            }
+            rem &= 0xFFFF;
+        }
+    }
+    return rem;
+}
+static int check_CRC(gpx_t *gpx) {
+    ui32_t crclen = 45;
+    ui32_t crcdat = 0;
+    crcdat = u2(gpx->frame+pos_CRC);
+    if ( crcdat != crc16rev(gpx, pos_CNT16, crclen) ) {
+        return 1;  // CRC NO
+    }
+    else return 0; // CRC OK
+}
 
 // -----------------------------------------------------------------------------
 // WGS84/GRS80 Ellipsoid
@@ -561,7 +595,7 @@ static int get_time(gpx_t *gpx) {
 // -----------------------------------------------------------------------------
 
 
-static void print_gpx(gpx_t *gpx) {
+static void print_gpx(gpx_t *gpx, int crcOK) {
     int i, j;
 
     //printf(" :%6.1f: ", sample_count/(double)sample_rate);
@@ -577,12 +611,14 @@ static void print_gpx(gpx_t *gpx) {
     printf(" alt: %.2f ", gpx->alt);
     printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
 
+    printf(" %s", crcOK ? "[OK]" : "[NO]");
 
     printf("\n");
 }
 
 static void print_frame(gpx_t *gpx, int pos) {
     int j;
+    int crcOK = 0;
 
     static int frame_count = 0;
 
@@ -608,17 +644,22 @@ static void print_frame(gpx_t *gpx, int pos) {
         int frmlen = (pos-bits_ofs)/8;
         bits2bytes(frame_bits+bits_ofs, gpx->frame, frmlen);
 
+        crcOK = (check_CRC(gpx) == 0);
+
         if (option_raw == 1) {
+            //printf(" :%6.1f: ", sample_count/(double)sample_rate);
+            //
             for (j = 0; j < frmlen; j++) {
                 printf("%02X ", gpx->frame[j]);
             }
+            printf(" %s", crcOK ? "[OK]" : "[NO]");
             printf("\n");
         }
         else {
 
             //if (frame_count % 3 == 0)
             {
-                if (pos/8 > pos_GPSecefV+6) print_gpx(gpx);
+                if (pos/8 > pos_GPSecefV+6) print_gpx(gpx, crcOK);
             }
         }
     }
