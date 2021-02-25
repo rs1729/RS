@@ -1,7 +1,7 @@
 
 /*
  *  (unknown (26702) 2021-02-19)
- *  radiosonde MP3-H1
+ *  radiosonde "MP3-H1" (WMO translit: "MRZ-N1")
  *  author: zilog80
  *
  *  compile:
@@ -795,9 +795,9 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
         if (gpx->week > 0 && gpx->gps_cnt > gpx->gps_cnt_prev && gpx->snC > 0 && gpx->snD > 0)
         {
             char *ver_jsn = NULL;
-            printf("{ \"type\": \"%s\"", "MP3");
+            printf("{ \"type\": \"%s\"", "MRZ");
             fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
-            printf("\"id\": \"MP3-%d-%d\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
+            printf("\"id\": \"MRZ-%d-%d\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
                     gpx->snC, gpx->snD, gpx->yr, gpx->mth, gpx->day, gpx->hrs, gpx->min, gpx->sec, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSats);
             if (gpx->jsn_freq > 0) {
                 printf(", \"freq\": %d", gpx->jsn_freq);
