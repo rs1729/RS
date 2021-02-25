@@ -7,7 +7,7 @@
  *  compile:
  *          gcc mp3h1.c -lm -o mp3h1
  *  usage:
- *          ./mp3h1 [-b2] fm_audio.wav
+ *          ./mp3h1 -v [-b2] fm_audio.wav
  *          (inverse polarity: -i)
  *
  */
@@ -89,6 +89,7 @@ static int option_verbose = 0,  // ausfuehrliche Anzeige
            option_b = 0,
            option_ecc = 0,
            option_ptu = 0,
+           option_dbg = 0,
            wavloaded = 0;
 static int wav_channel = 0;     // audio channel: left
 
@@ -704,8 +705,18 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
             }
             printf(")");
         }
-        printf(")");
 
+        if (option_dbg)
+        {
+            printf("    : ");
+            printf(" [0x%X:0x%02X]", gpx->subcnt1, gpx->subcnt2);
+            printf("  0x%08X =", gpx->cfg[gpx->subcnt1]);
+            if (gpx->subcnt1 > 0x8) printf(" %u ", gpx->cfg[gpx->subcnt1]); // 0x9,0xA not const
+            else {
+                float *f = (float*)(gpx->cfg+gpx->subcnt1);
+                printf(" %.4f ", *f);
+            }
+        }
     }
 
 
@@ -800,6 +811,7 @@ int main(int argc, char **argv) {
             }
             else return -1;
         }
+        else if ( (strcmp(*argv, "--dbg" ) == 0) ) { option_dbg = 1; }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
             option_verbose = 1;
         }
