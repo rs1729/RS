@@ -47,6 +47,9 @@ typedef struct {
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     ui8_t numSats;
+    float calA;
+    float calB;
+    float calC;
     ui8_t frame[FRAME_LEN+16];
     ui32_t cfg[16];
     ui32_t snC;
@@ -470,6 +473,10 @@ static i16_t i2(ui8_t *bytes) { // 16bit signed int
 
 // -----------------------------------------------------------------------------
 
+// AA BF 35 .... crc AA AA
+// "BF" header/subtype?
+// "35" frame length?
+
 #define OFS 0
 #define pos_CNT1        (OFS+ 3)  //   1 nibble (0x80..0x8F ?)
 #define pos_TIME        (OFS+ 4)  // 3*1 byte
@@ -621,21 +628,30 @@ static int get_cfg(gpx_t *gpx) {
         gpx->cfg[gpx->subcnt1] = cfg32;
 
         switch (gpx->subcnt1) { // or use subcnt2 ?
-            case 0xC: // SN GLONASS/GPS ?
-                    gpx->snC = cfg32; // 16 or 32 bit ?
+            case 0x0: //sub2=0x01:
+                        memcpy(&gpx->calA, &cfg32, 4);
                     break;
-            case 0xD: // SN sensor boom ?
-                    gpx->snD = cfg32; // 16 or 32 bit ?
+            case 0x1: //sub2=0x02:
+                        memcpy(&gpx->calB, &cfg32, 4);
                     break;
-            case 0xE: // calib date ?
+            case 0x2: //sub2=0x03:
+                        memcpy(&gpx->calC, &cfg32, 4);
                     break;
-            case 0xF: // date
-                    gpx->yr = cfg32 % 100;
-                    gpx->yr += 2000;
-                    cfg32 /= 100;
-                    gpx->mth = cfg32 % 100;
-                    cfg32 /= 100;
-                    gpx->day = cfg32 % 100;
+            case 0xC: //sub2=0x0D: SN GLONASS/GPS ?
+                        gpx->snC = cfg32; // 16 or 32 bit ?
+                    break;
+            case 0xD: //sub2=0x0E: SN sensor boom ?
+                        gpx->snD = cfg32; // 16 or 32 bit ?
+                    break;
+            case 0xE: //sub2=0x0F: calib date ?
+                    break;
+            case 0xF: //sub2=0x10: date
+                        gpx->yr = cfg32 % 100;
+                        gpx->yr += 2000;
+                        cfg32 /= 100;
+                        gpx->mth = cfg32 % 100;
+                        cfg32 /= 100;
+                        gpx->day = cfg32 % 100;
                     break;
             default:
                     break;
@@ -673,11 +689,21 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
 
     if (gpx->crcOK)
     {
-        printf("  (<%2d>", gpx->subcnt2);
-        // subcnt2 == subcnt1 + 1 ?
-        if (gpx->subcnt1 == 0xC) printf(" snC: %d", gpx->snC);
-        if (gpx->subcnt1 == 0xD) printf(" snD: %06d", gpx->snD);
-        if (gpx->subcnt1 == 0xF) printf(" %04d-%02d-%02d", gpx->yr, gpx->mth, gpx->day);
+        if (option_verbose)
+        {
+            printf("  (<%2d>", gpx->subcnt2);
+            // subcnt2 == subcnt1 + 1 ?
+            switch (gpx->subcnt1) {
+                case 0x0: printf(" calA: %.5f", gpx->calA); break;
+                case 0x1: printf(" calB: %.2f", gpx->calB); break;
+                case 0x2: printf(" calC: %.3f", gpx->calC); break;
+                case 0xC: printf(" snC: %d", gpx->snC); break;
+                case 0xD: printf(" snD: %d", gpx->snD); break;
+                case 0xE: printf(" calDate: %d", gpx->cfg[gpx->subcnt1]); break;
+                case 0xF: printf(" %04d-%02d-%02d", gpx->yr, gpx->mth, gpx->day); break;
+            }
+            printf(")");
+        }
         printf(")");
 
     }
