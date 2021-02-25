@@ -23,6 +23,16 @@
   #include <io.h>
 #endif
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
+
 
 typedef unsigned char ui8_t;
 typedef unsigned int ui32_t;
@@ -41,7 +51,7 @@ typedef struct {
     ui8_t subcnt1;
     ui8_t subcnt2;
     //int frnr;
-    //int week; int gpssec;
+    int week;
     int yr; int mth; int day;
     int hrs; int min; int sec;
     double lat; double lon; double alt;
@@ -55,6 +65,9 @@ typedef struct {
     ui32_t snC;
     ui32_t snD;
     ui8_t crcOK;
+    ui32_t gps_cnt_prev;
+    ui32_t gps_cnt;
+    int jsn_freq;   // freq/kHz (SDR)
 } gpx_t;
 
 
@@ -90,6 +103,8 @@ static int option_verbose = 0,  // ausfuehrliche Anzeige
            option_ecc = 0,
            option_ptu = 0,
            option_dbg = 0,
+           option_jsn = 0,
+           option_uniq = 0,
            wavloaded = 0;
 static int wav_channel = 0;     // audio channel: left
 
@@ -432,7 +447,28 @@ frame_end:
     return bytepos;
 }
 
-/* -------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------------------ */
+static int datetime2GPSweek(int yy, int mm, int dd,
+                            int hr, int min, int sec,
+                            int *week, int *tow) {
+    int ww = 0;
+    int tt = 0;
+    int gpsDays = 0;
+
+    if ( mm < 3 ) { yy -= 1; mm += 12; }
+
+    gpsDays = (int)(365.25*yy) + (int)(30.6001*(mm+1.0)) + dd - 723263; // 1980-01-06
+
+    ww = gpsDays / 7;
+    tt = gpsDays % 7;
+    tt = tt*86400 + hr*3600 + min*60 + sec;
+
+    *week = ww;
+    *tow  = tt;
+
+    return 0;
+}
+/* ------------------------------------------------------------------------------------ */
 
 static ui32_t u4(ui8_t *bytes) {  // 32bit unsigned int
     ui32_t val = 0; // le: p[0] | (p[1]<<8) | (p[2]<<16) | (p[3]<<24)
@@ -615,6 +651,31 @@ static int get_time(gpx_t *gpx) {
     gpx->hrs = gpx->frame[pos_TIME];
     gpx->min = gpx->frame[pos_TIME+1];
     gpx->sec = gpx->frame[pos_TIME+2];
+
+
+    if (gpx->crcOK)
+    {   // JSON frame counter: seconds since GPS (ignoring leap seconds)
+        int week = 0;
+        int tow = 0;
+        ui32_t sec_gps  = 0;
+
+        gpx->gps_cnt_prev = gpx->gps_cnt;
+
+        if (gpx->yr == 0) { // 1980-01-06
+            week = 0;
+            tow  = gpx->hrs*60*60 + gpx->min*60 + gpx->sec;
+        }
+        else {
+            datetime2GPSweek(gpx->yr, gpx->mth, gpx->day, gpx->hrs, gpx->min, (int)(gpx->sec+0.5), &week, &tow);
+        }
+        sec_gps = week*604800 + tow; // SECONDS_IN_WEEK=7*86400=604800
+        gpx->week = week;
+
+        if (sec_gps > gpx->gps_cnt_prev) { // skip day roll-over until date update
+            gpx->gps_cnt = sec_gps ;
+        }
+    }
+
     return 0;
 }
 
@@ -639,9 +700,11 @@ static int get_cfg(gpx_t *gpx) {
                         memcpy(&gpx->calC, &cfg32, 4);
                     break;
             case 0xC: //sub2=0x0D: SN GLONASS/GPS ?
+                        // if cfg32 != gpx->snC > 0: reset?
                         gpx->snC = cfg32; // 16 or 32 bit ?
                     break;
             case 0xD: //sub2=0x0E: SN sensor boom ?
+                        // if cfg32 != gpx->snD > 0: reset?
                         gpx->snD = cfg32; // 16 or 32 bit ?
                     break;
             case 0xE: //sub2=0x0F: calib date ?
@@ -671,56 +734,82 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
     //
 
     gpx->crcOK = crcOK;
+
     get_cfg(gpx);
-
-
-    printf(" [%2d] ", gpx->subcnt1);
-
     get_time(gpx);
-    printf(" (%02d:%02d:%02d) ", gpx->hrs, gpx->min, gpx->sec);
-
     get_GPSkoord(gpx);
-    printf(" lat: %.5f ", gpx->lat);
-    printf(" lon: %.5f ", gpx->lon);
-    printf(" alt: %.2f ", gpx->alt);
-    printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
-    printf("  sats: %d ", gpx->numSats);
 
-    printf("  %s", gpx->crcOK ? "[OK]" : "[NO]");
-
-    if (gpx->crcOK)
+    if (gpx->gps_cnt != gpx->gps_cnt_prev || !option_uniq)
     {
-        if (option_verbose)
+        printf(" [%2d] ", gpx->subcnt1);
+
+        printf(" (%02d:%02d:%02d) ", gpx->hrs, gpx->min, gpx->sec);
+
+        printf(" lat: %.5f ", gpx->lat);
+        printf(" lon: %.5f ", gpx->lon);
+        printf(" alt: %.2f ", gpx->alt);
+        printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
+        printf("  sats: %d ", gpx->numSats);
+
+        printf("  %s", gpx->crcOK ? "[OK]" : "[NO]");
+
+
+        if (gpx->crcOK)
         {
-            printf("  (<%2d>", gpx->subcnt2);
-            // subcnt2 == subcnt1 + 1 ?
-            switch (gpx->subcnt1) {
-                case 0x0: printf(" calA: %.5f", gpx->calA); break;
-                case 0x1: printf(" calB: %.2f", gpx->calB); break;
-                case 0x2: printf(" calC: %.3f", gpx->calC); break;
-                case 0xC: printf(" snC: %d", gpx->snC); break;
-                case 0xD: printf(" snD: %d", gpx->snD); break;
-                case 0xE: printf(" calDate: %d", gpx->cfg[gpx->subcnt1]); break;
-                case 0xF: printf(" %04d-%02d-%02d", gpx->yr, gpx->mth, gpx->day); break;
+            if (option_verbose)
+            {
+                printf("  (<%2d>", gpx->subcnt2);
+                // subcnt2 == subcnt1 + 1 ?
+                switch (gpx->subcnt1) {
+                    case 0x0: printf(" calA: %.5f", gpx->calA); break;
+                    case 0x1: printf(" calB: %.2f", gpx->calB); break;
+                    case 0x2: printf(" calC: %.3f", gpx->calC); break;
+                    case 0xC: printf(" snC: %d", gpx->snC); break;
+                    case 0xD: printf(" snD: %d", gpx->snD); break;
+                    case 0xE: printf(" calDate: %06d", gpx->cfg[gpx->subcnt1]); break;
+                    case 0xF: printf(" %04d-%02d-%02d", gpx->yr, gpx->mth, gpx->day); break;
+                    default:  break;
+                }
+                printf(")");
             }
-            printf(")");
+
+            if (option_dbg)
+            {
+                printf("    : ");
+                printf(" [0x%X:0x%02X]", gpx->subcnt1, gpx->subcnt2);
+                printf("  0x%08X =", gpx->cfg[gpx->subcnt1]);
+                if (gpx->subcnt1 > 0x8) printf(" %u ", gpx->cfg[gpx->subcnt1]); // 0x9,0xA not const
+                else {
+                    float *f = (float*)(gpx->cfg+gpx->subcnt1);
+                    printf(" %.4f ", *f);
+                }
+            }
         }
 
-        if (option_dbg)
-        {
-            printf("    : ");
-            printf(" [0x%X:0x%02X]", gpx->subcnt1, gpx->subcnt2);
-            printf("  0x%08X =", gpx->cfg[gpx->subcnt1]);
-            if (gpx->subcnt1 > 0x8) printf(" %u ", gpx->cfg[gpx->subcnt1]); // 0x9,0xA not const
-            else {
-                float *f = (float*)(gpx->cfg+gpx->subcnt1);
-                printf(" %.4f ", *f);
-            }
-        }
+        printf("\n");
     }
 
 
-    printf("\n");
+    if (option_jsn && gpx->crcOK) {
+        // sonde SN change remains undetected until next SN update
+        if (gpx->week > 0 && gpx->gps_cnt > gpx->gps_cnt_prev && gpx->snC > 0 && gpx->snD > 0)
+        {
+            char *ver_jsn = NULL;
+            printf("{ \"type\": \"%s\"", "MP3");
+            fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
+            printf("\"id\": \"MP3-%d-%d\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
+                    gpx->snC, gpx->snD, gpx->yr, gpx->mth, gpx->day, gpx->hrs, gpx->min, gpx->sec, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSats);
+            if (gpx->jsn_freq > 0) {
+                printf(", \"freq\": %d", gpx->jsn_freq);
+            }
+            #ifdef VER_JSN_STR
+                ver_jsn = VER_JSN_STR;
+            #endif
+            if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
+            printf(" }\n");
+        }
+    }
+
 }
 
 static void print_frame(gpx_t *gpx, int pos) {
@@ -783,6 +872,7 @@ int main(int argc, char **argv) {
     char *fpname;
     int pos, i, j, bit, len;
     int header_found = 0;
+    int cfreq = -1;
 
     gpx_t gpx = {0};
 
@@ -827,16 +917,26 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "--auto") == 0) ) {
             option_auto = 1;
         }
-        else if ( (strcmp(*argv, "--avg") == 0) ) {
-            option_avg = 1;
+        else if ( (strcmp(*argv, "--uniq") == 0) ) {
+            option_uniq = 1;
         }
-        else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
-        else if   (strcmp(*argv, "-b2") == 0) { option_b = 2; }
-        else if ( (strcmp(*argv, "--ecc" ) == 0) ) { option_ecc = 1; }
-        else if ( (strcmp(*argv, "--ptu") == 0) ) {
+        else if (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
+        else if (strcmp(*argv, "-b2") == 0) { option_b = 2; }
+        else if (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; }
+        else if (strcmp(*argv, "--ptu") == 0) {
             option_ptu = 1;
         }
-        else if   (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
+        else if (strcmp(*argv, "--ch2") == 0) { wav_channel = 1; }  // right channel (default: 0=left)
+        else if (strcmp(*argv, "--json") == 0) {
+            option_jsn = 1;
+        }
+        else if ( (strcmp(*argv, "--jsn_cfq") == 0) ) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
@@ -848,6 +948,9 @@ int main(int argc, char **argv) {
         ++argv;
     }
     if (!wavloaded) fp = stdin;
+
+    gpx.jsn_freq = 0;
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
     i = read_wav_header(fp);
     if (i) {
