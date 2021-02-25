@@ -38,13 +38,15 @@ typedef int i32_t;
 #define FRAME_LEN       (BITFRAME_LEN/8)
 
 typedef struct {
-    ui8_t subfrm;
+    ui8_t subcnt1;
+    ui8_t subcnt2;
     //int frnr;
     //int week; int gpssec;
     int yr; int mth; int day;
     int hrs; int min; int sec;
     double lat; double lon; double alt;
     double vH; double vD; double vV;
+    ui8_t numSats;
     ui8_t frame[FRAME_LEN+16];
     ui32_t cfg[16];
     ui32_t snC;
@@ -434,7 +436,7 @@ static ui32_t u4(ui8_t *bytes) {  // 32bit unsigned int
     return val;
 }
 
-static i32_t i4(ui8_t *bytes) {  // 32bit unsigned int
+static i32_t i4(ui8_t *bytes) {  // 32bit signed int
     i32_t val = 0; // le: p[0] | (p[1]<<8) | (p[2]<<16) | (p[3]<<24)
     memcpy(&val, bytes, 4);
     return val;
@@ -469,12 +471,14 @@ static i16_t i2(ui8_t *bytes) { // 16bit signed int
 // -----------------------------------------------------------------------------
 
 #define OFS 0
-#define pos_CNT16       (OFS+ 3)  //   1 nibble
+#define pos_CNT1        (OFS+ 3)  //   1 nibble (0x80..0x8F ?)
 #define pos_TIME        (OFS+ 4)  // 3*1 byte
 #define pos_GPSecefX    (OFS+ 8)  //   4 byte
 #define pos_GPSecefY    (OFS+12)  //   4 byte
 #define pos_GPSecefZ    (OFS+16)  //   4 byte
 #define pos_GPSecefV    (OFS+20)  // 3*2 byte
+#define pos_GPSnSats    (OFS+26)  //   1 byte (num Sats ?)
+#define pos_CNT2        (OFS+43)  //   1 byte   (0x01..0x10 ?)
 #define pos_CFG         (OFS+44)  // 2/4 byte
 #define pos_CRC         (OFS+48)  //   2 byte
 
@@ -506,7 +510,7 @@ static int check_CRC(gpx_t *gpx) {
     ui32_t crclen = 45;
     ui32_t crcdat = 0;
     crcdat = u2(gpx->frame+pos_CRC);
-    if ( crcdat != crc16rev(gpx, pos_CNT16, crclen) ) {
+    if ( crcdat != crc16rev(gpx, pos_CNT1, crclen) ) {
         return 1;  // CRC NO
     }
     else return 0; // CRC OK
@@ -592,6 +596,9 @@ static int get_GPSkoord(gpx_t *gpx) {
 
     gpx->vV = vU;
 
+    // num Sats solution ? GLONASS + GPS ?
+    gpx->numSats = gpx->frame[pos_GPSnSats];
+
     return 0;
 }
 
@@ -605,14 +612,15 @@ static int get_time(gpx_t *gpx) {
 
 static int get_cfg(gpx_t *gpx) {
 
-    gpx->subfrm = (gpx->frame[pos_CNT16] & 0xF);
+    gpx->subcnt1 = (gpx->frame[pos_CNT1] & 0xF);
+    gpx->subcnt2 =  gpx->frame[pos_CNT2] ; // ? subcnt2 == subcnt1 + 1 ?
 
     if (gpx->crcOK)
     {
         ui32_t cfg32 = u4(gpx->frame+pos_CFG);
-        gpx->cfg[gpx->subfrm] = cfg32;
+        gpx->cfg[gpx->subcnt1] = cfg32;
 
-        switch (gpx->subfrm) {
+        switch (gpx->subcnt1) { // or use subcnt2 ?
             case 0xC: // SN GLONASS/GPS ?
                     gpx->snC = cfg32; // 16 or 32 bit ?
                     break;
@@ -649,7 +657,8 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
     get_cfg(gpx);
 
 
-    printf(" [%2d] ", gpx->subfrm);
+    printf(" [%2d] ", gpx->subcnt1);
+
     get_time(gpx);
     printf(" (%02d:%02d:%02d) ", gpx->hrs, gpx->min, gpx->sec);
 
@@ -658,14 +667,18 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
     printf(" lon: %.5f ", gpx->lon);
     printf(" alt: %.2f ", gpx->alt);
     printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
+    printf("  sats: %d ", gpx->numSats);
 
-    printf(" %s", gpx->crcOK ? "[OK]" : "[NO]");
+    printf("  %s", gpx->crcOK ? "[OK]" : "[NO]");
 
     if (gpx->crcOK)
     {
-        if (gpx->subfrm == 0xC) printf("  (snC: %d)", gpx->snC);
-        if (gpx->subfrm == 0xD) printf("  (snD: %d)", gpx->snD);
-        if (gpx->subfrm == 0xF) printf("  (%04d-%02d-%02d)", gpx->yr, gpx->mth, gpx->day);
+        printf("  (<%2d>", gpx->subcnt2);
+        // subcnt2 == subcnt1 + 1 ?
+        if (gpx->subcnt1 == 0xC) printf(" snC: %d", gpx->snC);
+        if (gpx->subcnt1 == 0xD) printf(" snD: %06d", gpx->snD);
+        if (gpx->subcnt1 == 0xF) printf(" %04d-%02d-%02d", gpx->yr, gpx->mth, gpx->day);
+        printf(")");
 
     }
 
