@@ -371,17 +371,6 @@ static void *thd_FFT(void *targs) {
 
                 if ((dsp.thd)->fft && sum_n*n_fft*mlen < sec*dsp.sr_base && n_fft >= fft_step)
                 {
-                    double complex dc = 0; // narrow bandwidth: no off-signal average
-                    for (j = 0; j < mlen; j++) {
-                        dc += dsp.DFT.Z[j];
-                    }
-                    dc /= 0.99*mlen; // mlen <= dsp.DFT.N;
-                    //dc = 0;
-
-                    for (j = 0; j < mlen; j++) {
-                        dsp.DFT.Z[j] -= dc;
-                    }
-
                     for (j = 0; j < mlen; j++) {
                         dsp.DFT.Z[j] *= dsp.DFT.win[j];
                     }
