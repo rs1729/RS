@@ -329,91 +329,57 @@ static ui8_t rs92cal_330[66*5] = {
 0x36, 0x98, 0x92, 0x25, 0x6b, 0xb3, 0x99, 0xe1, 0x57, 0x05, 0x30, 0x9a, 0xfe, 0x51, 0xf4, 0xab,  // 0x170
 0x9d, 0x33, 0x33, 0x33, 0x3f, 0xa7, 0x33, 0x33, 0x33, 0x3f };
 
-
-static void add(ui16_t A[], ui16_t C[], ui16_t Z[]) {
-    ui32_t a = A[0] | (A[1]<<16);
-    ui32_t c = C[0] | (C[1]<<16);
-    ui32_t z = 0;
-    z = a + c;
-    Z[0] = z & 0xFFFF;
-    Z[1] = (z>>16) & 0xFFFF;
-    return;
-}
-static void shl_add(ui16_t A[], ui16_t n, ui16_t C[], ui16_t Z[]) {
-    ui32_t a = A[0] | (A[1]<<16);
-    ui32_t c = C[0] | (C[1]<<16);
-    ui32_t z = 0;
-    z = (a << n) + c;
-    Z[0] = z & 0xFFFF;
-    Z[1] = (z>>16) & 0xFFFF;
-    return;
-}
-static void shr_xor(ui16_t A[], ui16_t n, ui16_t C[], ui16_t Z[]) {
-    ui32_t a = A[0] | (A[1]<<16);
-    ui32_t c = C[0] | (C[1]<<16);
-    ui32_t z = 0;
-    z = (a >> n) ^ c;
-    Z[0] = z & 0xFFFF;
-    Z[1] = (z>>16) & 0xFFFF;
-    return;
-}
 static int xor_ptu(gpx_t *gpx) {
     int j, k;
-    ui16_t tmp[2];
-    ui16_t A[2];
-    ui16_t C[2];
+    ui32_t a, c, tmp;
     ui8_t *pcal = gpx->calibytes+0x24;
 
     for (j = 0; j < 8; j++) {
 
-        tmp[0] = 0x1d89;
-        tmp[1] = 0;
+        tmp = 0x1d89;
 
         for (k = 0; k < 4; k++) {
 
-            A[1] = 0;
-            A[0] = pcal[j+k];
+            a = pcal[j+k] & 0xFF;
+            c = tmp;
 
-            C[0] = tmp[0];
-            C[1] = tmp[1];
+            //add(A, C, A);
+            a = a + c;
 
-            add(A, C, A);
+            c = a;
 
-            C[0] = A[0];
-            C[1] = A[1];
+            //shl_add(A, 10, C, A);
+            a = (a << 10) + c;
 
-            shl_add(A, 10, C, A);
+            c = a;
 
-            C[0] = A[0];
-            C[1] = A[1];
-
-            shr_xor(A, 6, C, A);
-
-            tmp[0] = A[0];
-            tmp[1] = A[1];
+            //shr_xor(A, 6, C, A);
+            a = (a >> 6) ^ c;
+            tmp = a;
         }
 
-        A[0] = tmp[0];
-        A[1] = tmp[1];
+        a = tmp;
+        c = a;
 
-        C[0] = A[0];
-        C[1] = A[1];
+        //shl_add(A, 3, C, A);
+        a = (a << 3) + c;
 
-        shl_add(A, 3, C, A);
+        c = a;
 
-        C[0] = A[0];
-        C[1] = A[1];
+        //shr_xor(A, 11, C, A);
+        a = (a >> 11) ^ c;
 
-        shr_xor(A, 11, C, A);
+        c = a;
 
-        C[0] = A[0];
-        C[1] = A[1];
+        //shl_add(A, 15, C, A);
+        a = (a << 15) + c;
 
-        shl_add(A, 15, C, A);
+        //y = a & 0xFFFF;
 
-        gpx->xptu16[2*j  ] =  A[0]     & 0xFF;
-        gpx->xptu16[2*j+1] = (A[0]>>8) & 0xFF;
+        gpx->xptu16[2*j  ] =  a     & 0xFF;
+        gpx->xptu16[2*j+1] = (a>>8) & 0xFF;
     }
+
     return 0;
 }
 
@@ -483,48 +449,62 @@ static int get_SondeID(gpx_t *gpx) {
             if (gpx->option.ngp)
             {
                 ui8_t *xcal16 = gpx->xcal16;
-                int pos = 0;
-                int sub = 0x10*0x15;  // 0x10*(0x0F,0x10,0x11
-                                      //       0x14,0x15,0x16,0x17)
-
-
+                ui8_t *p = gpx->calibytes+0x170;
+                ui8_t *q = rs92cal_330+(0x170-0x40);
 
                 xor_ptu(gpx);
                 if (gpx->option.dbg) {
                     printf("XPTU:"); for (int j = 0; j < 16; j++) printf(" %02X", gpx->xptu16[j]); printf("\n");
                 }
 
-
-                pos = 0;
-                sub = 0x170;
-                pos =  0; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos =  1; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos =  5; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos =  6; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos = 10; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos = 11; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos = 15; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                sub = 0x150;
-                pos =  2; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos =  3; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos =  7; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos =  8; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos = 12; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos = 13; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                sub = 0x140;
-                pos =  4; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos =  9; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                pos = 14; xcal16[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                // idx=p[0], p[1], p[2+1], p[3+1], p[4-2]
+                for (int k = 0; k < 3; k++) {
+                    xcal16[5*k]     = p[5*k]^q[5*k];
+                    xcal16[5*k+1]   = p[5*k+1]^q[5*k+1];
+                    xcal16[5*k+2+1] = p[5*k+2+1]^q[5*k+2];
+                    xcal16[5*k+3+1] = p[5*k+3+1]^q[5*k+3];
+                    xcal16[5*k+4-2] = p[5*k+4-2]^q[5*k+4];
+                }
+                xcal16[5*3] = p[5*3]^q[5*3];
 
                 if (gpx->option.dbg) {
-                    printf("XOR: "); for (int j = 0; j < 16; j++) printf(" %02X", xcal16[j]); printf("\n");
+                    printf("XCAL:"); for (int j = 0; j < 16; j++) printf(" %02X", xcal16[j]); printf("\n");
                 }
 
                 if (0 && gpx->option.dbg)
                 {
+                    ui8_t xcperm[16];
+                    int pos = 0;
+                    int sub = 0x10*0x15;  // 0x10*(0x0F,0x10,0x11
+                                          //       0x14,0x15,0x16,0x17)
+                    pos = 0;
+                    sub = 0x170;
+                    pos =  0; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos =  1; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos =  5; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos =  6; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos = 10; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos = 11; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos = 15; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    sub = 0x150;
+                    pos =  2; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos =  3; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos =  7; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos =  8; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos = 12; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos = 13; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    sub = 0x140;
+                    pos =  4; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos =  9; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+                    pos = 14; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
+
+                    if (gpx->option.dbg) {
+                        printf("\n");
+                        printf("XOR: "); for (int j = 0; j < 16; j++) printf(" %02X", xcperm[j]); printf("\n");
+                    }
+
                     ui8_t *p = gpx->calibytes+0x170;
                     ui8_t *q = rs92cal_330+(0x170-0x40);
-
                     ui8_t cyc170[16];
                     for (int k = 0; k < 3; k++) {
                         cyc170[5*k]     = p[5*k]^q[5*k];
@@ -535,7 +515,6 @@ static int get_SondeID(gpx_t *gpx) {
                     }
                     cyc170[5*3] = p[5*3]^q[5*3];
                     // idx=p[0], p[1], p[2+1], p[3+1], p[4-2]
-                    printf("\n");
                     printf("C17: "); for (int j = 0; j < 16; j++) printf(" %02X", cyc170[j]); printf("\n");
                     ////
                     ui8_t perm[5] = { 0, 2, 3, 1, 4 };
@@ -1580,6 +1559,8 @@ static int print_position(gpx_t *gpx, int ec) {  // GPS-Hoehe ueber Ellipsoid
                 if ((gpx->crc & crc_AUX)==0 && (gpx->aux[0] != 0 || gpx->aux[1] != 0 || gpx->aux[2] != 0 || gpx->aux[3] != 0)) {
                     fprintf(stdout, ", \"aux\": \"%04x%04x%04x%04x\"", gpx->aux[0], gpx->aux[1], gpx->aux[2], gpx->aux[3]);
                 }
+                // TODO: determine subtype from cal-data
+                fprintf(stdout, ", \"subtype\": \"RS92-%s\"",  gpx->option.ngp ? "NGP" : "SGP" );
                 if (gpx->jsn_freq > 0) {  // rs92-frequency: gpx->freq
                     int fq_kHz = gpx->jsn_freq;
                     //if (gpx->freq > 0) fq_kHz = gpx->freq; // L-band: option.ngp ?
