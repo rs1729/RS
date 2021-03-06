@@ -340,10 +340,12 @@ static ui8_t rs92cal_14A[66*5] = {
 static int chk_toggle_type(gpx_t *gpx) {
     int toggle = 0;
     int n;
-    if (   gpx->xcal16[ 0] == 0 && gpx->xcal16[ 1] == 0
-        && gpx->xcal16[ 5] == 0 && gpx->xcal16[ 6] == 0
-        && gpx->xcal16[10] == 0 && gpx->xcal16[11] == 0 )
-    {
+
+    // constant rs92-coeffs
+    //gpx->xcal16[ 0] == 0 && gpx->xcal16[ 1] == 0 &&
+    //gpx->xcal16[ 5] == 0 && gpx->xcal16[ 6] == 0 &&
+    //gpx->xcal16[10] == 0 && gpx->xcal16[11] == 0
+    if ( memcmp(gpx->calibytes+0x170, rs92cal_14A+(0x170-0x40), 16) == 0 ) {
         gpx->rs_type = RS92SGP;
     }
     else {
@@ -487,7 +489,8 @@ static int get_SondeID(gpx_t *gpx) {
                 printf("XPTU:"); for (int j = 0; j < 16; j++) printf(" %02X", gpx->xptu16[j]); printf("\n");
             }
 
-            // idx=p[0], p[1], p[2+1], p[3+1], p[4-2]
+            //Xx17: __ 98 __ __ __ __ 99 __ __ __ __ 9a __ __ __ __
+            // p[0], p[1]=idx, p[2+1], p[3+1], p[4-2], p[5], p[6]=idx, ...
             for (int k = 0; k < 3; k++) {
                 xcal16[5*k]     = p[5*k]^q[5*k];
                 xcal16[5*k+1]   = p[5*k+1]^q[5*k+1];
@@ -544,7 +547,7 @@ static int get_SondeID(gpx_t *gpx) {
                     cyc170[5*k+4-2] = p[5*k+4-2]^q[5*k+4];
                 }
                 cyc170[5*3] = p[5*3]^q[5*3];
-                // idx=p[0], p[1], p[2+1], p[3+1], p[4-2]
+                // p[0], p[1]=idx, p[2+1], p[3+1], p[4-2], p[5], p[6]=idx, ...
                 printf("C17: "); for (int j = 0; j < 16; j++) printf(" %02X", cyc170[j]); printf("\n");
                 ////
                 ui8_t perm[5] = { 0, 2, 3, 1, 4 };
@@ -582,7 +585,6 @@ static int get_SondeID(gpx_t *gpx) {
                 printf("C%02X: ", 0x18-row); for (int j = 0; j < 16; j++) printf(" %02X", cyc[j]); printf("\n");
                 ////
             }
-
 
             int tgl = chk_toggle_type(gpx);
 
