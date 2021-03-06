@@ -144,6 +144,7 @@ typedef struct {
     //
     ui8_t xcal16[16];
     ui8_t xptu16[16];
+    int rs_type;
     //
     unsigned short aux[4];
     double diter;
@@ -234,6 +235,11 @@ static void Gps2Date(gpx_t *gpx) {
 
 /* ------------------------------------------------------------------------------------ */
 
+#define RS92SGP 0
+#define RS92AGP 1
+#define RS92NGP 2
+
+
 #define crc_FRAME    (1<<0)
 #define pos_FrameNb   0x08  // 2 byte
 #define pos_SondeID   0x0C  // 8 byte  // oder: 0x0A, 10 byte?
@@ -306,7 +312,9 @@ static int get_FrameNb(gpx_t *gpx) {
 }
 
 
-static ui8_t rs92cal_330[66*5] = {
+// cal block 0x40..0x40+0x14A
+// calib rows 0x0F,0x10,0x11, 0x14,0x15,0x16,0x17, 0x18(10bytes) constant across rs92 ?
+static ui8_t rs92cal_14A[66*5] = {
 0x0a, 0xcf, 0xcf, 0xb8, 0xc3, 0x0b, 0xd7, 0x9d, 0xf5, 0x41, 0x0c, 0x46, 0xe6, 0xa2, 0x43, 0x0d,
 0x3f, 0x07, 0xc6, 0xc2, 0x0e, 0x6c, 0x04, 0x90, 0x41, 0x0f, 0xf0, 0xde, 0xa5, 0xbf, 0x11, 0x8f,
 0xc2, 0x75, 0x3f, 0x14, 0x77, 0x16, 0xf9, 0xc4, 0x15, 0x54, 0x1f, 0x78, 0x45, 0x16, 0xf0, 0xfb,
@@ -318,9 +326,9 @@ static ui8_t rs92cal_330[66*5] = {
 0x0d, 0xc2, 0x21, 0xa6, 0x72, 0x42, 0x41, 0x22, 0x36, 0xcc, 0xfc, 0xbf, 0x23, 0xf5, 0x80, 0xf9,
 0x3d, 0x25, 0xbb, 0x74, 0x57, 0x3f, 0x28, 0x10, 0x08, 0x16, 0xc5, 0x29, 0x0c, 0xe1, 0xb2, 0x45,
 0x2a, 0xd7, 0xed, 0x7b, 0xc5, 0x2b, 0x16, 0x3b, 0x5d, 0x44, 0x2f, 0x8f, 0xc2, 0x75, 0x3f, 0x6e,
-0xab, 0xcf, 0x05, 0x3f, 0x6f, 0x1e, 0xa7, 0xe8, 0xbc, 0x70, 0x45, 0xf2, 0x95, 0x39, 0x71, 0x5f,
-0xc9, 0x70, 0x35, 0x72, 0x4f, 0x2c, 0xad, 0xb0, 0x78, 0x9e, 0xb1, 0x89, 0x3f, 0x79, 0x60, 0xe5,
-0x50, 0xbe, 0x7a, 0x7c, 0x9a, 0x13, 0x3c, 0x7b, 0x26, 0x87, 0x74, 0xb8, 0x7c, 0x21, 0x96, 0x8b,
+0xab, 0xcf, 0x05, 0x3f, 0x6f, 0x1e, 0xa7, 0xe8, 0xbc, 0x70, 0x45, 0xf2, 0x95, 0x39, 0x71, 0x5f,  // 0x0F0
+0xc9, 0x70, 0x35, 0x72, 0x4f, 0x2c, 0xad, 0xb0, 0x78, 0x9e, 0xb1, 0x89, 0x3f, 0x79, 0x60, 0xe5,  // 0x100
+0x50, 0xbe, 0x7a, 0x7c, 0x9a, 0x13, 0x3c, 0x7b, 0x26, 0x87, 0x74, 0xb8, 0x7c, 0x21, 0x96, 0x8b,  // 0x110
 0xb5, 0x32, 0xa6, 0xa3, 0x42, 0xc5, 0x33, 0xd9, 0xb6, 0xd7, 0x45, 0x34, 0xe1, 0x7d, 0x92, 0xc5,
 0x35, 0x4a, 0x0c, 0x7c, 0x44, 0x39, 0x8f, 0xc2, 0x75, 0x3f, 0x82, 0xab, 0xcf, 0x05, 0x3f, 0x83,
 0x1e, 0xa7, 0xe8, 0xbc, 0x84, 0x45, 0xf2, 0x95, 0x39, 0x85, 0x5f, 0xc9, 0x70, 0x35, 0x86, 0x4f,  // 0x140
@@ -328,6 +336,29 @@ static ui8_t rs92cal_330[66*5] = {
 0x13, 0x3c, 0x8f, 0x26, 0x87, 0x74, 0xb8, 0x90, 0x21, 0x96, 0x8b, 0xb5, 0x97, 0xac, 0x64, 0x9f,  // 0x160
 0x36, 0x98, 0x92, 0x25, 0x6b, 0xb3, 0x99, 0xe1, 0x57, 0x05, 0x30, 0x9a, 0xfe, 0x51, 0xf4, 0xab,  // 0x170
 0x9d, 0x33, 0x33, 0x33, 0x3f, 0xa7, 0x33, 0x33, 0x33, 0x3f };
+
+static int chk_toggle_type(gpx_t *gpx) {
+    int toggle = 0;
+    int n;
+    if (   gpx->xcal16[ 0] == 0 && gpx->xcal16[ 1] == 0
+        && gpx->xcal16[ 5] == 0 && gpx->xcal16[ 6] == 0
+        && gpx->xcal16[10] == 0 && gpx->xcal16[11] == 0 )
+    {
+        gpx->rs_type = RS92SGP;
+    }
+    else {
+        gpx->rs_type = RS92NGP;
+    }
+    // rs92sgp: conf/calib data after 0x40+0x14A ... zero ?
+    // check ptu-float32 plausibility
+
+    if (gpx->rs_type == RS92SGP && gpx->option.ngp)  toggle = 1;
+    if (gpx->rs_type == RS92NGP && !gpx->option.ngp) toggle = 2;
+
+    if (toggle) gpx->option.ngp ^= 1;
+
+    return toggle;
+}
 
 static int xor_ptu(gpx_t *gpx) {
     int j, k;
@@ -443,116 +474,117 @@ static int get_SondeID(gpx_t *gpx) {
         if (gpx->calfrms == 32)
         {
             ui8_t xcal[66*5];
+            ui8_t *xcal16 = gpx->xcal16;
+            ui8_t *p = gpx->calibytes+0x170;
+            ui8_t *q = rs92cal_14A+(0x170-0x40);
+            int cal_chk = 0;
 
             gpx->calfrms += 1;
 
-            if (gpx->option.ngp)
-            {
-                ui8_t *xcal16 = gpx->xcal16;
-                ui8_t *p = gpx->calibytes+0x170;
-                ui8_t *q = rs92cal_330+(0x170-0x40);
 
-                xor_ptu(gpx);
-                if (gpx->option.dbg) {
-                    printf("XPTU:"); for (int j = 0; j < 16; j++) printf(" %02X", gpx->xptu16[j]); printf("\n");
-                }
-
-                // idx=p[0], p[1], p[2+1], p[3+1], p[4-2]
-                for (int k = 0; k < 3; k++) {
-                    xcal16[5*k]     = p[5*k]^q[5*k];
-                    xcal16[5*k+1]   = p[5*k+1]^q[5*k+1];
-                    xcal16[5*k+2+1] = p[5*k+2+1]^q[5*k+2];
-                    xcal16[5*k+3+1] = p[5*k+3+1]^q[5*k+3];
-                    xcal16[5*k+4-2] = p[5*k+4-2]^q[5*k+4];
-                }
-                xcal16[5*3] = p[5*3]^q[5*3];
-
-                if (gpx->option.dbg) {
-                    printf("XCAL:"); for (int j = 0; j < 16; j++) printf(" %02X", xcal16[j]); printf("\n");
-                }
-
-                if (0 && gpx->option.dbg)
-                {
-                    ui8_t xcperm[16];
-                    int pos = 0;
-                    int sub = 0x10*0x15;  // 0x10*(0x0F,0x10,0x11
-                                          //       0x14,0x15,0x16,0x17)
-                    pos = 0;
-                    sub = 0x170;
-                    pos =  0; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos =  1; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos =  5; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos =  6; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos = 10; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos = 11; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos = 15; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    sub = 0x150;
-                    pos =  2; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos =  3; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos =  7; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos =  8; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos = 12; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos = 13; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    sub = 0x140;
-                    pos =  4; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos =  9; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-                    pos = 14; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_330[sub-0x40+pos];
-
-                    if (gpx->option.dbg) {
-                        printf("\n");
-                        printf("XOR: "); for (int j = 0; j < 16; j++) printf(" %02X", xcperm[j]); printf("\n");
-                    }
-
-                    ui8_t *p = gpx->calibytes+0x170;
-                    ui8_t *q = rs92cal_330+(0x170-0x40);
-                    ui8_t cyc170[16];
-                    for (int k = 0; k < 3; k++) {
-                        cyc170[5*k]     = p[5*k]^q[5*k];
-                        cyc170[5*k+1]   = p[5*k+1]^q[5*k+1];
-                        cyc170[5*k+2+1] = p[5*k+2+1]^q[5*k+2];
-                        cyc170[5*k+3+1] = p[5*k+3+1]^q[5*k+3];
-                        cyc170[5*k+4-2] = p[5*k+4-2]^q[5*k+4];
-                    }
-                    cyc170[5*3] = p[5*3]^q[5*3];
-                    // idx=p[0], p[1], p[2+1], p[3+1], p[4-2]
-                    printf("C17: "); for (int j = 0; j < 16; j++) printf(" %02X", cyc170[j]); printf("\n");
-                    ////
-                    ui8_t perm[5] = { 0, 2, 3, 1, 4 };
-                    ui8_t cyc[16];
-                    int row = 1; // 1..4, 7..9  // 0x12,0x13 not constant // 0x17(row=1) safe, 0x18[0..9]
-                    p = gpx->calibytes+(0x180-row*0x10);
-                    q = rs92cal_330+(0x180-0x40-row*0x10);
-                    memset(cyc, 0, 16);
-                    for (int k = -2; k < 3; k++) {
-                        for (int l = 0; l < 5; l++) {
-                            if (row + 5*k + perm[l] > 0 && row + 5*k + perm[l] < 16) {
-                                cyc[ row + 5*k + perm[l] ] = p[ row + 5*k + perm[l] ] ^ q[ row + 5*k + l ];
-                            }
-                            else {
-                                cyc[ (row + 5*k + perm[l] + 2*16)%16] = p[ row + 5*k + perm[l] ] ^ q[ row + 5*k + l ];
-                                //cyc[ row + 5*k + perm[l] ] = 0; // overlap non-constant row... -> use row=0x17
-                            }
-                        }
-                    }
-                    printf("C%02X: ", 0x18-row); for (int j = 0; j < 16; j++) printf(" %02X", cyc[j]); printf("\n");
-                    //
-                    ui8_t permInv[5] = { 0, 3, 1, 2, 4 };
-                    memset(cyc, 0, 16);
-                    for (int k = -2; k < 3; k++) {
-                        for (int l = 0; l < 5; l++) {
-                            if (row + 5*k + permInv[l] > 0 && row + 5*k + permInv[l] < 16) {
-                                cyc[ row + 5*k + l ] = p[ row + 5*k + l ] ^ q[ row + 5*k + permInv[l] ];
-                            }
-                            else {
-                                cyc[ (row + 5*k + l + 2*16)%16] = p[ row + 5*k + l ] ^ q[ row + 5*k + permInv[l] ];
-                                //cyc[ row + 5*k + perm[l] ] = 0; // overlap non-constant row... -> use row=0x17
-                            }
-                        }
-                    }
-                    printf("C%02X: ", 0x18-row); for (int j = 0; j < 16; j++) printf(" %02X", cyc[j]); printf("\n");
-                    ////
-                }
+            xor_ptu(gpx);
+            if (gpx->option.dbg) {
+                printf("XPTU:"); for (int j = 0; j < 16; j++) printf(" %02X", gpx->xptu16[j]); printf("\n");
             }
+
+            // idx=p[0], p[1], p[2+1], p[3+1], p[4-2]
+            for (int k = 0; k < 3; k++) {
+                xcal16[5*k]     = p[5*k]^q[5*k];
+                xcal16[5*k+1]   = p[5*k+1]^q[5*k+1];
+                xcal16[5*k+2+1] = p[5*k+2+1]^q[5*k+2];
+                xcal16[5*k+3+1] = p[5*k+3+1]^q[5*k+3];
+                xcal16[5*k+4-2] = p[5*k+4-2]^q[5*k+4];
+            }
+            xcal16[5*3] = p[5*3]^q[5*3];
+
+            if (gpx->option.dbg) {
+                printf("XCAL:"); for (int j = 0; j < 16; j++) printf(" %02X", xcal16[j]); printf("\n");
+            }
+
+            if (0 && gpx->option.dbg)
+            {
+                ui8_t xcperm[16];
+                int pos = 0;
+                int sub = 0x10*0x15;  // 0x10*(0x0F,0x10,0x11
+                                      //       0x14,0x15,0x16,0x17)
+                pos = 0;
+                sub = 0x170;
+                pos =  0; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos =  1; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos =  5; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos =  6; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos = 10; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos = 11; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos = 15; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                sub = 0x150;
+                pos =  2; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos =  3; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos =  7; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos =  8; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos = 12; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos = 13; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                sub = 0x140;
+                pos =  4; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos =  9; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+                pos = 14; xcperm[pos] = gpx->calibytes[sub+pos]^rs92cal_14A[sub-0x40+pos];
+
+                if (gpx->option.dbg) {
+                    printf("\n");
+                    printf("XOR: "); for (int j = 0; j < 16; j++) printf(" %02X", xcperm[j]); printf("\n");
+                }
+
+                ui8_t *p = gpx->calibytes+0x170;
+                ui8_t *q = rs92cal_14A+(0x170-0x40);
+                ui8_t cyc170[16];
+                for (int k = 0; k < 3; k++) {
+                    cyc170[5*k]     = p[5*k]^q[5*k];
+                    cyc170[5*k+1]   = p[5*k+1]^q[5*k+1];
+                    cyc170[5*k+2+1] = p[5*k+2+1]^q[5*k+2];
+                    cyc170[5*k+3+1] = p[5*k+3+1]^q[5*k+3];
+                    cyc170[5*k+4-2] = p[5*k+4-2]^q[5*k+4];
+                }
+                cyc170[5*3] = p[5*3]^q[5*3];
+                // idx=p[0], p[1], p[2+1], p[3+1], p[4-2]
+                printf("C17: "); for (int j = 0; j < 16; j++) printf(" %02X", cyc170[j]); printf("\n");
+                ////
+                ui8_t perm[5] = { 0, 2, 3, 1, 4 };
+                ui8_t cyc[16];
+                int row = 1; // 1..4, 7..9  // 0x12,0x13 not constant // 0x17(row=1) safe, 0x18[0..9]
+                p = gpx->calibytes+(0x180-row*0x10);
+                q = rs92cal_14A+(0x180-0x40-row*0x10);
+                memset(cyc, 0, 16);
+                for (int k = -2; k < 3; k++) {
+                    for (int l = 0; l < 5; l++) {
+                        if (row + 5*k + perm[l] > 0 && row + 5*k + perm[l] < 16) {
+                            cyc[ row + 5*k + perm[l] ] = p[ row + 5*k + perm[l] ] ^ q[ row + 5*k + l ];
+                        }
+                        else {
+                            cyc[ (row + 5*k + perm[l] + 2*16)%16] = p[ row + 5*k + perm[l] ] ^ q[ row + 5*k + l ];
+                            //cyc[ row + 5*k + perm[l] ] = 0; // overlap non-constant row... -> use row=0x17
+                        }
+                    }
+                }
+                printf("C%02X: ", 0x18-row); for (int j = 0; j < 16; j++) printf(" %02X", cyc[j]); printf("\n");
+                //
+                ui8_t permInv[5] = { 0, 3, 1, 2, 4 };
+                memset(cyc, 0, 16);
+                for (int k = -2; k < 3; k++) {
+                    for (int l = 0; l < 5; l++) {
+                        if (row + 5*k + permInv[l] > 0 && row + 5*k + permInv[l] < 16) {
+                            cyc[ row + 5*k + l ] = p[ row + 5*k + l ] ^ q[ row + 5*k + permInv[l] ];
+                        }
+                        else {
+                            cyc[ (row + 5*k + l + 2*16)%16] = p[ row + 5*k + l ] ^ q[ row + 5*k + permInv[l] ];
+                            //cyc[ row + 5*k + perm[l] ] = 0; // overlap non-constant row... -> use row=0x17
+                        }
+                    }
+                }
+                printf("C%02X: ", 0x18-row); for (int j = 0; j < 16; j++) printf(" %02X", cyc[j]); printf("\n");
+                ////
+            }
+
+
+            int tgl = chk_toggle_type(gpx);
 
             for (int j = 0; j < 66*5; j++) {
                 xcal[j] = gpx->calibytes[0x40+j];
@@ -1559,8 +1591,7 @@ static int print_position(gpx_t *gpx, int ec) {  // GPS-Hoehe ueber Ellipsoid
                 if ((gpx->crc & crc_AUX)==0 && (gpx->aux[0] != 0 || gpx->aux[1] != 0 || gpx->aux[2] != 0 || gpx->aux[3] != 0)) {
                     fprintf(stdout, ", \"aux\": \"%04x%04x%04x%04x\"", gpx->aux[0], gpx->aux[1], gpx->aux[2], gpx->aux[3]);
                 }
-                // TODO: determine subtype from cal-data
-                fprintf(stdout, ", \"subtype\": \"RS92-%s\"",  gpx->option.ngp ? "NGP" : "SGP" );
+                fprintf(stdout, ", \"subtype\": \"RS92-%s\"",  gpx->rs_type == RS92SGP ? "SGP" : "NGP" );
                 if (gpx->jsn_freq > 0) {  // rs92-frequency: gpx->freq
                     int fq_kHz = gpx->jsn_freq;
                     //if (gpx->freq > 0) fq_kHz = gpx->freq; // L-band: option.ngp ?
@@ -1895,6 +1926,9 @@ int main(int argc, char *argv[]) {
     if (gpx.option.ecc) {
         rs_init_RS255(&gpx.RS);
     }
+
+    gpx.rs_type = RS92SGP;
+    if (gpx.option.ngp) gpx.rs_type = RS92NGP;
 
     // init gpx
     memcpy(gpx.frame, rs92_header_bytes, sizeof(rs92_header_bytes)); // 6 header bytes
