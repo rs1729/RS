@@ -123,7 +123,7 @@ static int MANCH = 1;
 
 // option_b: exakte Baudrate wichtig!
 // eventuell in header ermittelbar
-#define BAUD_RATE   2400
+#define BAUD_RATE   2399  //2400
 
 static int sample_rate = 0, bits_sample = 0, channels = 0;
 static float samples_per_bit = 0;
@@ -599,7 +599,6 @@ static void ecef2elli(double X[], double *lat, double *lon, double *alt) {
 static int get_GPSkoord(gpx_t *gpx) {
     int i, k;
     unsigned byte;
-    ui8_t XYZ_bytes[4];
     int XYZ; // 32bit
     double X[3], lat, lon, alt;
     ui8_t *gpsVel;
@@ -777,7 +776,7 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
         printf(" lon: %.5f ", gpx->lon);
         printf(" alt: %.2f ", gpx->alt);
         printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
-        printf("  sats: %d ", gpx->numSats);
+        if (option_verbose > 1) printf("  sats: %d ", gpx->numSats);
 
         printf("  %s", gpx->crcOK ? "[OK]" : "[NO]");
 
@@ -786,19 +785,17 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
         {
             if (option_verbose)
             {
-                printf("  (<%2d>", gpx->subcnt2);
                 // subcnt2 == subcnt1 + 1 ?
                 switch (gpx->subcnt1) {
-                    case 0x0: printf(" calA: %.5f", gpx->calA); break;
-                    case 0x1: printf(" calB: %.2f", gpx->calB); break;
-                    case 0x2: printf(" calC: %.3f", gpx->calC); break;
-                    case 0xC: printf(" snC: %d", gpx->snC); break;
-                    case 0xD: printf(" snD: %d", gpx->snD); break;
-                    case 0xE: printf(" calDate: %06d", gpx->cfg[gpx->subcnt1]); break;
-                    case 0xF: printf(" %04d-%02d-%02d", gpx->yr, gpx->mth, gpx->day); break;
-                    default:  break;
+                    case 0x0: if (option_verbose > 1) printf("  <%d> A: %.5f", gpx->subcnt2, gpx->calA); break;
+                    case 0x1: if (option_verbose > 1) printf("  <%d> B: %.2f", gpx->subcnt2, gpx->calB); break;
+                    case 0x2: if (option_verbose > 1) printf("  <%d> C: %.3f", gpx->subcnt2, gpx->calC); break;
+                    case 0xC: printf("  <%d> snC: %d", gpx->subcnt2, gpx->snC); break;
+                    case 0xD: printf("  <%d> snD: %d", gpx->subcnt2, gpx->snD); break;
+                    case 0xE: printf("  <%d> calDate: %06d", gpx->subcnt2, gpx->cfg[gpx->subcnt1]); break;
+                    case 0xF: printf("  <%d> %04d-%02d-%02d", gpx->subcnt2, gpx->yr, gpx->mth, gpx->day); break;
+                    default:  if (option_verbose > 1) printf("  <%d>", gpx->subcnt2); break;
                 }
-                printf(")");
             }
 
             if (option_dbg)
@@ -944,6 +941,7 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
             option_verbose = 1;
         }
+        else if ( (strcmp(*argv, "-vv" ) == 0) ) option_verbose = 2;
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
             option_raw = 1;
         }
