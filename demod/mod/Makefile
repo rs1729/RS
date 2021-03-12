@@ -4,7 +4,7 @@ COPTS = -DCYGWIN -O3
 #COPTS = -O3
 
 .PHONY: all
-all: rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod
+all: rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod
 
 rs41mod: rs41mod.c demod_mod.o bch_ecc_mod.o
 	$(CC) $(COPTS) -o rs41mod rs41mod.c demod_mod.o bch_ecc_mod.o -lm
@@ -17,6 +17,9 @@ m10mod: m10mod.c demod_mod.o
 
 mXXmod: mXXmod.c demod_mod.o
 	$(CC) $(COPTS) -o mXXmod mXXmod.c demod_mod.o -lm
+    
+mp3h1mod: mp3h1mod.c demod_mod.o
+	$(CC) $(COPTS) -o mp3h1mod mp3h1mod.c demod_mod.o bch_ecc_mod.o -lm
 
 imet54mod: imet54mod.c demod_mod.o
 	$(CC) $(COPTS) -o imet54mod imet54mod.c demod_mod.o -lm
@@ -38,7 +41,7 @@ bch_ecc_mod.o: bch_ecc_mod.c bch_ecc_mod.h
 
 .PHONY: clean
 clean:
-	rm -f rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod
+	rm -f rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod
 	rm -f demod_mod.o
 	rm -f bch_ecc_mod.o
 
