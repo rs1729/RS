@@ -6,17 +6,20 @@
  *  win:
  *  gcc -DWIN_DLL pa-stdout.c
  *  (cl /DWIN_DLL /DCYGWIN pa-stdout.c)
+ *  gcc -DWIN_DLL -DPA_DLL=\"PortAudio.dll\" pa-stdout.c
  *
  *  linux:
  *  gcc pa-stdout.c -lportaudio
  *
  *  [select SDR Audio Output channel]
  *  ./pa-stdout.exe --list
- *  ./pa-stdout.exe [devNo] | ./rs41dm_dft.exe --ecc2 --crc -vx --ptu
+ *  ./pa-stdout.exe [devNo] | ./rs41mod.exe -vx --ptu
+ *  ./pa-stdout.exe --line [lineNo] | ./rs41mod.exe -vx --ptu
  */
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef WIN_DLL
     #include <windows.h>
@@ -260,10 +263,35 @@ int get_Devices(int list) {
 
     fprintf(stderr, "#devices: %d\n", numDevices);
 
+    if (list)
+    {
+        for (i = 0; i < numDevices; i++)
+        {
+            const PaDeviceInfo *devInfo = Pa_GetDeviceInfo(i);
+            fprintf(stderr, "[%2d]  %s\n", i, devInfo->name);
+        }
+    }
+
+    return numDevices;
+}
+
+int get_Line(int lineNo, int *devNo) {
+    int i;
+    const PaDeviceIndex numDevices = Pa_GetDeviceCount();
+    const PaDeviceInfo *devInfo = NULL;
+    char strbuf[32];
+
+    sprintf(strbuf, "Line %d", lineNo % 100);
+
+    fprintf(stderr, "#devices: %d\n", numDevices);
+
     for (i = 0; i < numDevices; i++)
     {
-        PaDeviceInfo *devInfo = Pa_GetDeviceInfo(i);
-        if (list) fprintf(stderr, "[%2d]  %s\n", i, devInfo->name);
+        devInfo = Pa_GetDeviceInfo(i);
+        if ( strstr(devInfo->name, strbuf) ) {
+            *devNo = i;
+            break;
+        }
     }
 
     return numDevices;
@@ -283,12 +311,13 @@ int main(int argc, char* argv[])
 
     int devNo = -1,
         numDevices = 0,
-        list = 0;
+        list = 0,
+        lineNo = -1;
 
     PaError             err = paNoError;
     PaStreamParameters  inputParameters;
     PaStream           *stream;
-    PaDeviceInfo       *devInfo = NULL;
+    const PaDeviceInfo *devInfo = NULL;
 
     SAMPLE  *dataSamples = NULL;
     int      totalFrames;
@@ -298,20 +327,30 @@ int main(int argc, char* argv[])
 #ifdef CYGWIN
     _setmode(fileno(stdout), _O_BINARY);  // _setmode(_fileno(stdout), _O_BINARY);
 #endif
-    setbuf(stdout, NULL);
+    //setvbuf(stdout, NULL, _IOFBF, 128); // buffered
+    //setvbuf(stdout, NULL, _IONBF, 0); // unbuffered
+    setbuf(stdout, NULL); // unbuffered
     setbuf(stderr, NULL);
 
 
 #ifdef WIN_DLL
-    pa_handle = LoadLibrary("PortAudio.dll");  // x86/x64 (same as gcc/cl)
+    {
+        char *dll_path = "PortAudio.dll";  // x86/x64 (same as gcc/cl)
+        // gcc -DPA_DLL=\"PortAudio_x64.dll\" ...
+        #ifdef PA_DLL
+            dll_path = PA_DLL;
+        #endif
 
-    if (pa_handle == NULL) {
-        fprintf(stderr, "ERROR: loadlibrary\n");
-        return -1;
+        pa_handle = LoadLibrary(dll_path);
+
+        if (pa_handle == NULL) {
+            fprintf(stderr, "ERROR: loadlibrary\n");
+            return -1;
+        }
+
+        ret = adr_functions();
+        if (ret != 0) goto error;
     }
-
-    ret = adr_functions();
-    if (ret != 0) goto error;
 #endif
 
 
@@ -320,12 +359,23 @@ int main(int argc, char* argv[])
 
 
     if (argv[1]) {
-        if (strcmp(argv[1], "--list") == 0) list = 1;
-        devNo = atoi(argv[1]);
+        devNo = -1;
+        lineNo = -1;
+        if (strcmp(argv[1], "--list") == 0) {
+            list = 1;
+            devNo = -1;
+        }
+        else if (strcmp(argv[1], "--line") == 0) {
+            if (argv[2]) lineNo = atoi(argv[2]);
+        }
+        else {
+            devNo = atoi(argv[1]);
+        }
         if (devNo == 0 && argv[1][0] != '0') devNo = -1;
     }
 
-    numDevices = get_Devices(list);
+    if (lineNo >= 0) numDevices = get_Line(lineNo, &devNo);
+    else             numDevices = get_Devices(list);
     if ( list ) goto done;
 
     if ( devNo >= numDevices ) devNo = -1;
@@ -334,7 +384,7 @@ int main(int argc, char* argv[])
     totalFrames = FRAMES_PER_BUFFER;
     numSamples = totalFrames * N_CH;
     dataSamples = (SAMPLE *) calloc( numSamples, sizeof(SAMPLE) );
-    if( dataSamples == NULL )
+    if ( dataSamples == NULL )
     {
         fprintf(stderr, "ERROR: malloc\n");
         goto done;
@@ -376,12 +426,17 @@ int main(int argc, char* argv[])
     fwrite( wav_hdr, 1, sizeof(wav_hdr)/*44*/, stdout );
     while (1) {
         err = Pa_ReadStream( stream, dataSamples, totalFrames );
-        if( err != paNoError ) goto done;
+        if ( err != paNoError ) {
+            if ( err != paInputOverflowed) goto done;
+            //fprintf(stderr, "Error: %d (%s)\n", err, Pa_GetErrorText( err ) );
+            // // dataSamples...
+        }
+
         fwrite( dataSamples, N_CH * sizeof(SAMPLE), totalFrames, stdout );
     }
 
     err = Pa_CloseStream( stream );
-    if( err != paNoError ) goto done;
+    if ( err != paNoError ) goto done;
 
 
 done:
