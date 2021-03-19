@@ -428,6 +428,7 @@ static float f32(ui32_t w) {
 }
 
 static int get_ptu(gpx_t *gpx) {
+    // cf. МРЗ-3МК documentation
 
     float t = -273.15f;
     float rh = -1.0f;
@@ -448,6 +449,7 @@ static int get_ptu(gpx_t *gpx) {
             float Rt = 100000.0*poly1 / (ADC_MAX - poly1);
             if (Rt > 0.0) {
                 t = gpx->calB/log(Rt/gpx->calA) - gpx->calC - 273.15f;
+                if (t < -120.0f || t > 120.0f) t = -273.15f;
             }
         }
     }
@@ -460,6 +462,11 @@ static int get_ptu(gpx_t *gpx) {
             float K = poly2/ADC_MAX;
 
             rh = (K - 0.1515) / (0.00636*(1.05460 - 0.00216*gpx->T)); // if T = 273.15, set T=0 ?
+            if (rh < -10.0f || rh > 120.0f) rh = -1.0f;
+            else {
+                if (rh < 0.0f) rh = 0.0f;
+                if (rh > 100.0f) rh = 100.0f;
+            }
         }
     }
     gpx->RH = rh;
