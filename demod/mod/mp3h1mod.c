@@ -428,6 +428,7 @@ static float f32(ui32_t w) {
 }
 
 static int get_ptu(gpx_t *gpx) {
+    // cf. МРЗ-3МК documentation
 
     float t = -273.15f;
     float rh = -1.0f;
