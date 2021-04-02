@@ -1781,9 +1781,9 @@ static int print_position(gpx_t *gpx, int ec) {
 
             if ( pos > frm_end )  // end of (sub)frame
             {
-                if (gpx->option.ptu && out && !sat && !encrypted && pck_ptu > 0) {
+                if (gpx->option.ptu && !sat && !encrypted && pck_ptu > 0) {
                     err0 = get_PTU(gpx, ofs_ptu, pck_ptu, !err3);
-                    if (!err0) prn_ptu(gpx);
+                    if (!err0 && out) prn_ptu(gpx);
                 }
                 pck_ptu = 0;
 
@@ -2364,9 +2364,13 @@ int main(int argc, char *argv[]) {
                     }
                     if ( bitQ == EOF ) break; // liest 2x EOF
 
-                    softbits[b8pos] = hsbit.sb;
+                    if (gpx.option.inv) {
+                        bit ^= 1;
+                        hsbit.hb ^= 1;
+                        hsbit.sb = -hsbit.sb; // does not affect ecc3
+                    }
 
-                    if (gpx.option.inv) bit ^= 1;
+                    softbits[b8pos] = hsbit.sb;
 
                     bitpos += 1;
                     bitbuf[b8pos] = bit;

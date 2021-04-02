@@ -24,9 +24,9 @@ static int wav_ch = 0;  // 0: links bzw. mono; 1: rechts
 
 static unsigned int sample;
 
-float complex *buffer  = NULL;
+static float complex *buffer  = NULL;
 
-void *bufIQ;
+static void *bufIQ;
 
 /* ------------------------------------------------------------------------------------ */
 
@@ -45,9 +45,9 @@ typedef struct {
 } dft_t;
 
 
-dft_t DFT;
+static dft_t DFT;
 
-static float *db, *sum_db, *intdb;
+static float *avg_rZ, *avg_db, *intdb;
 static float *avg, *peak;
 
 static void raw_dft(dft_t *dft, float complex *Z) {
@@ -189,8 +189,8 @@ static int init_dft(dft_t *dft) {
         dft->ew[n] = cexp(-I*M_PI/(double)k);
     }
 
-    db     = calloc(dft->N+1, sizeof(float));  if (db == NULL) return -1;
-    sum_db = calloc(dft->N+1, sizeof(float));  if (sum_db == NULL) return -1;
+    avg_rZ = calloc(dft->N+1, sizeof(float));  if (avg_rZ == NULL) return -1;
+    avg_db = calloc(dft->N+1, sizeof(float));  if (avg_db == NULL) return -1;
     intdb  = calloc(dft->N+1, sizeof(float));  if (intdb == NULL) return -1;
     avg    = calloc(dft->N+1, sizeof(float));  if (avg == NULL) return -1;
     peak   = calloc(dft->N+1, sizeof(float));  if (peak == NULL) return -1;
@@ -206,8 +206,8 @@ static void end_dft(dft_t *dft) {
     if (dft->Z)   { free(dft->Z);   dft->Z   = NULL; }
     if (dft->ew)  { free(dft->ew);  dft->ew  = NULL; }
     if (dft->win) { free(dft->win); dft->win = NULL; }
-    if (db)     { free(db);     db     = NULL; }
-    if (sum_db) { free(sum_db); sum_db = NULL; }
+    if (avg_rZ) { free(avg_rZ); avg_rZ = NULL; }
+    if (avg_db) { free(avg_db); avg_db = NULL; }
     if (intdb)  { free(intdb);  intdb  = NULL; }
     if (avg)    { free(avg);    avg    = NULL; }
     if (peak)   { free(peak);   peak   = NULL; }
@@ -473,7 +473,7 @@ int main(int argc, char **argv) {
     if (option_verbose) fprintf(stderr, "M: %d\n", DFT.N2);
 
 
-    //memset(sum_db, 0, N*sizeof(float)); // calloc()
+    //memset(avg_db, 0, N*sizeof(float)); // calloc()
 
     sample = 0;
     n = 0;
@@ -502,9 +502,8 @@ int main(int argc, char **argv) {
             while (j < DFT.N) DFT.Z[j++] = 0.0;
 //*/
             raw_dft(&DFT, DFT.Z);
-            db_power(&DFT, DFT.Z, db);
 
-            for (j = 0; j < DFT.N; j++) sum_db[j] += db[j];
+            for (j = 0; j < DFT.N; j++) avg_rZ[j] += cabs(DFT.Z[j]);
 
             n++;
 
@@ -535,26 +534,30 @@ int main(int argc, char **argv) {
     dx = bin2freq(&DFT, 1);
     dn = 2*(int)(2400.0/dx)+1; // (odd/symmetric) integration width: 4800+dx Hz
     if (option_verbose) fprintf(stderr, "dn = %d\n", dn);
-    for (j = 0; j < DFT.N; j++) sum_db[j] /= (float)n;
+
+    for (j = 0; j < DFT.N; j++) {
+        avg_rZ[j] /= DFT.N*(float)n; // avg(FFT)
+        avg_db[j] = 20.0*log10(avg_rZ[j]+1e-20); // dB(avgFFT)
+    }
 
     // dc-spike (N-1,)N,0,1(,2): subtract mean/avg
     // spikes in general:
     for (j = 0; j < DFT.N; j++) {
-        if ( sum_db[j] - sum_db[(j-spike_wl5+DFT.N)%DFT.N] > db_spike3
-          && sum_db[j] - sum_db[(j-spike_wl3+DFT.N)%DFT.N] > db_spike3
-          && sum_db[j] - sum_db[(j+spike_wl3+DFT.N)%DFT.N] > db_spike3
-          && sum_db[j] - sum_db[(j+spike_wl5+DFT.N)%DFT.N] > db_spike3
+        if ( avg_db[j] - avg_db[(j-spike_wl5+DFT.N)%DFT.N] > db_spike3
+          && avg_db[j] - avg_db[(j-spike_wl3+DFT.N)%DFT.N] > db_spike3
+          && avg_db[j] - avg_db[(j+spike_wl3+DFT.N)%DFT.N] > db_spike3
+          && avg_db[j] - avg_db[(j+spike_wl5+DFT.N)%DFT.N] > db_spike3
            ) {
-            sum_db[j] = (sum_db[(j-spike_wl3+DFT.N)%DFT.N]+sum_db[(j+spike_wl3+DFT.N)%DFT.N])/2.0;
+            avg_db[j] = (avg_db[(j-spike_wl3+DFT.N)%DFT.N]+avg_db[(j+spike_wl3+DFT.N)%DFT.N])/2.0;
         }
     }
 
     for (j = 0; j < DFT.N; j++) {
         float sum = 0.0;
-        for (n = j-(dn-1)/2; n <= j+(dn-1)/2; n++) sum += sum_db[(n + DFT.N) % DFT.N];
+        for (n = j-(dn-1)/2; n <= j+(dn-1)/2; n++) sum += avg_db[(n + DFT.N) % DFT.N];
         sum /= (float)dn;
         intdb[j] = sum;
-        globavg += sum; // <=> sum_db[j];
+        globavg += sum; // <=> avg_db[j];
         if (sum < globmin) globmin = sum;
     }
     globavg /= (float)DFT.N;
@@ -577,7 +580,7 @@ int main(int argc, char **argv) {
         float x = intdb[(j+delay) % DFT.N];
         float a = 0.0;
 
-        if (1 || option_verbose) fprintf(fpout, "%9.6f ; %9.1f ; %10.4f", bin2fq(&DFT, j % DFT.N), bin2freq(&DFT, j % DFT.N), sum_db[j % DFT.N]);
+        if (1 || option_verbose) fprintf(fpout, "%9.6f ; %9.1f ; %10.4f", bin2fq(&DFT, j % DFT.N), bin2freq(&DFT, j % DFT.N), avg_db[j % DFT.N]);
         if (1 || option_verbose) fprintf(fpout, " ; %10.4f", intdb[j % DFT.N]);
 
         a = 0.0;
@@ -592,7 +595,7 @@ int main(int argc, char **argv) {
 
         sympeak = 0.0;
         for (n = 1; n <= dn3; n++) {
-        sympeak += (sum_db[(j+n) % DFT.N]-globmin)*(sum_db[(j-n + DFT.N) % DFT.N]-globmin);
+        sympeak += (avg_db[(j+n) % DFT.N]-globmin)*(avg_db[(j-n + DFT.N) % DFT.N]-globmin);
         }
         sympeak = sqrt(abs(sympeak)/(float)dn3);  // globmin > min
 
