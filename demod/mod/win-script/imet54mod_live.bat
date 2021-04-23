@@ -1,0 +1,1 @@
+sox.exe -q -t waveaudio "CABLE Output" -t wav - 2>nul | imet54mod.exe --ecc -r | tee -a imet54_raw_%date:~-4,4%%date:~-7,2%%date:~-10,2%-%time:~-11,2%%time:~-8,2%%time:~-5,2%.txt | imet54mod.exe --ecc --ptu -v --rawhex | tee -a imet54_data_%date:~-4,4%%date:~-7,2%%date:~-10,2%-%time:~-11,2%%time:~-8,2%%time:~-5,2%.txt
