@@ -40,7 +40,8 @@ typedef struct {
     i8_t crc;  // CRC check output
     i8_t ecc;  // Reed-Solomon ECC
     i8_t sat;  // GPS sat data
-    i8_t ptu;  // PTU: temperature
+    i8_t ptu;  // PTU: temperature humidity (pressure)
+    i8_t dwp;  // PTU derived: dew point
     i8_t inv;
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
@@ -91,6 +92,8 @@ typedef struct {
     float ptu_calT2[3]; // calibration T2-Hum
     float ptu_calH[2];  // calibration Hum
     float ptu_mtxH[42];
+    float ptu_corHp[3];
+    float ptu_corHt[12];
     float ptu_Cf1;
     float ptu_Cf2;
     float ptu_calP[25];
@@ -354,7 +357,7 @@ static int frametype(gpx_t *gpx) { // -4..+4: 0xF0 -> -4 , 0x0F -> +4
     return ft;
 }
 
-static int get_FrameNb(gpx_t *gpx, int ofs) {
+static int get_FrameNb(gpx_t *gpx, int crc, int ofs) {
     int i;
     unsigned byte;
     ui8_t frnr_bytes[2];
@@ -435,7 +438,7 @@ static int get_FrameConf(gpx_t *gpx, int ofs) {
 
     err = crc;
     err |= get_SondeID(gpx, crc, ofs);
-    err |= get_FrameNb(gpx, ofs);
+    err |= get_FrameNb(gpx, crc, ofs);
     err |= get_BattVolts(gpx, ofs);
 
     if (crc == 0) {
@@ -487,6 +490,12 @@ static int get_CalData(gpx_t *gpx) {
     for (j = 0; j < 42; j++) {  // 0x07*0x10+13 = 0x07D = 125
         memcpy(gpx->ptu_mtxH+j, gpx->calibytes+125+4*j, 4);
     }
+    for (j = 0; j <  3; j++) {  // 0x2A*0x10+6 = 0x2A6 = 678
+        memcpy(gpx->ptu_corHp+j, gpx->calibytes+678+4*j, 4);
+    }
+    for (j = 0; j < 12; j++) {  // 0x2B*0x10+A = 0x2BA = 698
+        memcpy(gpx->ptu_corHt+j, gpx->calibytes+698+4*j, 4);
+    }
     // cf. DF9DQ or stsst/RS-fork
     memcpy(gpx->ptu_calP+0,  gpx->calibytes+606, 4); // 0x25*0x10+14 = 0x25E
     memcpy(gpx->ptu_calP+4,  gpx->calibytes+610, 4); // ..
@@ -527,7 +536,7 @@ static float get_T(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float *ptu_co, fl
 // rel.hum., capacitor
 // (data:) ftp://ftp-cdc.dwd.de/climate_environment/CDC/observations_germany/radiosondes/
 // (diffAlt: Ellipsoid-Geoid)
-// (note: humidity sensor has significant time lag at low temperatures)
+// (note: humidity sensor has significant time-lag at low temperatures)
 static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     float a0 = 7.5;                    // empirical
     float a1 = 350.0/gpx->ptu_calH[0]; // empirical
@@ -564,8 +573,8 @@ static float vaporSatP(float Tc) {
 
     return (float)p; // [Pa]
 }
-// cf. github DF9DQ  // offset stratosphere RH2(-60C)=+5% , RH2(-40C)=+1% ?
-static float get_RH2adv(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T, float TH) {
+// cf. github DF9DQ
+static float get_RH2adv(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T, float TH, float P) {
     float rh  = 0.0;
     float cfh = (f-f1)/(float)(f2-f1);
     float cap = gpx->ptu_Cf1+(gpx->ptu_Cf2-gpx->ptu_Cf1)*cfh;
@@ -578,8 +587,31 @@ static float get_RH2adv(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T, flo
 
     bk = 1.0;
     for (k = 0; k < 6; k++) {
-        b[k] = bk;
+        b[k] = bk;  // Tp^k
         bk *= Trh_20_180;
+    }
+
+    if (P > 0.0) // in particular if P<200hPa , T<-40
+    {
+        double _p = P / 1000.0; // bar
+        double _cpj = 1.0;
+        double corrCp = 0.0;
+        double bt, bp[3];
+
+        for (j = 0; j < 3; j++) {
+            bp[j] = gpx->ptu_corHp[j] * (_p/(1.0 + gpx->ptu_corHp[j]*_p) - _cpj/(1.0 + gpx->ptu_corHp[j]));
+            _cpj *= Cp; // Cp^j
+        }
+
+        corrCp = 0.0;
+        for (j = 0; j < 3; j++) {
+            bt = 0.0;
+            for (k = 0; k < 4; k++) {
+                bt += gpx->ptu_corHt[4*j+k] * b[k];
+            }
+            corrCp += bp[j] * bt;
+        }
+        Cp -= corrCp;
     }
 
     aj = 1.0;
@@ -590,7 +622,7 @@ static float get_RH2adv(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T, flo
         aj *= Cp;
     }
 
-    if ( 1 ) {   // empirical correction
+    if ( P <= 0.0 ) {   // empirical correction
         float T2 = -40;
         if (T < T2) { _rh += (T-T2)/12.0; }
     }
@@ -625,9 +657,48 @@ static float get_P(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, int fx)
     return (float)p;
 }
 // ---------------------------------------------------------------------------------------
+//
+// barometric formula https://en.wikipedia.org/wiki/Barometric_formula
+static float Ph(float h) {
+    double Pb, Tb, Lb, hb;
+	//double RgM = 8.31446/(9.80665*0.0289644);
+	double gMR = 9.80665*0.0289644/8.31446;
+	float P = 0.0;
 
+    if (h > 32000.0) { //P < 8.6802
+        Pb = 8.6802;
+        Tb = 228.65;
+        Lb = 0.0028;
+        hb = 32000.0;
+    }
+    else if (h > 20000.0) { // P < 54.7489 (&& P >= 8.6802)
+        Pb = 54.7489;
+        Tb = 216.65;
+        Lb = 0.001;
+        hb = 20000.0;
+    }
+    else if (h > 11000.0) { // P < 226.321 (&& P >= 54.7489)
+        Pb = 226.321;
+        Tb = 216.65;
+        Lb = 0.0;
+        hb = 11000.0;
+    }
+    else {                 // P >= 226.321
+        Pb = 1013.25;
+        Tb = 288.15;
+        Lb = -0.0065;
+        hb = 0.0;
+    }
 
-static int get_PTU(gpx_t *gpx, int ofs, int pck) {
+    //if (Lb == 0.0) altP = -RgM*Tb * log(P/Pb) + hb;
+    //else           altP = Tb/Lb * (pow(P/Pb, -RgM*Lb)-1.0) + hb;
+    if (Lb == 0.0) P = Pb * exp( -gMR*(h-hb)/Tb );
+    else           P = Pb * pow( 1.0+Lb*(h-hb)/Tb , -gMR/Lb);
+
+    return P;
+}
+
+static int get_PTU(gpx_t *gpx, int ofs, int pck, int valid_alt) {
     int err=0, i;
     int bR, bc1, bT1,
             bc2, bT2;
@@ -661,9 +732,15 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
         bT2 = gpx->calfrchk[0x13];
         bH  = gpx->calfrchk[0x07];
 
-        bH2 = gpx->calfrchk[0x08] && gpx->calfrchk[0x09]
-           && gpx->calfrchk[0x10] && gpx->calfrchk[0x11]
-           && gpx->calfrchk[0x12] && gpx->calfrchk[0x13];
+        bH2 = gpx->calfrchk[0x07] && gpx->calfrchk[0x08]
+           && gpx->calfrchk[0x09] && gpx->calfrchk[0x0A]
+           && gpx->calfrchk[0x0B] && gpx->calfrchk[0x0C]
+           && gpx->calfrchk[0x0D] && gpx->calfrchk[0x0E]
+           && gpx->calfrchk[0x0F] && gpx->calfrchk[0x10]
+           && gpx->calfrchk[0x11] && gpx->calfrchk[0x12]
+           && gpx->calfrchk[0x2A] && gpx->calfrchk[0x2B]
+           && gpx->calfrchk[0x2C] && gpx->calfrchk[0x2D]
+           && gpx->calfrchk[0x2E];
 
         bP  = gpx->calfrchk[0x21] && gpx->calibytes[0x21F] == 'P'
            && gpx->calfrchk[0x25] && gpx->calfrchk[0x26]
@@ -685,17 +762,22 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
         }
         gpx->RH = RH;
 
-         // cf. DF9DQ, stsst/RS-fork
-        if (gpx->option.ptu == 2) {
-            if (bH && bH2 && Tc > -273.0 && TH > -273.0) {
-                RH2 = get_RH2adv(gpx, meas[3], meas[4], meas[5], Tc, TH);
-            }
-        }
-        gpx->RH2 = RH2;
+        // cf. DF9DQ, stsst/RS-fork
         if (bP) {
             P = get_P(gpx, meas[9], meas[10], meas[11], i2(gpx->frame+pos_PTU+ofs+2+38));
         }
         gpx->P = P;
+        if (gpx->option.ptu == 2) {
+            float _P = -1.0;
+            if (bP) _P = P;
+            else { // approx
+                if (valid_alt > 0) _P = Ph(gpx->alt);
+            }
+            if (bH && bH2 && Tc > -273.0 && TH > -273.0) {
+                RH2 = get_RH2adv(gpx, meas[3], meas[4], meas[5], Tc, TH, _P);
+            }
+        }
+        gpx->RH2 = RH2;
 
 
         if (gpx->option.vbs == 4 && (gpx->crc & (crc_PTU | crc_GPS3))==0)
@@ -1126,7 +1208,7 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
 
 
     if (gpx->option.ecc == 2 && (errors1 < 0 || errors2 < 0))
-    {   // 2nd pass
+    {   // 2nd pass: set packet-IDs
         gpx->frame[pos_FRAME] = (pck_FRAME>>8)&0xFF; gpx->frame[pos_FRAME+1] = pck_FRAME&0xFF;
         gpx->frame[pos_PTU]   = (pck_PTU  >>8)&0xFF; gpx->frame[pos_PTU  +1] = pck_PTU  &0xFF;
         gpx->frame[pos_GPS1]  = (pck_GPS1 >>8)&0xFF; gpx->frame[pos_GPS1 +1] = pck_GPS1 &0xFF;
@@ -1198,7 +1280,7 @@ static int prn_frm(gpx_t *gpx) {
 static int prn_ptu(gpx_t *gpx) {
     fprintf(stdout, " ");
     if (gpx->T > -273.0) fprintf(stdout, " T=%.1fC ", gpx->T);
-    if (gpx->RH > -0.5)  fprintf(stdout, " RH=%.0f%% ", gpx->RH);
+    if (gpx->RH > -0.5 && gpx->option.ptu != 2)  fprintf(stdout, " _RH=%.0f%% ", gpx->RH);
     if (gpx->P > 0.0) {
         if (gpx->P < 100.0) fprintf(stdout, " P=%.2fhPa ", gpx->P);
         else                fprintf(stdout, " P=%.1fhPa ", gpx->P);
@@ -1206,11 +1288,24 @@ static int prn_ptu(gpx_t *gpx) {
     if (gpx->option.ptu == 2) {
         if (gpx->RH2 > -0.5)  fprintf(stdout, " RH2=%.0f%% ", gpx->RH2);
     }
+
+    // dew point
+    if (gpx->option.dwp)
+    {
+        float rh = gpx->RH;
+        float Td = -273.15f; // dew point Td
+        if (gpx->option.ptu == 2) rh = gpx->RH2;
+        if (rh > 0.0f && gpx->T > -273.0f) {
+            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
+            Td = 243.04f * gamma / (17.625f - gamma);
+            fprintf(stdout, " Td=%.1fC ", Td);
+        }
+    }
     return 0;
 }
 
 static int prn_gpstime(gpx_t *gpx) {
-    Gps2Date(gpx);
+    //Gps2Date(gpx);
     fprintf(stdout, "%s ", weekday[gpx->wday]);
     fprintf(stdout, "%04d-%02d-%02d %02d:%02d:%06.3f",
             gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
@@ -1312,6 +1407,7 @@ static int print_position(gpx_t *gpx, int ec) {
     int out = 1;
     int sat = 0;
     int pos_aux = 0, cnt_aux = 0;
+    int ofs_ptu = 0, pck_ptu = 0;
     int ret = 0;
 
     //gpx->out = 0;
@@ -1366,10 +1462,11 @@ static int print_position(gpx_t *gpx, int ec) {
                             break;
 
                     case pck_PTU: // 0x7A2A
-                            ofs = pos - pos_PTU;
-                            err0 = get_PTU(gpx, ofs, pck_PTU);
-                            if ( 0 && !err0 && gpx->option.ptu ) {
-                                prn_ptu(gpx);
+                            ofs_ptu = pos - pos_PTU;
+                            pck_ptu = pck_PTU;
+                            if ( 0 && gpx->option.ptu ) {
+                                //err0 = get_PTU(gpx, ofs_ptu, pck_ptu);
+                                // if (!err0) prn_ptu(gpx);
                             }
                             break;
 
@@ -1377,6 +1474,7 @@ static int print_position(gpx_t *gpx, int ec) {
                             ofs = pos - pos_GPS1;
                             err1 = get_GPS1(gpx, ofs);
                             if ( !err1 ) {
+                                Gps2Date(gpx);
                                 if (out) prn_gpstime(gpx);
                                 if (sat) prn_sat1(gpx, ofs);
                             }
@@ -1400,8 +1498,11 @@ static int print_position(gpx_t *gpx, int ec) {
                             break;
 
                     case pck_SGM_xTU: // 0x7F1B
-                            ofs = pos - pos_PTU;
-                            err0 = get_PTU(gpx, ofs, pck);
+                            ofs_ptu = pos - pos_PTU;
+                            pck_ptu = pck;
+                            if ( 0 ) {
+                                //err0 = get_PTU(gpx, ofs_ptu, pck_ptu);
+                            }
                             break;
 
                     case pck_SGM_CRYPT: // 0x80A7
@@ -1433,9 +1534,11 @@ static int print_position(gpx_t *gpx, int ec) {
 
             if ( pos > frm_end )  // end of (sub)frame
             {
-                if (gpx->option.ptu && out && !sat && !err0 && !encrypted) {
-                    prn_ptu(gpx);
+                if (gpx->option.ptu && !sat && !encrypted && pck_ptu > 0) {
+                    err0 = get_PTU(gpx, ofs_ptu, pck_ptu, !err3);
+                    if (!err0 && out) prn_ptu(gpx);
                 }
+                pck_ptu = 0;
 
                 get_Calconf(gpx, out, ofs_cal);
 
@@ -1513,13 +1616,16 @@ static int print_position(gpx_t *gpx, int ec) {
         ofs = 0;
 
         if (pck < 0x8000) {
-            err0 = get_PTU(gpx, 0, pck);
+            //err0 = get_PTU(gpx, 0, pck, 0);
             if      (pck == pck_PTU)     ofs = 0;
             else if (pck == pck_SGM_xTU) ofs = 0x1B-0x2A;
 
             err1 = get_GPS1(gpx, ofs);
             err2 = get_GPS2(gpx, ofs);
             err3 = get_GPS3(gpx, ofs);
+            if (!err1) Gps2Date(gpx);
+
+            err0 = get_PTU(gpx, 0, pck, !err3);
 
             if (out) {
 
