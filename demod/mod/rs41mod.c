@@ -776,9 +776,12 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck, int valid_alt) {
         bT2 = gpx->calfrchk[0x13];
         bH  = gpx->calfrchk[0x07];
 
-        bH2 = gpx->calfrchk[0x08] && gpx->calfrchk[0x09]
-           && gpx->calfrchk[0x10] && gpx->calfrchk[0x11]
-           && gpx->calfrchk[0x12] && gpx->calfrchk[0x13]
+        bH2 = gpx->calfrchk[0x07] && gpx->calfrchk[0x08]
+           && gpx->calfrchk[0x09] && gpx->calfrchk[0x0A]
+           && gpx->calfrchk[0x0B] && gpx->calfrchk[0x0C]
+           && gpx->calfrchk[0x0D] && gpx->calfrchk[0x0E]
+           && gpx->calfrchk[0x0F] && gpx->calfrchk[0x10]
+           && gpx->calfrchk[0x11] && gpx->calfrchk[0x12]
            && gpx->calfrchk[0x2A] && gpx->calfrchk[0x2B]
            && gpx->calfrchk[0x2C] && gpx->calfrchk[0x2D]
            && gpx->calfrchk[0x2E];
