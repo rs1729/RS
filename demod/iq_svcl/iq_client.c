@@ -4,6 +4,27 @@
  *
  *      gcc -O2 iq_client.c -o iq_client
  *
+ *  usage:
+ *      (request IF IQ samples)
+ *      ./iq_client [--ip <ip_adr>] [--port <pn>] --freq <fq>  # -0.5 < fq < 0.5
+ *
+ *      (request FFT)
+ *      ./iq_client <fft_opt> <m> <filename>  # FFT csv output
+ *                  <fft_opt>:
+ *                             --fft_avg_cl   # client out
+ *                             --fft_all_cl   # client out
+ *                             --fft_avg_sv   # server out (if iq_server --enable_clsv_out)
+ *                             --fft_avg_sv   # server out (if iq_server --enable_clsv_out)
+ *                  <m>:
+ *                       _avg_: m avg-FFTs
+ *                       _all_: m*FFT_FPS/2 FFTs
+ *                       m = -1 : continuous FFT output
+ *                  <filename>:
+ *                              csv filename  ("-": stdout)
+ *
+ *      ./iq_client -<n>    # close client <n>
+ *      ./iq_client --stop  # close all clients, stop server
+ *
  *  author: zilog80
  */
 
@@ -49,17 +70,24 @@ int main(int argc, char *argv[]) {
             }
             else serv_port = port;
         }
-        else if (strcmp(*argv, "--fft0") == 0) {
-            sprintf(sendln, "%s", "--fft0");
-        }
-        else if (strcmp(*argv, "--fft") == 0) {
-            sprintf(sendln, "%s", "--fft");
-            ++argv;
-            if (*argv) {
-                fname_fft = *argv;
+        else if (strncmp(*argv, "--fft", 5) == 0) {
+            char *arg_fft = *argv;
+            int fft_num = 0;
+            int opt_fft_cl = 0;
+            if      (strncmp(arg_fft+5, "_avg", 4) == 0) opt_fft_cl = OPT_FFT_AVG;
+            else if (strncmp(arg_fft+5, "_all", 4) != 0) return -1;
+            if (strncmp(arg_fft+5+4, "_cl", 3) == 0) {
+                opt_fft_cl |= OPT_FFT_CLNT;
+                re = 2;
             }
+            else if (strncmp(arg_fft+5+4, "_sv", 3) == 0) opt_fft_cl |= OPT_FFT_SERV;
             else return -1;
-            re = 2;
+            ++argv;
+            if (*argv) fft_num = atoi(*argv); else return -1;
+            ++argv;
+            if (*argv) fname_fft = *argv; else return -1;
+            //sprintf(sendln, "%s_%s_%s", "--fft", (opt_fft_cl & OPT_FFT_AVG) ? "avg" : "all", (opt_fft_cl & OPT_FFT_CLNT) ? "cl" : "sv");
+            sprintf(sendln, "%s %d %s", arg_fft, fft_num, fname_fft);
         }
         else if (strcmp(*argv, "--freq") == 0) {
             ++argv;
@@ -155,7 +183,9 @@ int main(int argc, char *argv[]) {
             else if ( re == 2 )
             {
                 // fft data
-                FILE *fpo = fopen(fname_fft, "wb");
+                FILE *fpo = NULL;
+                if (fname_fft[0] == '-') fpo = stdout;
+                else fpo = fopen(fname_fft, "wb");
                 if (fpo != NULL) {
 
                     memset(recvln, 0, LINELEN+1);

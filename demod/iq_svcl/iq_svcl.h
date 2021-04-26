@@ -6,6 +6,10 @@
 #include <arpa/inet.h>
 
 
+#define OPT_FFT_SERV 1  // server
+#define OPT_FFT_CLNT 2  // server -> client
+#define OPT_FFT_AVG  0x100
+
 #define TCPBUF_LEN 1024
 #define SERV_BACKLOG 6
 
