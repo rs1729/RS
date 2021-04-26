@@ -51,6 +51,8 @@ else {
 
 my $geoid = 50.0;  ## GPS ueber Ellipsoid; Geoid-Hoehe in Europa ca 40-50m
 
+$| = 1;  ## line buffering erzwingen
+
 while ($line = <$fpi>) {
 
     print STDERR $line; ## entweder: alle Zeilen ausgeben
