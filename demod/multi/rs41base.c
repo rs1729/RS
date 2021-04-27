@@ -40,7 +40,8 @@ typedef struct {
     i8_t crc;  // CRC check output
     i8_t ecc;  // Reed-Solomon ECC
     i8_t sat;  // GPS sat data
-    i8_t ptu;  // PTU: temperature
+    i8_t ptu;  // PTU: temperature humidity (pressure)
+    i8_t dwp;  // PTU derived: dew point
     i8_t inv;
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
@@ -77,7 +78,8 @@ typedef struct {
     int std; int min; float sek;
     double lat; double lon; double alt;
     double vH; double vD; double vV;
-    float T; float RH;
+    float T; float RH; float TH;
+    float P; float RH2;
     ui32_t crc;
     ui8_t frame[FRAME_LEN];
     ui8_t calibytes[51*16];
@@ -89,6 +91,12 @@ typedef struct {
     float ptu_co2[3];   // { -243.911 , 0.187654 , 8.2e-06 }
     float ptu_calT2[3]; // calibration T2-Hum
     float ptu_calH[2];  // calibration Hum
+    float ptu_mtxH[42];
+    float ptu_corHp[3];
+    float ptu_corHt[12];
+    float ptu_Cf1;
+    float ptu_Cf2;
+    float ptu_calP[25];
     ui32_t freq;    // freq/kHz (RS41)
     int jsn_freq;   // freq/kHz (SDR)
     float batt;     // battery voltage (V)
@@ -201,6 +209,13 @@ static int i3(ui8_t *bytes) {  // 24bit signed int
 
 static ui32_t u2(ui8_t *bytes) {  // 16bit unsigned int
     return  bytes[0] | (bytes[1]<<8);
+}
+
+static int i2(ui8_t *bytes) { // 16bit signed int
+    //return (i16_t)u2(bytes);
+    int val = bytes[0] | (bytes[1]<<8);
+    if (val & 0x8000) val -= 0x10000;
+    return val;
 }
 
 /*
@@ -342,7 +357,7 @@ static int frametype(gpx_t *gpx) { // -4..+4: 0xF0 -> -4 , 0x0F -> +4
     return ft;
 }
 
-static int get_FrameNb(gpx_t *gpx, int ofs) {
+static int get_FrameNb(gpx_t *gpx, int crc, int ofs) {
     int i;
     unsigned byte;
     ui8_t frnr_bytes[2];
@@ -363,14 +378,14 @@ static int get_BattVolts(gpx_t *gpx, int ofs) {
     int i;
     unsigned byte;
     ui8_t batt_bytes[2];
-    float batt_volts;
+    ui16_t batt_volts; // signed voltage?
 
     for (i = 0; i < 2; i++) {
         byte = gpx->frame[pos_BattVolts+ofs + i];
         batt_bytes[i] = byte;
     }
-
-    batt_volts = (float)(batt_bytes[0] + (batt_bytes[1] << 8));
+                                // 2 bytes? V > 25.5 ?
+    batt_volts = batt_bytes[0]; // + (batt_bytes[1] << 8);
     gpx->batt = batt_volts/10.0;
 
     return 0;
@@ -402,6 +417,8 @@ static int get_SondeID(gpx_t *gpx, int crc, int ofs) {
             // don't reset gpx->frame[] !
             gpx->T = -273.15;
             gpx->RH = -1.0;
+            gpx->P = -1.0;
+            gpx->RH2 = -1.0;
             // new ID:
             memcpy(gpx->id, sondeid_bytes, 8);
             gpx->id[8] = '\0';
@@ -421,7 +438,7 @@ static int get_FrameConf(gpx_t *gpx, int ofs) {
 
     err = crc;
     err |= get_SondeID(gpx, crc, ofs);
-    err |= get_FrameNb(gpx, ofs);
+    err |= get_FrameNb(gpx, crc, ofs);
     err |= get_BattVolts(gpx, ofs);
 
     if (crc == 0) {
@@ -440,6 +457,8 @@ static int get_FrameConf(gpx_t *gpx, int ofs) {
 
 static int get_CalData(gpx_t *gpx) {
 
+    int j;
+
     memcpy(&(gpx->ptu_Rf1), gpx->calibytes+61, 4);  // 0x03*0x10+13
     memcpy(&(gpx->ptu_Rf2), gpx->calibytes+65, 4);  // 0x04*0x10+ 1
 
@@ -450,6 +469,7 @@ static int get_CalData(gpx_t *gpx) {
     memcpy(gpx->ptu_calT1+0, gpx->calibytes+89, 4);  // 0x05*0x10+ 9
     memcpy(gpx->ptu_calT1+1, gpx->calibytes+93, 4);  // 0x05*0x10+13
     memcpy(gpx->ptu_calT1+2, gpx->calibytes+97, 4);  // 0x06*0x10+ 1
+    // ptu_calT1[3..6]
 
     memcpy(gpx->ptu_calH+0, gpx->calibytes+117, 4);  // 0x07*0x10+ 5
     memcpy(gpx->ptu_calH+1, gpx->calibytes+121, 4);  // 0x07*0x10+ 9
@@ -461,82 +481,236 @@ static int get_CalData(gpx_t *gpx) {
     memcpy(gpx->ptu_calT2+0, gpx->calibytes+305, 4);  // 0x13*0x10+ 1
     memcpy(gpx->ptu_calT2+1, gpx->calibytes+309, 4);  // 0x13*0x10+ 5
     memcpy(gpx->ptu_calT2+2, gpx->calibytes+313, 4);  // 0x13*0x10+ 9
+    // ptu_calT2[3..6]
+
+
+    // cf. DF9DQ
+    memcpy(&(gpx->ptu_Cf1), gpx->calibytes+69, 4);  // 0x04*0x10+ 5
+    memcpy(&(gpx->ptu_Cf2), gpx->calibytes+73, 4);  // 0x04*0x10+ 9
+    for (j = 0; j < 42; j++) {  // 0x07*0x10+13 = 0x07D = 125
+        memcpy(gpx->ptu_mtxH+j, gpx->calibytes+125+4*j, 4);
+    }
+    for (j = 0; j <  3; j++) {  // 0x2A*0x10+6 = 0x2A6 = 678
+        memcpy(gpx->ptu_corHp+j, gpx->calibytes+678+4*j, 4);
+    }
+    for (j = 0; j < 12; j++) {  // 0x2B*0x10+A = 0x2BA = 698
+        memcpy(gpx->ptu_corHt+j, gpx->calibytes+698+4*j, 4);
+    }
+    // cf. DF9DQ or stsst/RS-fork
+    memcpy(gpx->ptu_calP+0,  gpx->calibytes+606, 4); // 0x25*0x10+14 = 0x25E
+    memcpy(gpx->ptu_calP+4,  gpx->calibytes+610, 4); // ..
+    memcpy(gpx->ptu_calP+8,  gpx->calibytes+614, 4);
+    memcpy(gpx->ptu_calP+12, gpx->calibytes+618, 4);
+    memcpy(gpx->ptu_calP+16, gpx->calibytes+622, 4);
+    memcpy(gpx->ptu_calP+20, gpx->calibytes+626, 4);
+    memcpy(gpx->ptu_calP+24, gpx->calibytes+630, 4);
+    memcpy(gpx->ptu_calP+1,  gpx->calibytes+634, 4);
+    memcpy(gpx->ptu_calP+5,  gpx->calibytes+638, 4);
+    memcpy(gpx->ptu_calP+9,  gpx->calibytes+642, 4);
+    memcpy(gpx->ptu_calP+13, gpx->calibytes+646, 4);
+    memcpy(gpx->ptu_calP+2,  gpx->calibytes+650, 4);
+    memcpy(gpx->ptu_calP+6,  gpx->calibytes+654, 4);
+    memcpy(gpx->ptu_calP+10, gpx->calibytes+658, 4);
+    memcpy(gpx->ptu_calP+14, gpx->calibytes+662, 4);
+    memcpy(gpx->ptu_calP+3,  gpx->calibytes+666, 4);
+    memcpy(gpx->ptu_calP+7,  gpx->calibytes+670, 4); // ..
+    memcpy(gpx->ptu_calP+11, gpx->calibytes+674, 4); // 0x2A*0x10+ 2
 
     return 0;
 }
 
-/*
-static float get_Tc0(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
-    // y  = (f - f1) / (f2 - f1);
-    // y1 = (f - f1) / f2; // = (1 - f1/f2)*y
-    float a =  3.9083e-3, // Pt1000 platinum resistance
-          b = -5.775e-7,
-          c = -4.183e-12; // below 0C, else C=0
-    float *cal = gpx->ptu_calT1;
-    float Rb = (f1*gpx->ptu_Rf2-f2*gpx->ptu_Rf1)/(f2-f1), // ofs
-          Ra = f * (gpx->ptu_Rf2-gpx->ptu_Rf1)/(f2-f1) - Rb,
-          raw = Ra/1000.0,
-          g_r = 0.8024*cal[0] + 0.0176,  // empirisch
-          r_o = 0.0705*cal[1] + 0.0011,  // empirisch
-          r = raw * g_r + r_o,
-          t = (-a + sqrt(a*a + 4*b*(r-1)))/(2*b); // t>0: c=0
-    // R/R0 = 1 + at + bt^2 + c(t-100)t^3 , R0 = 1000 Ohm, t/Celsius
-    return t;
-}
-*/
-// T_RH-sensor
-static float get_TH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
-    float *p = gpx->ptu_co2;
-    float *c  = gpx->ptu_calT2;
+// temperature, platinum resistor
+// T-sensor:    gpx->ptu_co1 , gpx->ptu_calT1
+// T_RH-sensor: gpx->ptu_co2 , gpx->ptu_calT2
+static float get_T(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float *ptu_co, float *ptu_calT) {
+    float *p = ptu_co;
+    float *c = ptu_calT;
     float  g = (float)(f2-f1)/(gpx->ptu_Rf2-gpx->ptu_Rf1),       // gain
           Rb = (f1*gpx->ptu_Rf2-f2*gpx->ptu_Rf1)/(float)(f2-f1), // ofs
           Rc = f/g - Rb,
-          //R = (Rc + c[1]) * c[0],
-          //T = p[0] + p[1]*R + p[2]*R*R;
           R = Rc * c[0],
           T = (p[0] + p[1]*R + p[2]*R*R + c[1])*(1.0 + c[2]);
-    return T;
-}
-// T-sensor, platinum resistor
-static float get_Tc(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2) {
-    float *p = gpx->ptu_co1;
-    float *c  = gpx->ptu_calT1;
-    float  g = (float)(f2-f1)/(gpx->ptu_Rf2-gpx->ptu_Rf1),       // gain
-          Rb = (f1*gpx->ptu_Rf2-f2*gpx->ptu_Rf1)/(float)(f2-f1), // ofs
-          Rc = f/g - Rb,
-          //R = (Rc + c[1]) * c[0],
-          //T = p[0] + p[1]*R + p[2]*R*R;
-          R = Rc * c[0],
-          T = (p[0] + p[1]*R + p[2]*R*R + c[1])*(1.0 + c[2]);
-    return T;
+    return T; // [Celsius]
 }
 
 // rel.hum., capacitor
 // (data:) ftp://ftp-cdc.dwd.de/climate_environment/CDC/observations_germany/radiosondes/
 // (diffAlt: Ellipsoid-Geoid)
+// (note: humidity sensor has significant time-lag at low temperatures)
 static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     float a0 = 7.5;                    // empirical
     float a1 = 350.0/gpx->ptu_calH[0]; // empirical
     float fh = (f-f1)/(float)(f2-f1);
     float rh = 100.0 * ( a1*fh - a0 );
-    float T0 = 0.0, T1 = -25.0; // T/C
-    rh += T0 - T/5.5;                    // empir. temperature compensation
-    if (T < T1) rh *= 1.0 + (T1-T)/90.0; // empir. temperature compensation
+    float T0 = 0.0, T1 = -20.0, T2 = -40.0; // T/C    v0.4
+    rh += T0 - T/5.5;                       // empir. temperature compensation
+    if (T < T1) rh *= 1.0 + (T1-T)/100.0;   // empir. temperature compensation
+    if (T < T2) rh *= 1.0 + (T2-T)/120.0;   // empir. temperature compensation
     if (rh < 0.0) rh = 0.0;
     if (rh > 100.0) rh = 100.0;
     if (T < -273.0) rh = -1.0;
     return rh;
 }
 
-static int get_PTU(gpx_t *gpx, int ofs, int pck) {
+// ---------------------------------------------------------------------------------------
+//
+// cf. github DF9DQ
+// water vapor saturation pressure (Hyland and Wexler)
+static float vaporSatP(float Tc) {
+    double T = Tc + 273.15;
+
+    // Apply some correction magic
+    // T = -0.4931358 + (1.0 + 4.61e-3) * T - 1.3746454e-5 * T*T + 1.2743214e-8 * T*T*T;
+
+    // H+W equation
+    double p = expf(-5800.2206 / T
+                    +1.3914993
+                    +6.5459673 * log(T)
+                    -4.8640239e-2 * T
+                    +4.1764768e-5 * T*T
+                    -1.4452093e-8 * T*T*T
+                   );
+
+    return (float)p; // [Pa]
+}
+// cf. github DF9DQ
+static float get_RH2adv(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T, float TH, float P) {
+    float rh  = 0.0;
+    float cfh = (f-f1)/(float)(f2-f1);
+    float cap = gpx->ptu_Cf1+(gpx->ptu_Cf2-gpx->ptu_Cf1)*cfh;
+    double Cp = (cap / gpx->ptu_calH[0] - 1.0) * gpx->ptu_calH[1];
+    double Trh_20_180 = (TH - 20.0) / 180.0;
+    double _rh = 0.0;
+    double aj = 1.0;
+    double bk = 1.0, b[6];
+    int j, k;
+
+    bk = 1.0;
+    for (k = 0; k < 6; k++) {
+        b[k] = bk;  // Tp^k
+        bk *= Trh_20_180;
+    }
+
+    if (P > 0.0) // in particular if P<200hPa , T<-40
+    {
+        double _p = P / 1000.0; // bar
+        double _cpj = 1.0;
+        double corrCp = 0.0;
+        double bt, bp[3];
+
+        for (j = 0; j < 3; j++) {
+            bp[j] = gpx->ptu_corHp[j] * (_p/(1.0 + gpx->ptu_corHp[j]*_p) - _cpj/(1.0 + gpx->ptu_corHp[j]));
+            _cpj *= Cp; // Cp^j
+        }
+
+        corrCp = 0.0;
+        for (j = 0; j < 3; j++) {
+            bt = 0.0;
+            for (k = 0; k < 4; k++) {
+                bt += gpx->ptu_corHt[4*j+k] * b[k];
+            }
+            corrCp += bp[j] * bt;
+        }
+        Cp -= corrCp;
+    }
+
+    aj = 1.0;
+    for (j = 0; j < 7; j++) {
+        for (k = 0; k < 6; k++) {
+            _rh += aj * b[k] * gpx->ptu_mtxH[6*j+k];
+        }
+        aj *= Cp;
+    }
+
+    if ( P <= 0.0 ) {   // empirical correction
+        float T2 = -40;
+        if (T < T2) { _rh += (T-T2)/12.0; }
+    }
+
+    rh = _rh * vaporSatP(TH)/vaporSatP(T);
+
+    if (rh < 0.0) rh = 0.0;
+    if (rh > 100.0) rh = 100.0;
+    return rh;
+}
+//
+// cf. github DF9DQ or stsst/RS-fork
+static float get_P(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, int fx)
+{
+    double p = 0.0;
+    double a0, a1, a0j, a1k;
+    int j, k;
+    if (f1 == f2 || f1 == f) return 0.0;
+    a0 = gpx->ptu_calP[24] / ((float)(f - f1) / (float)(f2 - f1));
+    a1 = fx * 0.01;
+
+    a0j = 1.0;
+    for (j = 0; j < 6; j++) {
+        a1k = 1.0;
+        for (k = 0; k < 4; k++) {
+            p += a0j * a1k * gpx->ptu_calP[j*4+k];
+            a1k *= a1;
+        }
+        a0j *= a0;
+    }
+
+    return (float)p;
+}
+// ---------------------------------------------------------------------------------------
+//
+// barometric formula https://en.wikipedia.org/wiki/Barometric_formula
+static float Ph(float h) {
+    double Pb, Tb, Lb, hb;
+	//double RgM = 8.31446/(9.80665*0.0289644);
+	double gMR = 9.80665*0.0289644/8.31446;
+	float P = 0.0;
+
+    if (h > 32000.0) { //P < 8.6802
+        Pb = 8.6802;
+        Tb = 228.65;
+        Lb = 0.0028;
+        hb = 32000.0;
+    }
+    else if (h > 20000.0) { // P < 54.7489 (&& P >= 8.6802)
+        Pb = 54.7489;
+        Tb = 216.65;
+        Lb = 0.001;
+        hb = 20000.0;
+    }
+    else if (h > 11000.0) { // P < 226.321 (&& P >= 54.7489)
+        Pb = 226.321;
+        Tb = 216.65;
+        Lb = 0.0;
+        hb = 11000.0;
+    }
+    else {                 // P >= 226.321
+        Pb = 1013.25;
+        Tb = 288.15;
+        Lb = -0.0065;
+        hb = 0.0;
+    }
+
+    //if (Lb == 0.0) altP = -RgM*Tb * log(P/Pb) + hb;
+    //else           altP = Tb/Lb * (pow(P/Pb, -RgM*Lb)-1.0) + hb;
+    if (Lb == 0.0) P = Pb * exp( -gMR*(h-hb)/Tb );
+    else           P = Pb * pow( 1.0+Lb*(h-hb)/Tb , -gMR/Lb);
+
+    return P;
+}
+
+static int get_PTU(gpx_t *gpx, int ofs, int pck, int valid_alt) {
     int err=0, i;
     int bR, bc1, bT1,
             bc2, bT2;
     int bH;
+    int bH2;
+    int bP;
     ui32_t meas[12];
     float Tc = -273.15;
     float TH = -273.15;
     float RH = -1.0;
+    float RH2 = -1.0;
+    float P = -1.0;
 
     get_CalData(gpx);
 
@@ -558,20 +732,52 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
         bT2 = gpx->calfrchk[0x13];
         bH  = gpx->calfrchk[0x07];
 
+        bH2 = gpx->calfrchk[0x07] && gpx->calfrchk[0x08]
+           && gpx->calfrchk[0x09] && gpx->calfrchk[0x0A]
+           && gpx->calfrchk[0x0B] && gpx->calfrchk[0x0C]
+           && gpx->calfrchk[0x0D] && gpx->calfrchk[0x0E]
+           && gpx->calfrchk[0x0F] && gpx->calfrchk[0x10]
+           && gpx->calfrchk[0x11] && gpx->calfrchk[0x12]
+           && gpx->calfrchk[0x2A] && gpx->calfrchk[0x2B]
+           && gpx->calfrchk[0x2C] && gpx->calfrchk[0x2D]
+           && gpx->calfrchk[0x2E];
+
+        bP  = gpx->calfrchk[0x21] && gpx->calibytes[0x21F] == 'P'
+           && gpx->calfrchk[0x25] && gpx->calfrchk[0x26]
+           && gpx->calfrchk[0x27] && gpx->calfrchk[0x28]
+           && gpx->calfrchk[0x29] && gpx->calfrchk[0x2A];
+
         if (bR && bc1 && bT1) {
-            Tc = get_Tc(gpx, meas[0], meas[1], meas[2]);
-            //Tc0 = get_Tc0(gpx, meas[0], meas[1], meas[2]);
+            Tc = get_T(gpx, meas[0], meas[1], meas[2], gpx->ptu_co1, gpx->ptu_calT1);
         }
         gpx->T = Tc;
 
         if (bR && bc2 && bT2) {
-            TH = get_TH(gpx, meas[6], meas[7], meas[8]);
+            TH = get_T(gpx, meas[6], meas[7], meas[8], gpx->ptu_co2, gpx->ptu_calT2);
         }
+        gpx->TH = TH;
 
-        if (bH) {
+        if (bH && Tc > -273.0) {
             RH = get_RH(gpx, meas[3], meas[4], meas[5], Tc); // TH, TH-Tc (sensorT - T)
         }
         gpx->RH = RH;
+
+        // cf. DF9DQ, stsst/RS-fork
+        if (bP) {
+            P = get_P(gpx, meas[9], meas[10], meas[11], i2(gpx->frame+pos_PTU+ofs+2+38));
+        }
+        gpx->P = P;
+        if (gpx->option.ptu == 2) {
+            float _P = -1.0;
+            if (bP) _P = P;
+            else { // approx
+                if (valid_alt > 0) _P = Ph(gpx->alt);
+            }
+            if (bH && bH2 && Tc > -273.0 && TH > -273.0) {
+                RH2 = get_RH2adv(gpx, meas[3], meas[4], meas[5], Tc, TH, _P);
+            }
+        }
+        gpx->RH2 = RH2;
 
 
         if (gpx->option.vbs == 4 && (gpx->crc & (crc_PTU | crc_GPS3))==0)
@@ -585,7 +791,7 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
             printf("3: %8d %8d %8d", meas[6], meas[7], meas[8]);
             printf("   #   ");
 
-            //if (Tc > -273.0 && RH > -0.5)
+            if (0 && Tc > -273.0 && RH > -0.5)
             {
                 printf("  ");
                 printf(" Tc:%.2f ", Tc);
@@ -696,6 +902,7 @@ static int get_GPS2(gpx_t *gpx, int ofs) {
     return err;
 }
 
+// WGS84/GRS80 Ellipsoid
 #define EARTH_a  6378137.0
 #define EARTH_b  6356752.31424518
 #define EARTH_a2_b2  (EARTH_a*EARTH_a - EARTH_b*EARTH_b)
@@ -889,10 +1096,10 @@ static int get_Calconf(gpx_t *gpx, int out, int ofs) {
             byte = gpx->frame[pos_CalData+ofs+1+i];
             fprintf(stdout, "%02x ", byte);
         }
-/*
+        /*
         if (err == 0) fprintf(stdout, "[OK]");
         else          fprintf(stdout, "[NO]");
-*/
+        */
         fprintf(stdout, " ");
     }
 
@@ -1001,7 +1208,7 @@ static int rs41_ecc(gpx_t *gpx, int frmlen) {
 
 
     if (gpx->option.ecc == 2 && (errors1 < 0 || errors2 < 0))
-    {   // 2nd pass
+    {   // 2nd pass: set packet-IDs
         gpx->frame[pos_FRAME] = (pck_FRAME>>8)&0xFF; gpx->frame[pos_FRAME+1] = pck_FRAME&0xFF;
         gpx->frame[pos_PTU]   = (pck_PTU  >>8)&0xFF; gpx->frame[pos_PTU  +1] = pck_PTU  &0xFF;
         gpx->frame[pos_GPS1]  = (pck_GPS1 >>8)&0xFF; gpx->frame[pos_GPS1 +1] = pck_GPS1 &0xFF;
@@ -1073,12 +1280,32 @@ static int prn_frm(gpx_t *gpx) {
 static int prn_ptu(gpx_t *gpx) {
     fprintf(stdout, " ");
     if (gpx->T > -273.0) fprintf(stdout, " T=%.1fC ", gpx->T);
-    if (gpx->RH > -0.5)  fprintf(stdout, " RH=%.0f%% ", gpx->RH);
+    if (gpx->RH > -0.5 && gpx->option.ptu != 2)  fprintf(stdout, " _RH=%.0f%% ", gpx->RH);
+    if (gpx->P > 0.0) {
+        if (gpx->P < 100.0) fprintf(stdout, " P=%.2fhPa ", gpx->P);
+        else                fprintf(stdout, " P=%.1fhPa ", gpx->P);
+    }
+    if (gpx->option.ptu == 2) {
+        if (gpx->RH2 > -0.5)  fprintf(stdout, " RH2=%.0f%% ", gpx->RH2);
+    }
+
+    // dew point
+    if (gpx->option.dwp)
+    {
+        float rh = gpx->RH;
+        float Td = -273.15f; // dew point Td
+        if (gpx->option.ptu == 2) rh = gpx->RH2;
+        if (rh > 0.0f && gpx->T > -273.0f) {
+            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
+            Td = 243.04f * gamma / (17.625f - gamma);
+            fprintf(stdout, " Td=%.1fC ", Td);
+        }
+    }
     return 0;
 }
 
 static int prn_gpstime(gpx_t *gpx) {
-    Gps2Date(gpx);
+    //Gps2Date(gpx);
     fprintf(stdout, "%s ", weekday[gpx->wday]);
     fprintf(stdout, "%04d-%02d-%02d %02d:%02d:%06.3f",
             gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
@@ -1154,7 +1381,7 @@ static int prn_sat3(gpx_t *gpx, int ofs) {
     pDOP = gpx->frame[pos_pDOP+ofs]/10.0; if (gpx->frame[pos_pDOP+ofs] == 0xFF) pDOP = -1.0;
     fprintf(stdout, "numSatsFix: %2d  sAcc: %.1f  pDOP: %.1f\n", numSV, sAcc, pDOP);
 
-/*
+    /*
     fprintf(stdout, "CRC: ");
     fprintf(stdout, " %04X", pck_GPS1);
     if (check_CRC(gpx, pos_GPS1+ofs, pck_GPS1)==0) fprintf(stdout, "[OK]"); else fprintf(stdout, "[NO]");
@@ -1167,12 +1394,12 @@ static int prn_sat3(gpx_t *gpx, int ofs) {
     //fprintf(stdout, "[%+d]", check_CRC(gpx, pos_GPS3, pck_GPS3));
 
     fprintf(stdout, "\n");
-*/
+    */
     return 0;
 }
 
 static int print_position(gpx_t *gpx, int ec) {
-    int i, j;
+    int i;
     int err, err0, err1, err2, err3;
     //int output, out_mask;
     int encrypted = 0;
@@ -1180,6 +1407,7 @@ static int print_position(gpx_t *gpx, int ec) {
     int out = 1;
     int sat = 0;
     int pos_aux = 0, cnt_aux = 0;
+    int ofs_ptu = 0, pck_ptu = 0;
     int ret = 0;
 
     //gpx->out = 0;
@@ -1234,10 +1462,11 @@ static int print_position(gpx_t *gpx, int ec) {
                             break;
 
                     case pck_PTU: // 0x7A2A
-                            ofs = pos - pos_PTU;
-                            err0 = get_PTU(gpx, ofs, pck_PTU);
-                            if ( 0 && !err0 && gpx->option.ptu ) {
-                                prn_ptu(gpx);
+                            ofs_ptu = pos - pos_PTU;
+                            pck_ptu = pck_PTU;
+                            if ( 0 && gpx->option.ptu ) {
+                                //err0 = get_PTU(gpx, ofs_ptu, pck_ptu);
+                                // if (!err0) prn_ptu(gpx);
                             }
                             break;
 
@@ -1245,6 +1474,7 @@ static int print_position(gpx_t *gpx, int ec) {
                             ofs = pos - pos_GPS1;
                             err1 = get_GPS1(gpx, ofs);
                             if ( !err1 ) {
+                                Gps2Date(gpx);
                                 if (out) prn_gpstime(gpx);
                                 if (sat) prn_sat1(gpx, ofs);
                             }
@@ -1268,8 +1498,11 @@ static int print_position(gpx_t *gpx, int ec) {
                             break;
 
                     case pck_SGM_xTU: // 0x7F1B
-                            ofs = pos - pos_PTU;
-                            err0 = get_PTU(gpx, ofs, pck);
+                            ofs_ptu = pos - pos_PTU;
+                            pck_ptu = pck;
+                            if ( 0 ) {
+                                //err0 = get_PTU(gpx, ofs_ptu, pck_ptu);
+                            }
                             break;
 
                     case pck_SGM_CRYPT: // 0x80A7
@@ -1301,9 +1534,11 @@ static int print_position(gpx_t *gpx, int ec) {
 
             if ( pos > frm_end )  // end of (sub)frame
             {
-                if (gpx->option.ptu && out && !sat && !err0 && !encrypted) {
-                    prn_ptu(gpx);
+                if (gpx->option.ptu && !sat && !encrypted && pck_ptu > 0) {
+                    err0 = get_PTU(gpx, ofs_ptu, pck_ptu, !err3);
+                    if (!err0 && out) prn_ptu(gpx);
                 }
+                pck_ptu = 0;
 
                 get_Calconf(gpx, out, ofs_cal);
 
@@ -1325,11 +1560,18 @@ static int print_position(gpx_t *gpx, int ec) {
                         fprintf(stdout, "{ \"type\": \"%s\"", "RS41");
                         fprintf(stdout, ", \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"bt\": %d, \"batt\": %.2f",
                                        gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV, gpx->conf_cd, gpx->batt );
-                        if (gpx->option.ptu && !err0 && gpx->T > -273.0) {
-                            fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
-                        }
-                        if (gpx->option.ptu && !err0 && gpx->RH > -0.5) {
-                            fprintf(stdout, ", \"humidity\": %.1f",  gpx->RH );
+                        if (gpx->option.ptu && !err0) {
+                            float _RH = gpx->RH;
+                            if (gpx->option.ptu == 2) _RH = gpx->RH2;
+                            if (gpx->T > -273.0) {
+                                fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
+                            }
+                            if (_RH > -0.5) {
+                                fprintf(stdout, ", \"humidity\": %.1f",  _RH );
+                            }
+                            if (gpx->P > 0.0) {
+                                fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
+                            }
                         }
                         if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
                             fprintf(stdout, ", \"aux\": \"%s\"",  gpx->xdata );
@@ -1374,13 +1616,16 @@ static int print_position(gpx_t *gpx, int ec) {
         ofs = 0;
 
         if (pck < 0x8000) {
-            err0 = get_PTU(gpx, 0, pck);
+            //err0 = get_PTU(gpx, 0, pck, 0);
             if      (pck == pck_PTU)     ofs = 0;
             else if (pck == pck_SGM_xTU) ofs = 0x1B-0x2A;
 
             err1 = get_GPS1(gpx, ofs);
             err2 = get_GPS2(gpx, ofs);
             err3 = get_GPS3(gpx, ofs);
+            if (!err1) Gps2Date(gpx);
+
+            err0 = get_PTU(gpx, 0, pck, !err3);
 
             if (out) {
 
@@ -1464,11 +1709,16 @@ static void print_frame(gpx_t *gpx, int len, dsp_t *dsp) {
         fprintf(stdout, "\n");
     }
     else {
-        pthread_mutex_lock( dsp->thd.mutex );
-        fprintf(stdout, "<%d> ", dsp->thd.tn);
+        pthread_mutex_lock( dsp->thd->mutex );
+        //fprintf(stdout, "<%d> ", dsp->thd->tn);
+        fprintf(stdout, "<%d: ", dsp->thd->tn);
+        fprintf(stdout, "s=%+.4f, ", dsp->mv);
+        fprintf(stdout, "f=%+.4f", -dsp->thd->xlt_fq);
+        if (dsp->opt_dc) fprintf(stdout, "%+.6f", dsp->Df/(double)dsp->sr);
+        fprintf(stdout, ">  ");
         ret = print_position(gpx, ec);
         if (ret==0) fprintf(stdout, "\n");
-        pthread_mutex_unlock( dsp->thd.mutex );
+        pthread_mutex_unlock( dsp->thd->mutex );
     }
 }
 
@@ -1518,7 +1768,7 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     // init gpx
 
     gpx.option.vbs = 1;
-    gpx.option.ptu = 1;
+    gpx.option.ptu = 2;
     gpx.option.aut = 1;
     gpx.option.jsn = tharg->option_jsn;
 
@@ -1546,7 +1796,7 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.dectaps = pcm->dectaps;
     dsp.decM = pcm->decM;
 
-    dsp.thd = tharg->thd;
+    dsp.thd = &(tharg->thd);
 
     dsp.bps = pcm->bps;
     dsp.nch = pcm->nch;
@@ -1564,17 +1814,18 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.opt_lp = 1;
     dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 6e3; // FM audio lowpass
-    dsp.opt_dc = tharg->option_dc;
+    dsp.opt_dc  = tharg->option_dc;
+    dsp.opt_cnt = tharg->option_cnt;
 
     if ( dsp.sps < 8 ) {
-        fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
+        //fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
     }
 
 
     k = init_buffers(&dsp); // BT=0.5  (IQ-Int: BT > 0.5 ?)
     if ( k < 0 ) {
         fprintf(stderr, "error: init buffers\n");
-        return NULL;
+        goto exit_thread;
     };
 
     //if (option_iq: 2,3) bitofs += 1; // FM: +1 , IQ: +2, IQ5: +1
@@ -1634,6 +1885,9 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
 
     free_buffers(&dsp);
 
+exit_thread:
+    reset_blockread(&dsp);
+    (dsp.thd)->used = 0;
 
     return NULL;
 }

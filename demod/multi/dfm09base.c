@@ -772,21 +772,26 @@ static int print_frame(gpx_t *gpx, dsp_t *dsp) {
         if (ret1 == 0 || ret1 > 0) {
             frid = dat_out(gpx, block_dat1, ret1);
             if (frid == 8) {
-                pthread_mutex_lock( dsp->thd.mutex );
-                fprintf(stdout, "<%d> ", dsp->thd.tn);
+                pthread_mutex_lock( dsp->thd->mutex );
+                fprintf(stdout, "<%d> ", dsp->thd->tn);
                 ret1 = print_gpx(gpx);
                 if (ret1==0) fprintf(stdout, "\n");
-                pthread_mutex_unlock( dsp->thd.mutex );
+                pthread_mutex_unlock( dsp->thd->mutex );
             }
         }
         if (ret2 == 0 || ret2 > 0) {
             frid = dat_out(gpx, block_dat2, ret2);
             if (frid == 8) {
-                pthread_mutex_lock( dsp->thd.mutex );
-                fprintf(stdout, "<%d> ", dsp->thd.tn);
+                pthread_mutex_lock( dsp->thd->mutex );
+                //fprintf(stdout, "<%d> ", dsp->thd->tn);
+                fprintf(stdout, "<%d: ", dsp->thd->tn);
+                fprintf(stdout, "s=%+.4f, ", dsp->mv);
+                fprintf(stdout, "f=%+.4f", -dsp->thd->xlt_fq);
+                if (dsp->opt_dc) fprintf(stdout, "%+.6f", dsp->Df/(double)dsp->sr);
+                fprintf(stdout, ">  ");
                 ret2 = print_gpx(gpx);
                 if (ret2==0) fprintf(stdout, "\n");
-                pthread_mutex_unlock( dsp->thd.mutex );
+                pthread_mutex_unlock( dsp->thd->mutex );
             }
         }
 
@@ -879,7 +884,7 @@ void *thd_dfm09(void *targs) {
     dsp.dectaps = pcm->dectaps;
     dsp.decM = pcm->decM;
 
-    dsp.thd = tharg->thd;
+    dsp.thd = &(tharg->thd);
 
     dsp.bps = pcm->bps;
     dsp.nch = pcm->nch;
@@ -897,17 +902,18 @@ void *thd_dfm09(void *targs) {
     dsp.opt_lp = 1;
     dsp.lpIQ_bw = 12e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 4e3; // FM audio lowpass
-    dsp.opt_dc = tharg->option_dc;
+    dsp.opt_dc  = tharg->option_dc;
+    dsp.opt_cnt = tharg->option_cnt;
 
     if ( dsp.sps < 8 ) {
-        fprintf(stderr, "note: sample rate low\n");
+        //fprintf(stderr, "note: sample rate low\n");
     }
 
 
     k = init_buffers(&dsp);
     if ( k < 0 ) {
         fprintf(stderr, "error: init buffers\n");
-        return NULL;
+        goto exit_thread;
     };
 
 
@@ -975,6 +981,9 @@ void *thd_dfm09(void *targs) {
 
     free_buffers(&dsp);
 
+exit_thread:
+    reset_blockread(&dsp);
+    (dsp.thd)->used = 0;
 
     return NULL;
 }
