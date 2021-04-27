@@ -8,7 +8,7 @@ import matplotlib.ticker as ticker
 
 if len(sys.argv) < 2:
     print("usage:")
-    print("\tpython %s <fft_file>" % sys.argv[0])
+    print("\tpython %s <fft_file.csv>" % sys.argv[0])
     sys.exit()
 
 fft_file = sys.argv[1]
@@ -18,10 +18,17 @@ if not os.path.isfile(fft_file):
     sys.exit()
 
 
-data = np.genfromtxt( fft_file, delimiter=';', names=['fq','db'] , skip_header=1 )
+raw_data = np.genfromtxt( fft_file, delimiter=',', max_rows=1)
+data1 = raw_data[:] # max_rows=2: raw_data[0,:]
+print(data1)
 
-fq   = data['fq']
-db   = data['db']
+db = data1[5:]
+
+sr = -2.0*data1[1]
+
+freq_min = data1[1] / sr
+freq_max = data1[2] / sr
+fq   = np.arange(freq_min, freq_max, 1.0/(data1[4]+1))
 
 N = len(db)
 m = np.mean(db)

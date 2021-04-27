@@ -7,6 +7,24 @@
  *
  *      (gcc -O2 iq_client.c -o iq_client)
  *
+ *  usage:
+ *      ./iq_server [--enable_clsv_out] [--port <pn>] [iq_baseband.wav]
+ *                  no wav-file: stdin
+ *
+ *      ./iq_server [--bo <b>] - <sr> <bs> [iq_baseband.raw]
+ *                  <b>=8,16,32 bit client/IF output
+ *
+ *      ./iq_server <fft_opt> <m> <filename> [iq_baseband.wav]  # FFT csv output
+ *                  <fft_opt>:
+ *                             --fft_avg
+ *                             --fft_all
+ *                  <m>:
+ *                       _avg: m avg-FFTs
+ *                       _all: m*FFT_FPS/2 FFTs
+ *                       m = -1 : continuous FFT output
+ *                  <filename>:
+ *                              csv filename  ("-": stdout)
+ *
  *  author: zilog80
  */
 
@@ -27,13 +45,13 @@
 #include "iq_svcl.h"
 #include "iq_base.h"
 
+#define FFT_AVG 2  // fft_avg: integrate FFT_AVG seconds, 2*FFT_FPS FFTs
+#define FFT_FPS 16 // fft_all: output (ca.) FFT_FPS/2 per sec
+
 #define FPOUT stderr
 
-#define OPT_FFT_SERV 1  // server
-#define OPT_FFT_CLSV 2  // server (client request)
-#define OPT_FFT_CLNT 3  // server -> client
-
 static int option_dbg = 0;
+static int option_clsv_out = 0;
 
 static int tcp_eof = 0;
 
@@ -275,21 +293,82 @@ static void *thd_IF(void *targs) { // pcm_t *pcm, double xlt_fq
     return NULL;
 }
 
-#define FFT_SEC 2
-#define FFT_FPS 20
+
+static int fft_txt_prn(FILE *fpo, dft_t *dft, float *db) {
+    int j;
+
+    fprintf(fpo, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dft->sr, dft->N);
+    for (j = dft->N/2; j < dft->N/2 + dft->N; j++) {
+        fprintf(fpo, "%+11.8f;%7.2f\n", bin2fq(dft, j % dft->N), db[j % dft->N]);
+    }
+
+    return 0;
+}
+
+static int fft_txt_tcp(int fd, dft_t *dft, float *db) {
+    char sendln[LINELEN+1];
+    int sendln_len;
+    int j, l;
+
+    snprintf(sendln, LINELEN, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dft->sr, dft->N);
+    sendln_len = strlen(sendln);
+    l = write(fd, sendln, sendln_len);
+    for (j = dft->N/2; j < dft->N/2 + dft->N; j++) {
+        memset(sendln, 0, LINELEN+1);
+        snprintf(sendln, LINELEN, "%+11.8f;%7.2f\n", bin2fq(dft, j % dft->N), db[j % dft->N]);
+        sendln_len = strlen(sendln);
+        l = write(fd, sendln, sendln_len);
+    }
+
+    return 0;
+}
+
+
+static int fft_csv_prn(FILE *fpo, dft_t *dft, float *db, double t_sec) {
+    int j;
+
+    fprintf(fpo, "%7.3f, ", t_sec);
+    fprintf(fpo, "%d, %d, ", (int)bin2freq(dft, dft->N/2), (int)bin2freq(dft, dft->N/2 - 1));
+    fprintf(fpo, "%.2f, ", dft->sr/(double)dft->N);
+    fprintf(fpo, "%d, ", dft->N);
+    for (j = dft->N/2; j < dft->N/2 + dft->N; j++) {
+        fprintf(fpo, "%7.2f%c", db[j % dft->N], j < dft->N/2 + dft->N-1 ? ',' : '\n');
+    }
+
+    return 0;
+}
+
+static int fft_csv_tcp(int fd, dft_t *dft, float *db, double t_sec) {
+    char sendln[LINELEN+1];
+    int sendln_len;
+    int j, l;
+
+    snprintf(sendln, LINELEN, "%7.3f, %d, %d, %.2f, %d, ",
+             t_sec, (int)bin2freq(dft, dft->N/2), (int)bin2freq(dft, dft->N/2 - 1), dft->sr/(double)dft->N, dft->N);
+    sendln_len = strlen(sendln);
+    l = write(fd, sendln, sendln_len);
+    for (j = dft->N/2; j < dft->N/2 + dft->N; j++) {
+        memset(sendln, 0, LINELEN+1);
+        snprintf(sendln, LINELEN, "%7.2f%c", db[j % dft->N], j < dft->N/2 + dft->N-1 ? ',' : '\n');
+        sendln_len = strlen(sendln);
+        l = write(fd, sendln, sendln_len);
+    }
+
+    return 0;
+}
+
 
 static void *thd_FFT(void *targs) {
 
     thargs_t *tharg = targs;
     pcm_t *pcm = &(tharg->pcm);
 
-    FILE *fpo = NULL;
-    char *fname_fft = "db_fft.txt";
-
     int k;
     int bitQ = 0;
 
     float complex *z = NULL;
+    float *db     = NULL;
+    float *all_rZ = NULL;
     float *avg_rZ = NULL;
     float *avg_db = NULL;
 
@@ -312,7 +391,6 @@ static void *thd_FFT(void *targs) {
     dsp.bps_out = pcm->bps_out;
 
 
-    //(dsp.thd)->fft = 1;
     if (option_dbg) {
         fprintf(stderr, "init FFT buffers\n");
     }
@@ -326,6 +404,8 @@ static void *thd_FFT(void *targs) {
 
     z = calloc(dsp.decM+1, sizeof(float complex));  if (z  == NULL) goto exit_thread;
 
+    db     = calloc(dsp.DFT.N+1, sizeof(float));  if (db     == NULL) goto exit_thread;
+    all_rZ = calloc(dsp.DFT.N+1, sizeof(float));  if (all_rZ == NULL) goto exit_thread;
     avg_rZ = calloc(dsp.DFT.N+1, sizeof(float));  if (avg_rZ == NULL) goto exit_thread;
     avg_db = calloc(dsp.DFT.N+1, sizeof(float));  if (avg_db == NULL) goto exit_thread;
 
@@ -334,11 +414,15 @@ static void *thd_FFT(void *targs) {
     int len = dsp.DFT.N / dsp.decM;
     int mlen = len*dsp.decM;
     int sum_n = 0;
-    int sec = FFT_SEC;
-    int fft_step = dsp.sr_base/(dsp.DFT.N*FFT_FPS);
+    int sum_fft = 0;
+    int avg_sec = FFT_AVG;
+    int fft_step = (int)(dsp.sr_base/(double)(dsp.DFT.N*FFT_FPS) + 0.5);
     int n_fft = 0;
     int th_used = 0;
     int readSamples = 1;
+
+    int n_out = 0;
+
 
     bitQ = 0;
     while ( bitQ != EOF )
@@ -367,65 +451,95 @@ static void *thd_FFT(void *targs) {
             n++;
             if (n == len) { // mlen = len * decM <= DFT.N
 
-                n_fft += 1;
-
-                if ((dsp.thd)->fft && sum_n*n_fft*mlen < sec*dsp.sr_base && n_fft >= fft_step)
+                if ( (dsp.thd)->fft )
                 {
-                    for (j = 0; j < mlen; j++) {
-                        dsp.DFT.Z[j] *= dsp.DFT.win[j];
+                    if ((dsp.thd)->fft_num == 0)
+                    {
+                        if ( tharg->fpo ) { fclose(tharg->fpo); tharg->fpo = NULL; }
+                        else if ( tharg->fd > STDIN_FILENO ) { close(tharg->fd); tharg->fd = -1; }
+
+                        (dsp.thd)->fft = 0;
                     }
-                    while (j < dsp.DFT.N) dsp.DFT.Z[j++] = 0.0; // dft(Z[...]) != 0
 
-                    raw_dft(&(dsp.DFT), dsp.DFT.Z);
+                    n_fft += 1;
 
-                    for (j = 0; j < dsp.DFT.N; j++) avg_rZ[j] += cabs(dsp.DFT.Z[j]);
+                    if (sum_n*n_fft*mlen < avg_sec*dsp.sr_base && n_fft >= fft_step) {
+                        n_fft = fft_step;
 
-                    sum_n++;
-                    n_fft = 0;
-                }
-                if (sum_n*fft_step*mlen >= sec*dsp.sr_base) {
-
-                    for (j = 0; j < dsp.DFT.N; j++) avg_rZ[j] /= dsp.DFT.N*(float)sum_n;
-                    for (j = 0; j < dsp.DFT.N; j++) avg_db[j] = 20.0*log10(avg_rZ[j]+1e-20);
-
-
-                    pthread_mutex_lock( (dsp.thd)->mutex );
-                    fprintf(FPOUT, "<%d: FFT>\n", (dsp.thd)->tn);
-                    pthread_mutex_unlock( (dsp.thd)->mutex );
-
-                    if ( (dsp.thd)->fft == OPT_FFT_CLNT ) { // send FFT data to client
-                        char sendln[LINELEN+1];
-                        int sendln_len;
-                        int l;
-                        snprintf(sendln, LINELEN, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dsp.DFT.sr, dsp.DFT.N);
-                        sendln_len = strlen(sendln);
-                        l = write(tharg->fd, sendln, sendln_len);
-                        for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
-                            memset(sendln, 0, LINELEN+1);
-                            snprintf(sendln, LINELEN, "%+11.8f;%7.2f\n", bin2fq(&(dsp.DFT), j % dsp.DFT.N), avg_db[j % dsp.DFT.N]);
-                            sendln_len = strlen(sendln);
-                            l = write(tharg->fd, sendln, sendln_len);
+                        if (sum_fft == 0) {
+                            pthread_mutex_lock( (dsp.thd)->mutex );
+                            fprintf(FPOUT, "<%d: FFT_START>\n", (dsp.thd)->tn);
+                            pthread_mutex_unlock( (dsp.thd)->mutex );
                         }
-                    }
-                    else { // save FFT at server
-                        if ( (dsp.thd)->fft == OPT_FFT_SERV )  fname_fft = tharg->fname;
-                        else                /* OPT_FFT_CLSV */ fname_fft = "db_fft_cl.txt";
-                        fpo = fopen(fname_fft, "wb");
-                        if (fpo != NULL) {
-                            fprintf(fpo, "# <freq/sr>;<dB>  ##  sr:%d , N:%d\n", dsp.DFT.sr, dsp.DFT.N);
-                            for (j = dsp.DFT.N/2; j < dsp.DFT.N/2 + dsp.DFT.N; j++) {
-                                fprintf(fpo, "%+11.8f;%7.2f\n", bin2fq(&(dsp.DFT), j % dsp.DFT.N), avg_db[j % dsp.DFT.N]);
+
+                        for (j = 0; j < mlen; j++) {
+                            dsp.DFT.Z[j] *= dsp.DFT.win[j];
+                        }
+                        while (j < dsp.DFT.N) dsp.DFT.Z[j++] = 0.0; // dft(Z[...]) != 0
+
+                        raw_dft(&(dsp.DFT), dsp.DFT.Z);
+
+                        for (j = 0; j < dsp.DFT.N; j++) {
+                            float rZ = cabs(dsp.DFT.Z[j]);
+                            avg_rZ[j] += rZ;
+                            all_rZ[j] += rZ;
+                        }
+
+                        if ( (sum_fft&1)==1 && ((dsp.thd)->fft & OPT_FFT_AVG) == 0 ) {
+                            double t_sec = sum_fft*n_fft*mlen / (double)dsp.sr_base;
+                            for (j = 0; j < dsp.DFT.N; j++) {                      // if sum_fft odd,
+                                db[j] = 20.0*log10(0.5*all_rZ[j]/dsp.DFT.N+1e-20); // 0.5: rZ_0+rZ_1
+                                all_rZ[j] = 0.0f;
                             }
-                            fclose(fpo);
+                            // sec.ms, freq_min, freq_max, Hz/bin, N_bins, db_1, ..., db_N
+                            if ( tharg->fpo ) { // save FFT at server
+                                fft_csv_prn(tharg->fpo, &(dsp.DFT), db, t_sec);
+                            }
+                            else if ( tharg->fd > STDIN_FILENO ) {
+                                fft_csv_tcp(tharg->fd, &(dsp.DFT), db, t_sec);
+                            }
                         }
-                        else {
-                            fprintf(stderr, "error: open %s\n", fname_fft);
-                        }
-                    }
-                    if ( (dsp.thd)->fft != OPT_FFT_SERV ) close(tharg->fd);
 
-                    (dsp.thd)->fft = 0;
-                    sum_n = 0;
+                        sum_n++;
+                        sum_fft++;
+                        n_fft = 0;
+                    }
+                    if (sum_n*fft_step*mlen >= avg_sec*dsp.sr_base) {
+                        float nN = 1.0/(dsp.DFT.N*(float)sum_n);
+                        for (j = 0; j < dsp.DFT.N; j++) {
+                            avg_db[j] = 20.0*log10(nN*avg_rZ[j]+1e-20);
+                            avg_rZ[j] = 0.0f;
+                        }
+
+                        if ( (dsp.thd)->fft & OPT_FFT_AVG ) {
+                            double t_sec = sum_fft*fft_step*mlen / (double)dsp.sr_base;
+                            if ( tharg->fpo ) { // send FFT data to client
+                                fft_csv_prn(tharg->fpo, &(dsp.DFT), avg_db, t_sec);
+                            }
+                            else if ( tharg->fd > STDIN_FILENO ) {
+                                fft_csv_tcp(tharg->fd, &(dsp.DFT), avg_db, t_sec);
+                            }
+                        }
+
+                        n_out++;
+
+                        if ((dsp.thd)->fft_num > 0 && n_out >= (dsp.thd)->fft_num)
+                        {
+                            if ( tharg->fpo ) { fclose(tharg->fpo); tharg->fpo = NULL; }
+                            else if ( tharg->fd > STDIN_FILENO ) { close(tharg->fd); tharg->fd = -1; }
+
+                            (dsp.thd)->fft = 0;
+                            sum_fft = 0;
+                            n_out = 0;
+
+                            pthread_mutex_lock( (dsp.thd)->mutex );
+                            fprintf(FPOUT, "<%d: FFT_STOP>\n", (dsp.thd)->tn);
+                            pthread_mutex_unlock( (dsp.thd)->mutex );
+
+                        }
+
+                        sum_n = 0;
+                    }
                 }
 
                 #ifdef FFT_READ_SINK_MIN
@@ -445,12 +559,39 @@ static void *thd_FFT(void *targs) {
 
         if ( (dsp.thd)->used == 0 )
         {
+            (dsp.thd)->fft = 0;
             pthread_mutex_lock( (dsp.thd)->mutex );
             fprintf(FPOUT, "<%d: CLOSE>\n", (dsp.thd)->tn);
             pthread_mutex_unlock( (dsp.thd)->mutex );
             break;
         }
 
+        if ( (dsp.thd)->stop_fft > 0 )
+        {
+            if ( tharg->fpo ) { fclose(tharg->fpo); tharg->fpo = NULL; }
+            else if ( tharg->fd > STDIN_FILENO ) { close(tharg->fd); tharg->fd = -1; }
+
+            (dsp.thd)->fft = 0;
+            (dsp.thd)->stop_fft = 0;
+            sum_fft = 0;
+            sum_n = 0;
+            n_out = 0;
+
+            pthread_mutex_lock( (dsp.thd)->mutex );
+            fprintf(FPOUT, "<%d: STOP_FFT>\n", (dsp.thd)->tn);
+            pthread_mutex_unlock( (dsp.thd)->mutex );
+        }
+    }
+
+    if ((dsp.thd)->fft_num < 0)
+    {
+        if ( tharg->fpo ) { fclose(tharg->fpo); tharg->fpo = NULL; }
+        else if ( tharg->fd > STDIN_FILENO ) { close(tharg->fd); tharg->fd = -1; }
+        (dsp.thd)->fft = 0;
+
+        pthread_mutex_lock( (dsp.thd)->mutex );
+        fprintf(FPOUT, "<%d: FFT_STOP>\n", (dsp.thd)->tn);
+        pthread_mutex_unlock( (dsp.thd)->mutex );
     }
 
     if (bitQ == EOF) {
@@ -465,6 +606,8 @@ static void *thd_FFT(void *targs) {
   exit_thread:
 
     if (z) { free(z); z = NULL; }
+    if (db) { free(db); db = NULL; }
+    if (all_rZ) { free(all_rZ); all_rZ = NULL; }
     if (avg_rZ) { free(avg_rZ); avg_rZ = NULL; }
     if (avg_db) { free(avg_db); avg_db = NULL; }
 
@@ -496,6 +639,8 @@ int main(int argc, char **argv) {
     char tcp_buf[TCPBUF_LEN];
     int th_used = 0;
     int tn_fft = -1;
+    int opt_fft = 0;
+    int fft_num = 0;
 
     pcm_t pcm = {0};
 
@@ -510,10 +655,14 @@ int main(int argc, char **argv) {
 
     for (k = 0; k < MAX_FQ; k++) base_fqs[k] = 0.0;
 
+    // server options
     ++argv;
     while ((*argv) && (!wavloaded)) {
         if (strcmp(*argv, "--dbg") == 0) {
             option_dbg = 1;
+        }
+        else if (strcmp(*argv, "--enable_clsv_out") == 0) {
+            option_clsv_out = 1;
         }
         else if (strcmp(*argv, "--port") == 0) {
             int port = 0;
@@ -524,13 +673,19 @@ int main(int argc, char **argv) {
             }
             else serv_port = port;
         }
-        else if (strcmp(*argv, "--fft") == 0) {
+        else if (strncmp(*argv, "--fft", 5) == 0) {
+            char *arg_fft = *argv;
+            if      (strncmp(arg_fft+5, "_avg", 4) == 0) opt_fft = OPT_FFT_SERV | OPT_FFT_AVG;
+            else if (strncmp(arg_fft+5, "_all", 4) == 0) opt_fft = OPT_FFT_SERV;
+            else return -1;
             if (xlt_cnt < MAX_FQ) {
                 base_fqs[xlt_cnt] = 0.0;
                 rstype[xlt_cnt] = thd_FFT;
                 tn_fft = xlt_cnt;
                 xlt_cnt++;
             }
+            ++argv;
+            if (*argv) fft_num = atoi(*argv); else return -1;
             ++argv;
             if (*argv) fname_fft = *argv; else return -1;
         }
@@ -597,8 +752,21 @@ int main(int argc, char **argv) {
 
     for (k = 0; k < xlt_cnt; k++) {
         if (k == tn_fft) {
-            tharg[k].thd.fft = OPT_FFT_SERV;
+            tharg[k].thd.fft = opt_fft;
             tharg[k].fname = fname_fft;
+            tharg[k].thd.fft_num = fft_num;
+            tharg[k].thd.stop_fft = 0;
+
+            if ( (tharg[k].thd.fft & 0xF) == OPT_FFT_SERV ) { // save FFT at server
+                if (fname_fft) {
+                    if (fname_fft[0] == '-') tharg[k].fpo = stdout;
+                    else tharg[k].fpo = fopen(fname_fft, "wb");
+                }
+                else return -1;
+                if (tharg[k].fpo == NULL) {
+                    fprintf(stderr, "error: open %s\n", fname_fft);
+                }
+            }
         }
         tharg[k].thd.tn = k;
         tharg[k].thd.tn_bit = (1<<k);
@@ -686,6 +854,7 @@ int main(int argc, char **argv) {
         //if (th_used == 0) break;
 
 
+        // client commands
         if ( l > 1 ) {
             char *freq = tcp_buf;
             while (l > 1 && tcp_buf[l-1] < 0x20) l--;
@@ -701,23 +870,76 @@ int main(int argc, char **argv) {
                     break;
                 }
                 else if ( strncmp(tcp_buf, "--fft", 5) == 0 ) {
+                    opt_fft = 0;
+                    if      (strncmp(tcp_buf+5, "_avg", 4) == 0) opt_fft = OPT_FFT_AVG;
+                    else if (strncmp(tcp_buf+5, "_all", 4) != 0) return -1;
+                    if      (strncmp(tcp_buf+5+4, "_cl", 3) == 0) opt_fft |= OPT_FFT_CLNT;
+                    else if (strncmp(tcp_buf+5+4, "_sv", 3) == 0) {
+                        if (option_clsv_out) opt_fft |= OPT_FFT_SERV;
+                        else {
+                            pthread_mutex_lock( &mutex );
+                            fprintf(FPOUT, "<NO CLSV OUT>\n");
+                            pthread_mutex_unlock( &mutex );
+                            close(conn_fd);
+                            continue;
+                        }
+                    }
+                    else return -1;
+                    if (tcp_buf+5+4+4) fft_num = atoi(tcp_buf+5+4+4); else fft_num = 0;
                     char *fname_fft_cl = "db_fft_cl.txt";
-                    int opt_fft = strcmp(tcp_buf, "--fft0") == 0 ? OPT_FFT_CLSV : OPT_FFT_CLNT;
-                    //close(conn_fd);
+                    char *pbuf = tcp_buf;
+                    for (pbuf = tcp_buf+5+4+4; *pbuf; pbuf++) {
+                        if (*pbuf == ' ') break;
+                    }
+                    if (*pbuf == ' ') {
+                        fname_fft_cl = pbuf+1;
+                    }
                     if ( !tcp_eof )
                     {
                         if (tn_fft >= 0) {
-                            tharg[tn_fft].thd.fft = opt_fft;
-                            tharg[tn_fft].fname = fname_fft_cl;
-                            tharg[tn_fft].fd = conn_fd;
+                            if (tharg[tn_fft].thd.fft == 0) {
+                                tharg[tn_fft].thd.fft_num = fft_num;
+                                tharg[tn_fft].thd.stop_fft = 0;
+                                tharg[tn_fft].fname = fname_fft_cl;
+                                tharg[tn_fft].fd = conn_fd;
+
+                                if ( (opt_fft & 0xF) == OPT_FFT_SERV ) { // save FFT at server
+                                    if (fname_fft_cl) {
+                                        if (fname_fft_cl[0] == '-') tharg[tn_fft].fpo = stdout;
+                                        else tharg[tn_fft].fpo = fopen(fname_fft_cl, "wb");
+                                    }
+                                    else return -1;
+                                    if (tharg[tn_fft].fpo == NULL) {
+                                        fprintf(stderr, "error: open %s\n", fname_fft_cl);
+                                    }
+                                    close(tharg[tn_fft].fd); tharg[tn_fft].fd = -1; // tharg[tn_fft].fd == conn_fd
+                                }
+                                else { // (opt_fft & 0xF) == OPT_FFT_CLNT : send FFT to client
+                                    tharg[tn_fft].fpo = NULL;
+                                }
+
+                                tharg[tn_fft].thd.fft = opt_fft;
+                            }
+                            else {
+                                pthread_mutex_lock( &mutex );
+                                fprintf(FPOUT, "<%d: FFT running>\n", tn_fft);
+                                pthread_mutex_unlock( &mutex );
+
+                                close(conn_fd);
+                            }
                         }
                         else {
                             for (k = 0; k < MAX_FQ; k++) {
-                                if (tharg[k].thd.used == 0) break;
+                                if (tharg[k].thd.used == 0) {
+                                    if (k != tn_fft) break;
+                                }
                             }
                             if (k < MAX_FQ) {
-                                tharg[k].thd.fft = opt_fft;
+                                tharg[k].thd.fft_num = fft_num;
+                                tharg[k].thd.stop_fft = 0;
                                 tharg[k].fname = fname_fft_cl;
+                                tharg[k].fd = conn_fd;
+
                                 tn_fft = k;
                                 tharg[k].thd.tn = k;
                                 tharg[k].thd.tn_bit = (1<<k);
@@ -726,12 +948,26 @@ int main(int argc, char **argv) {
                                 //tharg[k].thd.lock = &lock;
                                 tharg[k].thd.blk = block_decMB;
                                 tharg[k].thd.xlt_fq = 0.0;
-
                                 tharg[k].pcm = pcm;
-                                tharg[k].fd = conn_fd;
+
+                                if ( (opt_fft & 0xF) == OPT_FFT_SERV ) { // save FFT at server
+                                    if (fname_fft_cl) {
+                                        if (fname_fft_cl[0] == '-') tharg[k].fpo = stdout;
+                                        else tharg[k].fpo = fopen(fname_fft_cl, "wb");
+                                    }
+                                    else return -1;
+                                    if (tharg[k].fpo == NULL) {
+                                        fprintf(stderr, "error: open %s\n", fname_fft_cl);
+                                    }
+                                    close(tharg[k].fd); tharg[k].fd = -1; // tharg[k].fd == conn_fd
+                                }
+                                else { // (opt_fft & 0xF) == OPT_FFT_CLNT : send FFT to client
+                                    tharg[k].fpo = NULL;
+                                }
 
                                 rbf1 |= tharg[k].thd.tn_bit;
                                 tharg[k].thd.used = 1;
+                                tharg[k].thd.fft = opt_fft;
 
                                 pthread_create(&tharg[k].thd.tid, NULL, thd_FFT, &tharg[k]);
 
@@ -753,8 +989,13 @@ int main(int argc, char **argv) {
                 else if (tcp_buf[0] == '-') { // -<n> : close <n>
                     int num = atoi(tcp_buf+1);
                     if (num >= 0 && num < MAX_FQ) {
-                        if (num != tn_fft) {
+                        if (num != tn_fft)
+                        {
                             tharg[num].thd.used = 0;
+                        }
+                        else
+                        {
+                            tharg[num].thd.stop_fft = 1;
                         }
                     }
                     close(conn_fd);
@@ -789,6 +1030,7 @@ int main(int argc, char **argv) {
                 rbf1 |= tharg[k].thd.tn_bit;
                 tharg[k].thd.used = 1;
                 tharg[k].thd.fft = 0;
+                tharg[k].thd.stop_fft = 0;
 
                 pthread_create(&tharg[k].thd.tid, NULL, thd_IF, &tharg[k]);
 
