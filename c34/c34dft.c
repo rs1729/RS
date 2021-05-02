@@ -2,40 +2,59 @@
 /*
    C34
    (empfohlen: sample rate 48kHz)
+   gcc c34dft.c -lm -o c34dft
 */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <complex.h>
 #include <math.h>
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
+
+
 typedef  unsigned char  ui8_t;
 
-int option_verbose = 0,
-    option_raw = 0,
-    option_dft = 0,
-    wavloaded = 0;
+static int  option_verbose = 0,
+            option_raw = 0,
+            option_ptu = 0,
+            option_dft = 0,
+            option_json = 0,
+            wavloaded = 0;
 
 
 typedef struct {
-    int frnr;
+    //int frnr;
+    int sn;
     int jahr; int monat; int tag;
     int std; int min; int sek;
-    double lat; double lon; double h;
+    float lat; float lon; float alt;
     unsigned chk;
+    float T; float RH;
+    int jsn_freq;   // freq/kHz (SDR)
 } gpx_t;
 
-gpx_t gpx;
+static gpx_t gpx;
 
 /* ------------------------------------------------------------------------------------ */
 
 
 #define BAUD_RATE 2400
 
-int sample_rate = 0, bits_sample = 0, channels = 0;
+static unsigned int sample_rate = 0;
+static int bits_sample = 0, channels = 0;
 //float samples_per_bit = 0;
 
-int findstr(char *buff, char *str, int pos) {
+static int findstr(char *buff, char *str, int pos) {
     int i;
     for (i = 0; i < 4; i++) {
         if (buff[(pos+i)%4] != str[i]) break;
@@ -43,7 +62,7 @@ int findstr(char *buff, char *str, int pos) {
     return i;
 }
 
-int read_wav_header(FILE *fp) {
+static int read_wav_header(FILE *fp) {
     char txt[4+1] = "\0\0\0\0";
     unsigned char dat[4];
     int byte, p=0;
@@ -100,8 +119,9 @@ int read_wav_header(FILE *fp) {
 }
 
 #define EOF_INT  0x1000000
+static unsigned int sample_count;
 
-int read_signed_sample(FILE *fp) {  // int = i32_t
+static int read_signed_sample(FILE *fp) {  // int = i32_t
     int byte, i, ret;         //  EOF -> 0x1000000
 
     for (i = 0; i < channels; i++) {
@@ -135,31 +155,31 @@ int read_signed_sample(FILE *fp) {  // int = i32_t
 #define LEN_BITFRAME  84  // 7*(4+8)
 #define HEADLEN 28
 
-char header[] = "1110000000001110111111111110";
-char buf[HEADLEN+1] = "x";
-int bufpos = -1;
-char headerstr[] = "1110 00000000 1110 11111111";
+static char header[] = "1110000000001110111111111110";
+static char buf[HEADLEN+1] = "x";
+static int bufpos = -1;
+static char headerstr[] = "1110 00000000 1110 11111111";
 
-int    bitpos;
-ui8_t  bits[LEN_BITFRAME+1] = { 1, 1, 1, 0};
-ui8_t  bytes[LEN_BITFRAME/BITS];
+static int    bitpos;
+static ui8_t  bits[LEN_BITFRAME+1] = { 1, 1, 1, 0};
+static ui8_t  bytes[LEN_BITFRAME/BITS];
 
-double x[N];
-double complex  Z[N], w[N], expw[N][N], ew[N*N];
+static float  x[N];
+static float complex  Z[N], w[N], expw[N][N], ew[N*N];
 
-int    ptr;
-double Hann[N], buffer[N+1], xn[N];
+static int    ptr;
+static float  Hann[N], buffer[N+1], xn[N];
 
 
-void init_dft() {
+static void init_dft() {
     int i, k, n;
 
     for (i = 0; i < N; i++)     Hann[i] = 0;
-    for (i = 0; i < WLEN; i++)  Hann[i] = 0.5 * (1 - cos( 2 * M_PI * i / (double)(WLEN-1) ) );
-                              //Hann[i+(N-1-WLEN)/2] = 0.5 * (1 - cos( 2 * M_PI * i / (double)(WLEN-1) ) );
+    for (i = 0; i < WLEN; i++)  Hann[i] = 0.5 * (1 - cos( 2 * M_PI * i / (float)(WLEN-1) ) );
+                              //Hann[i+(N-1-WLEN)/2] = 0.5 * (1 - cos( 2 * M_PI * i / (float)(WLEN-1) ) );
 
     for (k = 0; k < N; k++) {
-        w[k] = -I*2*M_PI * k / (double)N;
+        w[k] = -I*2*M_PI * k / (float)N;
         for (n = 0; n < N; n++) {
             expw[k][n] = cexp( w[k] * n );
             ew[k*n] = expw[k][n];
@@ -168,9 +188,9 @@ void init_dft() {
 }
 
 
-double dft_k(int k) {
+static float dft_k(int k) {
     int n;
-    double complex  Zk;
+    float complex  Zk;
 
     Zk = 0;
     for (n = 0; n < N; n++) {
@@ -179,7 +199,7 @@ double dft_k(int k) {
     return cabs(Zk);
 }
 
-void dft() {
+static void dft() {
     int k, n;
 
     for (k = 0; k < N/2; k++) {  // xn reell, brauche nur N/2 unten
@@ -190,12 +210,12 @@ void dft() {
     }
 }
 
-void dft2() {
+static void dft2() {
     int s, l, l2, i, j, k;
-    double complex  w1, w2, T;
+    float complex  w1, w2, T;
 
     for (i = 0; i < N; i++) {
-        Z[i] = (double complex)xn[i];
+        Z[i] = (float complex)xn[i];
     }
 
     j = 1;
@@ -216,8 +236,8 @@ void dft2() {
     for (s = 0; s < LOG2N; s++) {
         l2 = 1 << s;
         l  = l2 << 1;
-        w1 = (double complex)1.0;
-        w2 = cexp(-I*M_PI/(double)l2);
+        w1 = (float complex)1.0;
+        w2 = cexp(-I*M_PI/(float)l2);
         for (j = 1; j <= l2; j++) {
             for (i = j; i <= N; i += l) {
                 k = i + l2;
@@ -230,9 +250,9 @@ void dft2() {
     }
 }
 
-int max_bin() {
+static int max_bin() {
     int k, kmax;
-    double max;
+    float max;
 
     max = 0; kmax = 0;
     for (k = 0; k < N/2-1; k++) {
@@ -245,22 +265,22 @@ int max_bin() {
     return kmax;
 }
 
-double freq2bin(int f) {
-    return  f * N / (double)sample_rate;
+static float freq2bin(int f) {
+    return  f * N / (float)sample_rate;
 }
 
-int bin2freq(int k) {
+static int bin2freq(int k) {
     return  sample_rate * k / N;
 }
 
 /* ------------------------------------------------------------------------------------ */
 
 
-void inc_bufpos() {
+static void inc_bufpos() {
   bufpos = (bufpos+1) % HEADLEN;
 }
 
-int compare() {
+static int compare() {
     int i=0, j = bufpos;
 
     while (i < HEADLEN) {
@@ -272,7 +292,7 @@ int compare() {
     return i;
 }
 
-int bits2bytes(ui8_t bits[], ui8_t bytes[]) {
+static int bits2bytes(ui8_t bits[], ui8_t bytes[]) {
     int i, j, byteval=0, d=1;
 
     for (j = 0; j < 7; j++) {
@@ -288,26 +308,60 @@ int bits2bytes(ui8_t bits[], ui8_t bytes[]) {
     return 0;
 }
 
-void printGPX() {
+static void printGPX() {
     int i;
 
-        printf(" %4d-%02d-%02d", gpx.jahr, gpx.monat, gpx.tag);
-        printf(" %2d:%02d:%02d", gpx.std, gpx.min, gpx.sek);
+        if (gpx.sn) printf("( %d ) ", gpx.sn);
+        printf(" %04d-%02d-%02d", gpx.jahr, gpx.monat, gpx.tag);
+        printf(" %02d:%02d:%02d", gpx.std, gpx.min, gpx.sek);
         printf(" ");
-        printf(" lat: %.5f°", gpx.lat);
-        printf(" lon: %.5f°", gpx.lon);
-        printf(" h: %.1fm", gpx.h);
+        printf(" lat: %.5f", gpx.lat);
+        printf(" lon: %.5f", gpx.lon);
+        printf(" alt: %.1f", gpx.alt);
+
+        if (option_ptu && (gpx.T > -273.0 || gpx.RH > -0.5)) {
+            printf(" ");
+            if (gpx.T > -273.0) printf(" T=%.1fC", gpx.T);
+            //if (gpx.RH > -0.5) printf(" RH=%.0f%%", gpx.RH);
+        }
 
         if (option_verbose) {
             printf("  # ");
             for (i = 0; i < 5; i++) printf("%d", (gpx.chk>>i)&1);
+            if (option_ptu) for (i = 6; i < 7; i++) printf("%d", (gpx.chk>>i)&1);
         }
 
         printf("\n");
 }
 
+static void printJSON() {
+    // UTC or GPS time ?
+    char *ver_jsn = NULL;
+    char json_sonde_id[] = "C34-xxxx\0\0\0\0\0\0\0";
+    if (gpx.sn) {
+        sprintf(json_sonde_id, "C34-%u", gpx.sn);
+    }
+    printf("{ \"type\": \"%s\"", "C34");
+    printf(", \"id\": \"%s\", ", json_sonde_id);
+    printf("\"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.1f",
+           gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt);
+    if (option_ptu && (gpx.T > -273.0 || gpx.RH > -0.5)) {
+        if (gpx.T > -273.0) printf(", \"temp\": %.1f", gpx.T);
+        //if (gpx.RH > -0.5) printf(", \"humidity\": %.1f", gpx.RH);
+    }
+    if (gpx.jsn_freq > 0) {
+        printf(", \"freq\": %d", gpx.jsn_freq);
+    }
+    #ifdef VER_JSN_STR
+        ver_jsn = VER_JSN_STR;
+    #endif
+    if (ver_jsn && *ver_jsn != '\0') printf(", \"version\": \"%s\"", ver_jsn);
+    printf(" }\n");
+    //printf("\n");
+}
+
 // Chechsum Fletcher16
-unsigned check2(ui8_t *bytes, int len) {
+static unsigned check2(ui8_t *bytes, int len) {
     int sum1, sum2;
     int i;
 
@@ -323,7 +377,7 @@ unsigned check2(ui8_t *bytes, int len) {
     return sum2 | (sum1<<8);
 }
 /* // equivalent
-unsigned check16(ui8_t *bytes, int len) {
+static unsigned check16(ui8_t *bytes, int len) {
     unsigned sum1, sum2;
     int i;
     sum1 = sum2 = 0;
@@ -336,16 +390,20 @@ unsigned check16(ui8_t *bytes, int len) {
 }
 */
 
-double NMEAll(int ll) {  // NMEA GGA,GLL: ll/1e4=(D)DDMM.mmmm
+static float NMEAll(int ll) {  // NMEA GGA,GLL: ll/1e4=(D)DDMM.mmmm
     int deg = ll / 1000000;
-    double min = (ll - deg*1000000)/1e4;
+    float min = (ll - deg*1000000)/1e4;
     return deg+min/60.0;
 }
 
-int evalBytes() {
+static int evalBytes() {
     int i, val = 0;
     ui8_t id = bytes[0];
     unsigned check;
+    static unsigned int cnt_dat = -1, cnt_tim = -1,
+                        cnt_lat = -1, cnt_lon = -1, cnt_alt = -1,
+                        cnt_sn = -1,
+                        cnt_t3 = -1, cnt_rh = -1;
 
     check = ((bytes[5]<<8)|bytes[6]) != check2(bytes, 5);
 
@@ -353,44 +411,79 @@ int evalBytes() {
 
     if      (id == 0x14 ) {  // date
         int tag = val / 10000;
-        int mon  = (val-tag*10000) / 100;
-        int jrz  = val % 100;
+        int mon = (val-tag*10000) / 100;
+        int jrz = val % 100;
         gpx.tag = tag;
         gpx.monat = mon;
         gpx.jahr = 2000+jrz;
         gpx.chk = (gpx.chk & ~(0x1<<0)) | (check<<0);
+        if (check==0) cnt_dat = sample_count;
     }
     else if (id == 0x15 ) {  // time
         int std = val / 10000;
-        int min  = (val-std*10000) / 100;
-        int sek  = val % 100;
+        int min = (val-std*10000) / 100;
+        int sek = val % 100;
         gpx.std = std;
         gpx.min = min;
         gpx.sek = sek;
         gpx.chk = (gpx.chk & ~(0x1<<1)) | (check<<1);
+        if (check==0) cnt_tim = sample_count;
     }
     else if (id == 0x16 ) {  // lat: wie NMEA mit Faktor 1e4
         gpx.lat = NMEAll(val);
         gpx.chk = (gpx.chk & ~(0x1<<2)) | (check<<2);
+        if (check==0) cnt_lat = sample_count;
     }
     else if (id == 0x17 ) {  // lon: wie NMEA mit Faktor 1e4
         gpx.lon = NMEAll(val);
         gpx.chk = (gpx.chk & ~(0x1<<3)) | (check<<3);
+        if (check==0) cnt_lon = sample_count;
     }
     else if (id == 0x18 ) {  // alt: decimeter
-        gpx.h = val/10.0;
+        gpx.alt = val/10.0;
         gpx.chk = (gpx.chk & ~(0x1<<4)) | (check<<4);
+        if (check==0) cnt_alt = sample_count;
+    }
+    else if (id == 0x64 ) {  // serial number
+        if (check==0) gpx.sn = val; // 16 bit
+        //gpx.chk = (gpx.chk & ~(0x1<<15)) | (check<<15);
+        //if (check==0) cnt_sn = sample_count;
     }
 
+    if (id == 0x18) {
+        printGPX();
+        if (option_json && check==0) {
+            if ( ((cnt_dat|cnt_tim|cnt_lat|cnt_lon)&0x80000000)==0 &&
+                 cnt_alt - cnt_dat < sample_rate &&
+                 cnt_alt - cnt_tim < sample_rate &&
+                 cnt_alt - cnt_lat < sample_rate &&
+                 cnt_alt - cnt_lon < sample_rate )
+            {
+                if (cnt_alt - cnt_t3 > sample_rate) gpx.T = -273.15;
+                if (cnt_alt - cnt_rh > sample_rate) gpx.RH = -1.0;
+                printJSON();
+            }
+        }
+    }
 
-    if (id == 0x18  && !option_raw) printGPX();
+    // PTU floats
+    if (id == 0x03) {  // temperature
+        float t = -273.15;
+        memcpy(&t, &val, 4);
+        if (t < -273.0 || t > 100.0) t = -273.15;
+        gpx.T = t;
+        gpx.chk = (gpx.chk & ~(0x1<<6)) | (check<<6);
+        if (check==0) cnt_t3 = sample_count;
+    }
 
     return check;
 }
 
-void printRaw() {
+static void printRaw() {
     int j;
-    //if ( ((bytes[5]<<8)|bytes[6]) == check2(bytes, 5))
+    unsigned chkbyt = (bytes[5]<<8) | bytes[6];
+    unsigned chksum = check2(bytes, 5);
+    //if (chksum == chkbyt)
     {
         printf("%s", headerstr);
         for (j = 0; j < LEN_BITFRAME; j++) {
@@ -402,9 +495,10 @@ void printRaw() {
         printf("%02X%02X ", 0x00, 0xFF);
         printf("%02X ", bytes[0]);
         printf("%02X%02X%02X%02X ", bytes[1], bytes[2], bytes[3], bytes[4]);
-        printf("%02X%02X", bytes[5], bytes[6]);
+        printf("%02X%02X", bytes[5], bytes[6]); // chkbyt
         if (option_verbose) {
-            printf("  #  %04X", check2(bytes, 5));
+            printf("  #  %04X", chksum);
+            if (chksum == chkbyt) printf(" [OK]"); else printf(" [NO]");
         }
         printf("\n");
     }
@@ -415,16 +509,16 @@ int main(int argc, char *argv[]) {
 
     FILE *fp;
     char *fpname;
-    int  sample;
-    unsigned int  sample_count;
+    int sample;
     int i, j, kmax, k0, k1;
     int bit = 8, bit0 = 8;
     int pos = 0, pos0 = 0;
     int header_found = 0;
     int bitlen; // sample_rate/BAUD_RATE
     int len;
-    double k_f0, k_f1, k_df;
-    double cb0, cb1;
+    float k_f0, k_f1, k_df;
+    float cb0, cb1;
+    int cfreq = -1;
 
     fpname = argv[0];
     ++argv;
@@ -442,11 +536,26 @@ int main(int argc, char *argv[]) {
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
             option_raw = 1;
         }
+        else if ( (strcmp(*argv, "--ptu") == 0) ) {
+            option_ptu = 1;
+        }
         else if ( (strcmp(*argv, "-d1") == 0) || (strcmp(*argv, "--dft1") == 0) ) {
             option_dft = 1;
         }
         else if ( (strcmp(*argv, "-d2") == 0) || (strcmp(*argv, "--dft2") == 0) ) {
             option_dft = 2;
+        }
+        else if ( (strcmp(*argv, "--json") == 0) ) {
+            option_dft = 0;
+            option_verbose = 1;
+            option_json = 1;
+        }
+        else if ( (strcmp(*argv, "--jsn_cfq") == 0) ) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
         }
         else {
             fp = fopen(*argv, "rb");
@@ -460,6 +569,9 @@ int main(int argc, char *argv[]) {
     }
     if (!wavloaded) fp = stdin;
 
+
+    gpx.jsn_freq = 0;
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
     i = read_wav_header(fp);
     if (i) {
@@ -483,7 +595,7 @@ int main(int argc, char *argv[]) {
         ptr++;
         sample_count++;
         if (ptr == N) ptr = 0;
-        buffer[ptr] = sample / (double)(1<<bits_sample);
+        buffer[ptr] = sample / (float)(1<<bits_sample);
 
         if (sample_count < N) continue;
 
