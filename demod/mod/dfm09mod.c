@@ -731,8 +731,9 @@ static void print_gpx(gpx_t *gpx) {
             for (i = 0; i < 9; i++) {
                 for (j = 0; j < 13; j++) gpx->dat_str[i][j] = ' ';
             }
+            printf("\n");
         }
-        else {
+        else if (!gpx->option.raw) {
             if (gpx->option.aut && gpx->option.vbs >= 2) printf("<%c> ", gpx->option.inv?'-':'+');
             printf("[%3d] ", gpx->frnr);
             printf("%4d-%02d-%02d ", gpx->jahr, gpx->monat, gpx->tag);
@@ -776,17 +777,17 @@ static void print_gpx(gpx_t *gpx) {
                     gpx->sonde_typ ^= SNbit;
                 }
             }
-        }
-        printf("\n");
-
-        if (gpx->option.sat) {
-            printf("  ");
-            printf("  dMSL: %+.2f", gpx->gps.dMSL); // MSL = alt + gps.dMSL
-            printf("  sats: %d", gpx->gps.nSV);
-            printf("  (");
-            for (j = 0; j < 32; j++) { if ((gpx->gps.prn >> j)&1) printf(" %02d", j+1); }
-            printf(" )");
             printf("\n");
+
+            if (gpx->option.sat) {
+                printf("  ");
+                printf("  dMSL: %+.2f", gpx->gps.dMSL); // MSL = alt + gps.dMSL
+                printf("  sats: %d", gpx->gps.nSV);
+                printf("  (");
+                for (j = 0; j < 32; j++) { if ((gpx->gps.prn >> j)&1) printf(" %02d", j+1); }
+                printf(" )");
+                printf("\n");
+            }
         }
 
         if (gpx->option.jsn && jsonout && gpx->sek < 60.0)
@@ -902,29 +903,32 @@ static int print_frame(gpx_t *gpx) {
         printf("\n");
 
     }
-    else if (gpx->option.ecc) {
+    if ( gpx->option.raw != 1 || gpx->option.jsn )
+    {
+        if (gpx->option.ecc) {
 
-        if (ret0 == 0 || ret0 > 0 || gpx->option.ecc == 2) {
-            conf_out(gpx, block_conf, ret0);
+            if (ret0 == 0 || ret0 > 0 || gpx->option.ecc == 2) {
+                conf_out(gpx, block_conf, ret0);
+            }
+            if (ret1 == 0 || ret1 > 0 || gpx->option.ecc == 2) {
+                frid = dat_out(gpx, block_dat1, ret1);
+                if (frid == 8) print_gpx(gpx);
+            }
+            if (ret2 == 0 || ret2 > 0 || gpx->option.ecc == 2) {
+                frid = dat_out(gpx, block_dat2, ret2);
+                if (frid == 8) print_gpx(gpx);
+            }
+
         }
-        if (ret1 == 0 || ret1 > 0 || gpx->option.ecc == 2) {
+        else {
+
+            conf_out(gpx, block_conf, ret0);
             frid = dat_out(gpx, block_dat1, ret1);
             if (frid == 8) print_gpx(gpx);
-        }
-        if (ret2 == 0 || ret2 > 0 || gpx->option.ecc == 2) {
             frid = dat_out(gpx, block_dat2, ret2);
             if (frid == 8) print_gpx(gpx);
+
         }
-
-    }
-    else {
-
-        conf_out(gpx, block_conf, ret0);
-        frid = dat_out(gpx, block_dat1, ret1);
-        if (frid == 8) print_gpx(gpx);
-        frid = dat_out(gpx, block_dat2, ret2);
-        if (frid == 8) print_gpx(gpx);
-
     }
 
     return ret;
