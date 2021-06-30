@@ -180,7 +180,7 @@ static float write_wav_header(pcm_t *pcm) {
     }
 
     fwrite("data", 1, 4, fp);
-    data = 0; // datasize
+    data = 0xFFFFFFFF; // datasize unknown
     fwrite(&data,  1, 4, fp);
 
     return 0;
