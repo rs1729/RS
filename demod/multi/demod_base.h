@@ -36,6 +36,7 @@ typedef struct {
     int max_fq;
     double xlt_fq;
     float complex *blk;
+    int used;
 } thd_t;
 
 
@@ -80,13 +81,16 @@ typedef struct {
     float *bufs;
     float mv;
     ui32_t mv_pos;
+    ui32_t last_detect;
     //
     int N_norm;
     int Nvar;
+/*
     float xsum;
     float qsum;
     float *xs;
     float *qs;
+*/
 
     // IQ-data
     int opt_iq;
@@ -149,7 +153,9 @@ typedef struct {
     float *lpFM_buf;
 	float *fm_buffer;
 
-    thd_t thd;
+    int opt_cnt;
+
+    thd_t *thd;
 } dsp_t;
 
 
@@ -167,12 +173,18 @@ typedef struct {
 } pcm_t;
 
 
+typedef struct {
+    ui8_t hb;
+    float sb;
+} hsbit_t;
+
 
 typedef struct {
     pcm_t pcm;
     thd_t thd;
     int option_jsn;
     int option_dc;
+    int option_cnt;
     int jsn_freq;
 } thargs_t;
 
@@ -181,6 +193,7 @@ typedef struct {
 float read_wav_header(pcm_t *);
 int f32buf_sample(dsp_t *, int);
 int read_slbit(dsp_t *, int*, int, int, int, float, int);
+int read_softbit(dsp_t *, hsbit_t *, int, int, int, float, int );
 
 int init_buffers(dsp_t *);
 int free_buffers(dsp_t *);
@@ -192,4 +205,7 @@ int find_header(dsp_t *, float, int, int, int);
 int decimate_init(float f, int taps);
 int decimate_free(void);
 int iq_dc_init(pcm_t *);
+
+int reset_blockread(dsp_t *);
+
 

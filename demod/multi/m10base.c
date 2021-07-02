@@ -1101,11 +1101,16 @@ static int print_frame(gpx_t *gpx, int pos, dsp_t *dsp) {
     }
     else {
         int ret = 0;
-        pthread_mutex_lock( dsp->thd.mutex );
-        fprintf(stdout, "<%d> ", dsp->thd.tn);
+        pthread_mutex_lock( dsp->thd->mutex );
+        //fprintf(stdout, "<%d> ", dsp->thd->tn);
+        fprintf(stdout, "<%d: ", dsp->thd->tn);
+        fprintf(stdout, "s=%+.4f, ", dsp->mv);
+        fprintf(stdout, "f=%+.4f", -dsp->thd->xlt_fq);
+        if (dsp->opt_dc) fprintf(stdout, "%+.6f", dsp->Df/(double)dsp->sr);
+        fprintf(stdout, ">  ");
         ret = print_pos(gpx, cs1 == cs2);
         if (ret==0) fprintf(stdout, "\n");
-        pthread_mutex_unlock( dsp->thd.mutex );
+        pthread_mutex_unlock( dsp->thd->mutex );
     }
 
     return (gpx->frame_bytes[0]<<8)|gpx->frame_bytes[1];
@@ -1179,7 +1184,7 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.dectaps = pcm->dectaps;
     dsp.decM = pcm->decM;
 
-    dsp.thd = tharg->thd;
+    dsp.thd = &(tharg->thd);
 
     dsp.bps = pcm->bps;
     dsp.nch = pcm->nch;
@@ -1197,10 +1202,11 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.opt_lp = 1;
     dsp.lpIQ_bw = 24e3; // IF lowpass bandwidth
     dsp.lpFM_bw = 10e3; // FM audio lowpass
-    dsp.opt_dc = tharg->option_dc;
+    dsp.opt_dc  = tharg->option_dc;
+    dsp.opt_cnt = tharg->option_cnt;
 
     if ( dsp.sps < 8 ) {
-        fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
+        //fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
     }
 
     //headerlen = dsp.hdrlen;
@@ -1208,7 +1214,7 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     k = init_buffers(&dsp);
     if ( k < 0 ) {
         fprintf(stderr, "error: init buffers\n");
-        return NULL;
+        goto exit_thread;
     };
 
 
@@ -1273,6 +1279,10 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     }
 
     free_buffers(&dsp);
+
+exit_thread:
+    reset_blockread(&dsp);
+    (dsp.thd)->used = 0;
 
     return NULL;
 }

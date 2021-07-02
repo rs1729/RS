@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
 
     if (argv[1] == NULL) {
         fprintf(stderr, "usage:\n");
-        fprintf(stderr, "\t%s <fft_file>\n", argv[0]);
+        fprintf(stderr, "\t%s <fft_avg.csv>\n", argv[0]);
         return 1;
     }
     fp = fopen(argv[1], "rb");
@@ -61,9 +61,34 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+
+    memset(line, 0, LINELEN+1);
+
     N = 0;
+    j = 0;
+    n = 0;
+    // sec.ms,freq_min,freq_max,Hz/bin,N_bins, ...
     while ( (c = fgetc(fp)) != EOF) {
-        if (c == '\n') N++;
+        if (c == '\n') break;
+        if (c == ' ') continue;
+        if (c == ',') {
+            if (n == 1) {
+                int freq_min = atoi(line);
+                sr = -2*freq_min;
+            }
+            if (n == 4) {
+                N = atoi(line);
+                break;
+            }
+
+            n++;
+            memset(line, 0, LINELEN+1);
+            j = 0;
+        }
+        else {
+            line[j] = c;
+            j++;
+        }
     }
 
     db = calloc(N+1, sizeof(float));  if (db == NULL) return 2;
@@ -73,20 +98,30 @@ int main(int argc, char **argv) {
     intdb = calloc(N+1, sizeof(float));  if (intdb == NULL) return 2;
     peak = calloc(N+1, sizeof(float));  if (peak == NULL) return 2;
 
-    fseek(fp, 0, SEEK_SET);
 
-    pbuf = fgets(line, LINELEN, fp);
-    p1 = strstr(line, "sr:");
-    if (p1) sr = atoi(p1+3);
-    for (n = 0; n < N; n++) {
-        memset(line, 0, LINELEN+1);
-        pbuf = fgets(line, LINELEN, fp);
-        p1 = strstr(line, ";"); //p2 = strstr(p1+1, ";");
-        if (p1) {
-            fq[n]   = atof(line);   //freq[n] = atof(p1+1);
-            db[n]   = atof(p1+1);   //atof(p2+1);
+    // ..., db_1,...,db_N:
+    memset(line, 0, LINELEN+1);
+    j = 0;
+    n = 0;
+    while ( (c = fgetc(fp)) != EOF) {
+        if (c == '\n') break;
+        if (c == ' ') continue;
+        if (c == ',') {
+            if (n < N) {
+                db[n] = atof(line);
+                fq[n] = -0.5 + n/(float)N;
+            }
+
+            n++;
+            memset(line, 0, LINELEN+1);
+            j = 0;
+        }
+        else {
+            line[j] = c;
+            j++;
         }
     }
+
     f0 = N/2;
 
     globmin = 0.0;
@@ -94,14 +129,12 @@ int main(int argc, char **argv) {
     float db_spike3 = 10.0;
     int spike_wl3 = 3; //freq2bin(&DFT, 200); // 3 // 200 Hz
     int spike_wl5 = 5; //freq2bin(&DFT, 200); // 3 // 200 Hz
-    //float db_spike1 = 15.0;
-    //int spike_wl1 = 1; //freq2bin(&DFT, 200); // 3 // 200 Hz
+
 
     dx = 200.0;
     if (sr) dx = sr*(fq[f0+1]-fq[f0]); //freq[f0+1]-freq[f0];
     dn = 2*(int)(2400.0/dx)+1; // (odd/symmetric) integration width: 4800+dx Hz
     if (option_verbose > 1) fprintf(stderr, "dn = %d\n", dn);
-    //for (j = 0; j < N; j++) db[j] /= (float)n;
 
     // dc-spike (N-1,)N,0,1(,2): subtract mean/avg
     // spikes in general:
