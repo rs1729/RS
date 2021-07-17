@@ -1128,8 +1128,9 @@ int init_buffers_Lband(dsp_t *dsp) {
         // IF lowpass
         f_lp = 24e3/(float)dsp->sr/2.0; // default
         if (dsp->lpIQ_bw) f_lp = dsp->lpIQ_bw/(float)dsp->sr/2.0;
-        taps = 4*dsp->sr/IF_TRANSITION_BW; if (taps%2==0) taps++;
-        if (dsp->lpIQ_bw > 120e3) taps = taps/4 + 1;  // dsp->opt_iq
+        taps = 4*dsp->sr/IF_TRANSITION_BW;
+        if (dsp->sr > 120e3) taps = taps/4;
+        if (taps%2==0) taps++;
         taps = lowpass_init(1.5*f_lp, taps, &dsp->ws_lpIQ0); if (taps < 0) return -1;
         taps = lowpass_init(f_lp, taps, &dsp->ws_lpIQ1); if (taps < 0) return -1;
 
@@ -1158,9 +1159,9 @@ int init_buffers_Lband(dsp_t *dsp) {
 
         f_lp = 10e3/(float)dsp->sr; // default
         if (dsp->lpFM_bw > 0) f_lp = dsp->lpFM_bw/(float)dsp->sr;
-        taps = 4*dsp->sr/FM_TRANSITION_BW; if (taps%2==0) taps++;
-        if (dsp->lpIQ_bw > 120e3) taps = taps/4 + 1;  // dsp->opt_iq
-        //if (dsp->lpIQ_bw >  60e3) taps = taps/2 + 1;  // dsp->opt_iq
+        taps = 4*dsp->sr/FM_TRANSITION_BW;
+        if (dsp->sr > 120e3) taps = taps/4;
+        if (taps%2==0) taps++;
         taps = lowpass_init(f_lp, taps, &dsp->ws_lpFM); if (taps < 0) return -1;
 
         dsp->lpFMtaps = taps;
@@ -1938,11 +1939,11 @@ int main(int argc, char **argv) {
 
     int header_found = 0;
 
-    float thres = 0.7;
+    float thres = 0.8;
     float _mv = 0.0;
 
     int symlen = 1;
-    int bitofs = 1; // 0..+1
+    int bitofs = 0; // fm:0 , iq:+1
     int shift = 0;
 
     pcm_t pcm = {0};
@@ -2136,8 +2137,10 @@ int main(int argc, char **argv) {
             return -1;
         }
 
+        if (option_iq) bitofs += 1;
         bitofs += shift;
         _bl = 0.7*dsp.sps/2.0;
+        if (_bl < 2.0) _bl = -1;
     }
     else {
         // init circular header bit buffer
@@ -2150,7 +2153,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "error: malloc\n");
             return -1;
         }
-        hdb.ths = 0.7; // caution/test false positive
+        hdb.ths = 0.8; // caution/test false positive
         hdb.sbuf = calloc(hdb.len, sizeof(float));
         if (hdb.sbuf == NULL) {
             fprintf(stderr, "error: malloc\n");
