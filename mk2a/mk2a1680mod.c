@@ -1187,13 +1187,15 @@ int init_buffers_Lband(dsp_t *dsp) {
 
     p2 = 1;
     while (p2 < M) p2 <<= 1;
-    while (p2 < 0x2000) p2 <<= 1;  // or 0x4000, if sample not too short
+    while (p2 < 0x2000) p2 <<= 1;  // 0x1000 if header distance too short, or reduce K  // 0x4000, if sample not too short
     M = p2;
     dsp->DFT.N = p2; // 2*p2
     dsp->DFT.LOG2N = log(dsp->DFT.N)/log(2)+0.1; // 32bit cpu ... intermediate floating-point precision
     //while ((1 << dsp->DFT.LOG2N) < dsp->DFT.N) dsp->DFT.LOG2N++;  // better N = (1 << LOG2N) ...
 
     K = M-L - dsp->delay; // L+K < M
+    // header distance 24 52 4d .. 24 52 54 : 790 bits
+    while (K > 790*dsp->sps) K--;
 
     dsp->DFT.sr = dsp->sr;
 
