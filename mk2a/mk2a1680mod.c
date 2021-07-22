@@ -16,6 +16,8 @@
         # FM decimation: --decFM
         ./mk2mod -v --iq <fq> --lpbw 160 --decFM --crc iq_base.wav
         ./mk2mod -vv --dc --iq <fq> --lpbw 160 --decFM --crc iq_base.wav
+        # --IQ
+        ./mk2mod -vv --IQ <fq> --crc iq_base.wav
 */
 
 #include <stdio.h>
@@ -730,7 +732,6 @@ static float re_lowpass(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
 static
 int f32buf_sample(dsp_t *dsp, int inv) {
     float s = 0.0;
-    float xneu, xalt;
 
     float complex z, w, z0;
     double gain = FM_GAIN;
@@ -795,7 +796,7 @@ int f32buf_sample(dsp_t *dsp, int inv) {
             dsp->fm_buffer[(_sample - dsp->lpFMtaps/2 + dsp->M) % dsp->M] = s;
 
 
-            if (dsp->opt_iq >= 2 && dsp->opt_iq < 6)
+            if (0 && dsp->opt_iq >= 2 && dsp->opt_iq < 6)
             {
                 double xbit = 0.0;
                 //float complex xi = cexp(+I*M_PI*dsp->h/dsp->sps);
@@ -822,6 +823,34 @@ int f32buf_sample(dsp_t *dsp, int inv) {
                 dsp->F2sum +=  X - X0;
 
                 xbit = cabs(dsp->F2sum) - cabs(dsp->F1sum);
+
+                s = xbit / dsp->sps;
+            }
+            else if (dsp->opt_iq >= 2 && dsp->opt_iq < 6)
+            {
+                double xbit = 0.0;
+                //float complex xi = cexp(+I*M_PI*dsp->h/dsp->sps);
+                double f1 = -dsp->h*dsp->sr/(2*dsp->sps);
+                double f2 = -f1;
+
+                float complex X1 = 0;
+                float complex X2 = 0;
+
+                int n = dsp->sps;
+                float sk = dsp->sps/2.4f;
+
+                while (n > 0) {
+                    n--;
+                    if (n > sk && n < dsp->sps-sk)
+                    {
+                        t = -n / (double)dsp->sr;
+                        z = dsp->rot_iqbuf[(dsp->sample_in - n + dsp->N_IQBUF) % dsp->N_IQBUF];  // +1
+                        X1 += z*cexp(-t*2*M_PI*f1*I);
+                        X2 += z*cexp(-t*2*M_PI*f2*I);
+                    }
+                }
+
+                xbit = cabs(X2) - cabs(X1);
 
                 s = xbit / dsp->sps;
             }
@@ -1177,6 +1206,7 @@ int init_buffers_Lband(dsp_t *dsp) {
         }
         if (dsp->sr > 100e3) taps = taps/2;
         if (dsp->sr > 200e3) taps = taps/2;
+        if (dsp->opt_iq == 5) taps = taps/2;
         if (taps%2==0) taps++;
         taps = lowpass_init(f_lp, taps, &dsp->ws_lpFM); if (taps < 0) return -1;
 
@@ -1759,7 +1789,6 @@ static int get_GPSalt(gpx_t *gpx) {
 }
 
 static int get_GPSvel24(gpx_t *gpx) {
-    int i;
     ui8_t *gpsVel_bytes;
     int vel24;
     double vx, vy, vz, dir; //, alpha;
@@ -1953,7 +1982,7 @@ int main(int argc, char **argv) {
 
     int header_found = 0;
 
-    float thres = 0.74;
+    float thres = 0.7;
     float _mv = 0.0;
 
     int symlen = 1;
@@ -2015,9 +2044,9 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--iq0") == 0) { option_iq = 1; }  // differential/FM-demod
         else if   (strcmp(*argv, "--iqdc") == 0) { option_iqdc = 1; }  // iq-dc removal (iq0,2,3)
-        else if   (strcmp(*argv, "--iq") == 0) { // fq baseband -> IF (rotate from and decimate)
-            double fq = 0.0;                     // --iq <fq> , -0.5 < fq < 0.5
-            option_iq = 6;
+        else if   (strcmp(*argv, "--IQ") == 0 || strcmp(*argv, "--iq") == 0) { // fq baseband -> IF (rotate from and decimate)
+            double fq = 0.0;                                                   // --IQ <fq> , -0.5 < fq < 0.5
+            if (strcmp(*argv, "--IQ") == 0) option_iq = 5; else option_iq = 6;
             ++argv;
             if (*argv) fq = atof(*argv);
             else return -1;
@@ -2133,6 +2162,8 @@ int main(int argc, char **argv) {
             while (dsp.sr % dsp.decFM > 0  &&  dsp.decFM > 1) dsp.decFM /= 2;
             dsp.sps /= (float)dsp.decFM;
         }
+
+        if (option_iq == 5 && option_dc) option_lp |= 2;
 
         dsp.symlen = symlen;
         dsp.symhd = 1;
