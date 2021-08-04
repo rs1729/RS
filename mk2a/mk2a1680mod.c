@@ -101,6 +101,8 @@ typedef struct {
     float mv;
     ui32_t mv_pos;
     //
+    float mv2;
+    ui32_t mv2_pos;
 
     // IQ-data
     int opt_iq;
@@ -341,8 +343,8 @@ static int getCorrDFT(dsp_t *dsp) {
     if (dsp->sample_out < dsp->L) return -2;
 
 
-    for (i = 0; i < dsp->K + dsp->L; i++) (dsp->DFT).xn[i] = sbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
-    while (i < dsp->DFT.N) (dsp->DFT).xn[i++] = 0.0;
+    for (i = 0; i < dsp->K + dsp->L; i++) dsp->DFT.xn[i] = sbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
+    while (i < dsp->DFT.N) dsp->DFT.xn[i++] = 0.0;
 
 
     rdft(&dsp->DFT, dsp->DFT.xn, dsp->DFT.X);
@@ -354,16 +356,16 @@ static int getCorrDFT(dsp_t *dsp) {
         //
         // L < K ?  // only last 2L samples (avoid M10 carrier offset)
         //dc = 0.0;
-        //for (i = dsp->K - dsp->L; i < dsp->K + dsp->L; i++) dc += (dsp->DFT).xn[i];
+        //for (i = dsp->K - dsp->L; i < dsp->K + dsp->L; i++) dc += dsp->DFT.xn[i];
         //dc /= 2.0*(float)dsp->L;
         dc = 0.0;
-        for (i = dsp->K; i < dsp->K + dsp->L; i++) dc += (dsp->DFT).xn[i];
+        for (i = dsp->K; i < dsp->K + dsp->L; i++) dc += dsp->DFT.xn[i];
         dc /= 1.0*(float)dsp->L;
         dsp->DFT.X[0] -= dsp->DFT.N * dc  * 0.95;  // dc * dsp->L
         */
         dsp->DFT.X[0] = 0;
-        Nidft(&dsp->DFT, dsp->DFT.X, (dsp->DFT).cx);
-        for (i = 0; i < dsp->DFT.N; i++) (dsp->DFT).xn[i] = creal((dsp->DFT).cx[i])/(float)dsp->DFT.N;
+        Nidft(&dsp->DFT, dsp->DFT.X, dsp->DFT.cx);
+        for (i = 0; i < dsp->DFT.N; i++) (dsp->DFT).xn[i] = creal(dsp->DFT.cx[i])/(float)dsp->DFT.N;
     }
 
     for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.Z[i] = dsp->DFT.X[i]*dsp->DFT.Fm[i];
@@ -391,15 +393,61 @@ static int getCorrDFT(dsp_t *dsp) {
     mpos = pos - (dsp->K + dsp->L-1) + mp; // t = L-1
 
     xnorm = 0.0;
-    for (i = 0; i < dsp->L; i++) xnorm += (dsp->DFT).xn[mp-i]*(dsp->DFT).xn[mp-i];
+    for (i = 0; i < dsp->L; i++) xnorm += dsp->DFT.xn[mp-i]*dsp->DFT.xn[mp-i];
     xnorm = sqrt(xnorm);
 
-    mx /= xnorm*(dsp->DFT).N;
+    mx /= xnorm*dsp->DFT.N;
 
     dsp->mv = mx;
     dsp->mv_pos = mpos;
 
     if (pos == dsp->sample_out) dsp->buffered = dsp->sample_out - mpos;
+
+
+    dsp->mv2 = 0.0f;
+    dsp->mv2_pos = 0;
+    if (dsp->opt_dc) {
+        if (dsp->opt_iq >= 2 && dsp->opt_iq < 6 && !dsp->locked) {
+            mx = 0.0f;
+            mpos = 0;
+
+            for (i = 0; i < dsp->K + dsp->L; i++) dsp->DFT.xn[i] = dcbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
+            while (i < dsp->DFT.N) dsp->DFT.xn[i++] = 0.0;
+            rdft(&dsp->DFT, dsp->DFT.xn, dsp->DFT.X);
+
+            dsp->DFT.X[0] = 0;
+            Nidft(&dsp->DFT, dsp->DFT.X, dsp->DFT.cx);
+            for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.xn[i] = creal(dsp->DFT.cx[i])/(float)dsp->DFT.N;
+
+            for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.Z[i] = dsp->DFT.X[i]*dsp->DFT.Fm[i];
+
+            Nidft(&dsp->DFT, dsp->DFT.Z, dsp->DFT.cx);
+
+            mx2 = 0.0;                                      // t = L-1
+            for (i = dsp->L-1; i < dsp->K + dsp->L; i++) {  // i=t .. i=t+K < t+1+K
+                re_cx = creal(dsp->DFT.cx[i]);  // imag(cx)=0
+                if (re_cx*re_cx > mx2) {
+                    mx = re_cx;
+                    mx2 = mx*mx;
+                    mp = i;
+                }
+            }
+            if (mp == dsp->L-1 || mp == dsp->K + dsp->L-1) return -4; // Randwert
+            //  mp == t           mp == K+t
+
+            mpos = pos - (dsp->K + dsp->L-1) + mp; // t = L-1
+
+            xnorm = 0.0;
+            for (i = 0; i < dsp->L; i++) xnorm += dsp->DFT.xn[mp-i]*dsp->DFT.xn[mp-i];
+            xnorm = sqrt(xnorm);
+
+            mx /= xnorm*(dsp->DFT).N;
+
+
+            dsp->mv2 = mx;
+            dsp->mv2_pos = mpos;
+        }
+    }
 
 
     // header: mpos-L .. mpos (CA CA CA 24 52)
@@ -408,7 +456,7 @@ static int getCorrDFT(dsp_t *dsp) {
     {
         double dc = 0.0;
         int mp_ofs = 0;
-        if (dsp->opt_iq >= 2 && dsp->opt_iq < 6) {
+        if (dsp->opt_iq >= 2 && dsp->opt_iq < 6  &&  dsp->mv2_pos == 0) {
             mp_ofs = (dsp->lpFMtaps - dsp->lpIQFMtaps - (dsp->sps-1))/(2*dsp->decFM);
         }
         dc = 0.0;
@@ -1035,7 +1083,7 @@ int read_softbit2p(dsp_t *dsp, hsbit_t *shb, int inv, int ofs, int pos, float l,
 #define IF_SAMPLE_RATE_MIN  32000
 
 #define IF_TRANSITION_BW (8e3)  // (min) transition width
-#define FM_TRANSITION_BW (2e3)  // (min) transition width
+#define FM_TRANSITION_BW (4e3)  // (min) transition width
 
 #define SQRT2 1.4142135624   // sqrt(2)
 // sigma = sqrt(log(2)) / (2*PI*BT):
@@ -1199,7 +1247,7 @@ int init_buffers_Lband(dsp_t *dsp) {
         taps = 4*dsp->sr/FM_TRANSITION_BW;
         if (dsp->decFM > 1)
         {
-            f_lp *= 2; if (dsp->opt_iq >= 2 && dsp->opt_iq < 6) f_lp *= 2;
+            f_lp *= 2; //if (dsp->opt_iq >= 2 && dsp->opt_iq < 6) f_lp *= 2;
             taps = taps/2;
         }
         if (dsp->sr > 100e3) taps = taps/2;
@@ -1437,10 +1485,11 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
             continue;
         }
 
-        if (dsp->mv > thres || dsp->mv < -thres)
+        if ( dsp->mv  > thres || dsp->mv  < -thres ||
+             dsp->mv2 > thres || dsp->mv2 < -thres )
         {
             if (dsp->opt_dc) {
-                dsp->Df += dsp->dDf*0.4;
+                dsp->Df += dsp->dDf*0.5;
                 if (dsp->opt_iq) {
                     if (fabs(dsp->dDf) > 20*1e3) {  // L-band
                         if (dsp->locked) {
@@ -2218,6 +2267,7 @@ int main(int argc, char **argv) {
         dsp.lpIQ_bw = lpIQ_bw; // IF lowpass bandwidth
         dsp.lpFM_bw = 10e3; // FM audio lowpass iq0: 10e3 , iq 0.0: 7e3-8e3
         if (option_iq == 6) dsp.lpFM_bw = 6.8e3;
+        else if (option_iq == 5) dsp.lpFM_bw = 8e3;
         dsp.opt_dc = option_dc;
         dsp.opt_IFmin = option_min;
 
