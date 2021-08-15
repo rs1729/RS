@@ -160,7 +160,7 @@ typedef struct {
     int lpFMtaps; // ui32_t
     float *ws_lpFM;
     float *lpFM_buf;
-	float *fm_buffer;
+    float *fm_buffer;
 
     // IQFM: lowpass
     int lpIQFM_bw;
