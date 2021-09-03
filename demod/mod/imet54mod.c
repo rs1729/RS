@@ -462,8 +462,8 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
         unsigned long count_day = (unsigned long)(gpx->std*3600 + gpx->min*60 + gpx->sek+0.5);  // (gpx->timems/1e3+0.5) has gaps
         fprintf(stdout, "{ \"type\": \"%s\"", "IMET5");
         fprintf(stdout, ", \"frame\": %lu", count_day);
-        fprintf(stdout, ", \"id\": \"%s-%u\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
-                subtype, gpx->SNu32, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt);
+        fprintf(stdout, ", \"id\": \"IMET5-%u\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
+                gpx->SNu32, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt);
         if (gpx->option.ptu) {
             if (gpx->T > -273.0f) {
                 fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
