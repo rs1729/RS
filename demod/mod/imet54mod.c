@@ -261,6 +261,10 @@ static ui16_t u2be(ui8_t *bytes) {  // 16bit unsigned int
 #define pos_PTU_T     0x1C  // float32
 #define pos_PTU_RH    0x20  // float32
 #define pos_PTU_Trh   0x24  // float32 // ?
+//
+#define pos_STATUS    0x2A  // 2 byte
+#define pos_F8        0x52  // 1 byte
+#define pos_CNT11     0x5E  // 1 byte
 
 
 static int get_SN(gpx_t *gpx) {
@@ -322,11 +326,13 @@ static int get_PTU(gpx_t *gpx) {
     int val = 0;
     float *f = (float*)&val;
     float rh = -1.0f;
+    int count_1e9 = 0;
 
     // air temperature
     val = i4be(gpx->frame + pos_PTU_T);
     if (*f > -120.0f && *f < 80.0f)  gpx->T = *f;
     else gpx->T = -273.15f;
+    if (val == 0x4E6E6B28) count_1e9 += 1;
 
     // raw RH?
     // water vapor saturation pressure (Hyland and Wexler)?
@@ -335,11 +341,13 @@ static int get_PTU(gpx_t *gpx) {
     if      (*f <   0.0f)  gpx->_RH =   0.0f;
     else if (*f > 100.0f)  gpx->_RH = 100.0f;
     else gpx->_RH = *f;
+    if (val == 0x4E6E6B28) count_1e9 += 1;
 
     // temperatur of r.h. sensor?
     val = i4be(gpx->frame + pos_PTU_Trh);
     if (*f > -120.0f && *f < 80.0f)  gpx->Trh = *f;
     else gpx->Trh = -273.15f;
+    if (val == 0x4E6E6B28) count_1e9 += 1;
 
     // (Hyland and Wexler)
     if (gpx->T > -273.0f && gpx->Trh > -273.0f) {
@@ -352,7 +360,7 @@ static int get_PTU(gpx_t *gpx) {
     }
     gpx->RH = rh;
 
-    return 0;
+    return count_1e9;
 }
 
 static int reset_gpx(gpx_t *gpx) {
@@ -380,9 +388,13 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
     int prnGPS = 0,
         prnPTU = 0,
         prnSTS = 0;
-    int frm_ok = 0;
+    int ptu1e9 = 0;
+    int pos_ok = 0,
+        frm_ok = 0;
+    int rs_type = 54;
 
-    frm_ok = (ecc_frm >= 0  &&  len > pos_PTU_Trh+4);
+    pos_ok = (ecc_frm >= 0  &&  len > pos_STATUS+2);
+    frm_ok = (ecc_frm >= 0  &&  len > pos_F8);
 
     reset_gpx(gpx);
 
@@ -394,14 +406,21 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
     }
     if (len > pos_PTU_Trh+4)
     {
-        get_PTU(gpx);
+        ptu1e9 = get_PTU(gpx);
         prnPTU = 1;
     }
-    if (len > 42+2) {
-        gpx->status = u2be(gpx->frame + 42);
+    if (len > pos_STATUS+2) {
+        gpx->status = u2be(gpx->frame + pos_STATUS);
         prnSTS = 1;
     }
-
+    if (frm_ok) {
+        int pos;
+        int sum = 0;
+        for (pos = pos_STATUS+2; pos < pos_F8; pos++) {
+            sum += gpx->frame[pos];
+        }
+        if (sum == 0 && (gpx->status&0xF0F)==0 && ptu1e9 == 3) rs_type = 50;
+    }
 
     if ( prnGPS && !gpx->option.slt )
     {
@@ -422,7 +441,7 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
             if (gpx->RH > -0.5f)   fprintf(stdout, " RH=%.0f%% ", gpx->RH);
         }
 
-        // (GPS) status: 003E
+        // (imet54:GPS+PTU) status: 003E , (imet50:GPS); 0030
         if (gpx->option.vbs && prnSTS) {
             fprintf(stdout, "  [%04X] ", gpx->status);
         }
@@ -439,10 +458,11 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
     // prnGPS,prnTPU
     if (gpx->option.jsn && frm_ok && (gpx->status&0x30)==0x30) {
         char *ver_jsn = NULL;
+        char *subtype = (rs_type == 54) ? "IMET54" : "IMET50";
         unsigned long count_day = (unsigned long)(gpx->std*3600 + gpx->min*60 + gpx->sek+0.5);  // (gpx->timems/1e3+0.5) has gaps
         fprintf(stdout, "{ \"type\": \"%s\"", "IMET5");
         fprintf(stdout, ", \"frame\": %lu", count_day);
-        fprintf(stdout, ", \"id\": \"IMET54-%u\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
+        fprintf(stdout, ", \"id\": \"IMET5-%u\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
                 gpx->SNu32, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt);
         if (gpx->option.ptu) {
             if (gpx->T > -273.0f) {
@@ -452,7 +472,7 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
                 fprintf(stdout, ", \"humidity\": %.1f",  gpx->RH );
             }
         }
-        //fprintf(stdout, ", \"subtype\": \"%s\"", "IMET54");
+        fprintf(stdout, ", \"subtype\": \"%s\"", subtype);  // "IMET54"/"IMET50"
         if (gpx->jsn_freq > 0) {
             fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
         }
