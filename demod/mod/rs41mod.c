@@ -1855,8 +1855,8 @@ static int print_position(gpx_t *gpx, int ec) {
                             ver_jsn = VER_JSN_STR;
                         #endif
                         if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
-                        fprintf(stdout, " }\n");
-                        fprintf(stdout, "\n");
+                        fprintf(stdout, " },\n");
+                        //fprintf(stdout, "\n");
                     }
                 }
             }
@@ -2218,6 +2218,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "reading float32 soft symbols\n");
     }
     #endif
+    if (gpx.option.jsn) fprintf(stdout, "[\n");
 
     if (!rawhex) {
 
@@ -2439,7 +2440,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-
+    if (gpx.option.jsn) fprintf(stdout, "]\n");
     fclose(fp);
 
     return 0;
