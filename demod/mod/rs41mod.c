@@ -148,6 +148,8 @@ typedef struct {
 } gpx_t;
 
 
+int first=1;  //first frame or not 1/0
+
 #define BITS    8
 #define HEADLEN 64
 #define FRAMESTART ((HEADLEN)/BITS)
@@ -1808,6 +1810,8 @@ static int print_position(gpx_t *gpx, int ec) {
                     if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                         // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
                         char *ver_jsn = NULL;
+                        if (!first) fprintf(stdout, ",\n");
+                        first=0;
                         fprintf(stdout, "{ \"type\": \"%s\"", "RS41");
                         fprintf(stdout, ", \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"bt\": %d, \"batt\": %.2f",gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV, gpx->conf_cd, gpx->batt );
                         fprintf(stdout, ", \"pDOP\": %.1f, \"sAcc\": %.1f",gpx->pDOP,gpx->sAcc);
@@ -1855,7 +1859,7 @@ static int print_position(gpx_t *gpx, int ec) {
                             ver_jsn = VER_JSN_STR;
                         #endif
                         if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
-                        fprintf(stdout, " },\n");
+                        fprintf(stdout, " }");
                         //fprintf(stdout, "\n");
                     }
                 }
@@ -2440,7 +2444,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (gpx.option.jsn) fprintf(stdout, "]\n");
+    if (gpx.option.jsn) fprintf(stdout, "\n]\n");
     fclose(fp);
 
     return 0;
