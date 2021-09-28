@@ -303,6 +303,12 @@ static int get_GPS(gpx_t *gpx) {
     val = i4be(gpx->frame+pos_GPSalt);
     gpx->alt = val / 1e1;
 
+    // plausibility checks
+    if (gpx->timems < 0.0 || gpx->timems > 235959999) return -1;
+    if (gpx->lat <  -90.0 || gpx->lat >  90.0) return -2;
+    if (gpx->lon < -180.0 || gpx->lon > 180.0) return -2;
+    if (gpx->alt < -400.0 || gpx->alt > 60000.0) return -2;
+
     return 0;
 }
 
@@ -332,7 +338,10 @@ static int get_PTU(gpx_t *gpx) {
     val = i4be(gpx->frame + pos_PTU_T);
     if (*f > -120.0f && *f < 80.0f)  gpx->T = *f;
     else gpx->T = -273.15f;
-    if (val == 0x4E6E6B28) count_1e9 += 1;
+    if (val == 0x4E6E6B28) {
+        gpx->T = -273.15f;
+        count_1e9 += 1;
+    }
 
     // raw RH?
     // water vapor saturation pressure (Hyland and Wexler)?
@@ -341,13 +350,19 @@ static int get_PTU(gpx_t *gpx) {
     if      (*f <   0.0f)  gpx->_RH =   0.0f;
     else if (*f > 100.0f)  gpx->_RH = 100.0f;
     else gpx->_RH = *f;
-    if (val == 0x4E6E6B28) count_1e9 += 1;
+    if (val == 0x4E6E6B28) {
+        gpx->_RH = -1.0f;
+        count_1e9 += 1;
+    }
 
     // temperatur of r.h. sensor?
     val = i4be(gpx->frame + pos_PTU_Trh);
     if (*f > -120.0f && *f < 80.0f)  gpx->Trh = *f;
     else gpx->Trh = -273.15f;
-    if (val == 0x4E6E6B28) count_1e9 += 1;
+    if (val == 0x4E6E6B28)  {
+        gpx->Trh = -273.15f;
+        count_1e9 += 1;
+    }
 
     // (Hyland and Wexler)
     if (gpx->T > -273.0f && gpx->Trh > -273.0f) {
@@ -389,6 +404,7 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
         prnPTU = 0,
         prnSTS = 0;
     int ptu1e9 = 0;
+    int tp_err = 0;
     int pos_ok = 0,
         frm_ok = 0;
     int rs_type = 54;
@@ -401,8 +417,9 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
     if (len > pos_GPSalt+4)
     {
         get_SN(gpx);
-        get_GPS(gpx);
-        prnGPS = 1;
+        tp_err = get_GPS(gpx);
+        if (tp_err == 0) prnGPS = 1;
+        else frm_ok = 0;
     }
     if (len > pos_PTU_Trh+4)
     {
