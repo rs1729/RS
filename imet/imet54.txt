@@ -12,7 +12,7 @@ data: 27x64 bits, i.e. 27 raw blocks
 block:
 8 Hamming[8,4] codewords, interleaved 8x8 bits;
 8 codewords -> 8 msg-nibbles, i.e. 32 bits (4 bytes)
-
+crc
 
 
 SN         | GPS_time   | GPS_lat    | GPS_lon    | GPS_alt    |                         | f32 T      | f32 _RH    | f32 Trh    |      | status?
