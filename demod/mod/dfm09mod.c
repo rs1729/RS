@@ -951,6 +951,7 @@ int main(int argc, char **argv) {
     int option_iqdc = 0;
     int option_lp = 0;
     int option_dc = 0;
+    int option_noLUT = 0;
     int option_bin = 0;
     int option_softin = 0;
     int option_json = 0;     // JSON blob output (for auto_rx)
@@ -1080,20 +1081,22 @@ int main(int argc, char **argv) {
             dsp.xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
-        else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
-        else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
-        else if   (strcmp(*argv, "--min") == 0) {
-            option_min = 1;
-        }
-        else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
+        else if   (strcmp(*argv, "--lpIQ") == 0) { option_lp |= LP_IQ; }  // IQ/IF lowpass
         else if   (strcmp(*argv, "--lpbw") == 0) {  // IQ lowpass BW / kHz
             double bw = 0.0;
             ++argv;
             if (*argv) bw = atof(*argv);
             else return -1;
             if (bw > 4.6 && bw < 24.0) lpIQ_bw = bw*1e3;
-            option_lp = 1;
+            option_lp |= LP_IQ;
         }
+        else if   (strcmp(*argv, "--lpFM") == 0) { option_lp |= LP_FM; }  // FM lowpass
+        else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
+        else if   (strcmp(*argv, "--noLUT") == 0) { option_noLUT = 1; }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
+        else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
         else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
@@ -1122,6 +1125,14 @@ int main(int argc, char **argv) {
         ++argv;
     }
     if (!wavloaded) fp = stdin;
+
+    if (option_iq == 5 && option_dc) option_lp |= LP_FM;
+
+    // LUT faster for decM, however frequency correction after decimation
+    // LUT recommonded if decM > 2
+    //
+    if (option_noLUT && option_iq == 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
+
 
     // ecc2-soft_decision accepts also 2-error words,
     // so the probability for 3 errors is high and will
