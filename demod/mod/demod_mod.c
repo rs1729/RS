@@ -165,31 +165,26 @@ static int getCorrDFT(dsp_t *dsp) {
     if (dsp->sample_out < dsp->L) return -2;
 
 
-    for (i = 0; i < dsp->K + dsp->L; i++) (dsp->DFT).xn[i] = sbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
-    while (i < dsp->DFT.N) (dsp->DFT).xn[i++] = 0.0;
+    for (i = 0; i < dsp->K + dsp->L; i++) dsp->DFT.xn[i] = sbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
+    while (i < dsp->DFT.N) dsp->DFT.xn[i++] = 0.0;
 
 
     rdft(&dsp->DFT, dsp->DFT.xn, dsp->DFT.X);
 
 
     if (dsp->opt_dc) {
-        if (dsp->opt_iq >= 2 && !dsp->locked) {
-            for (i = 0; i < dsp->K + dsp->L; i++) (dsp->DFT).xn[i] = sbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
-            while (i < dsp->DFT.N) (dsp->DFT).xn[i++] = 0.0;
-
-        }
         /*
         //X[0] = 0; // nicht ueber gesamte Laenge ... M10
         //
         // L < K ?  // only last 2L samples (avoid M10 carrier offset)
         double dc = 0.0;
-        for (i = dsp->K - dsp->L; i < dsp->K + dsp->L; i++) dc += (dsp->DFT).xn[i];
+        for (i = dsp->K - dsp->L; i < dsp->K + dsp->L; i++) dc += dsp->DFT.xn[i];
         dc /= 2.0*(float)dsp->L;
         dsp->DFT.X[0] -= dsp->DFT.N * dc  ;//* 0.95;
         */
         dsp->DFT.X[0] = 0;
-        Nidft(&dsp->DFT, dsp->DFT.X, (dsp->DFT).cx);
-        for (i = 0; i < dsp->DFT.N; i++) (dsp->DFT).xn[i] = creal((dsp->DFT).cx[i])/(float)dsp->DFT.N;
+        Nidft(&dsp->DFT, dsp->DFT.X, dsp->DFT.cx);
+        for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.xn[i] = creal(dsp->DFT.cx[i])/(float)dsp->DFT.N;
     }
 
     for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.Z[i] = dsp->DFT.X[i]*dsp->DFT.Fm[i];
@@ -218,10 +213,10 @@ static int getCorrDFT(dsp_t *dsp) {
 
     //xnorm = sqrt(dsp->qs[(mpos + 2*dsp->M) % dsp->M]); // Nvar = L
     xnorm = 0.0;
-    for (i = 0; i < dsp->L; i++) xnorm += (dsp->DFT).xn[mp-i]*(dsp->DFT).xn[mp-i];
+    for (i = 0; i < dsp->L; i++) xnorm += dsp->DFT.xn[mp-i]*dsp->DFT.xn[mp-i];
     xnorm = sqrt(xnorm);
 
-    mx /= xnorm*(dsp->DFT).N;
+    mx /= xnorm*dsp->DFT.N;
 
     dsp->mv = mx;
     dsp->mv_pos = mpos;
@@ -236,22 +231,13 @@ static int getCorrDFT(dsp_t *dsp) {
             mx = 0.0f;
             mpos = 0;
 
-            for (i = 0; i < dsp->K + dsp->L; i++) (dsp->DFT).xn[i] = dcbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
-            while (i < dsp->DFT.N) (dsp->DFT).xn[i++] = 0.0;
+            for (i = 0; i < dsp->K + dsp->L; i++) dsp->DFT.xn[i] = dcbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
+            while (i < dsp->DFT.N) dsp->DFT.xn[i++] = 0.0;
             rdft(&dsp->DFT, dsp->DFT.xn, dsp->DFT.X);
 
-            /*
-            //X[0] = 0; // nicht ueber gesamte Laenge ... M10
-            //
-            // L < K ?  // only last 2L samples (avoid M10 carrier offset)
-            double dc = 0.0;
-            for (i = dsp->K - dsp->L; i < dsp->K + dsp->L; i++) dc += (dsp->DFT).xn[i];
-            dc /= 2.0*(float)dsp->L;
-            dsp->DFT.X[0] -= dsp->DFT.N * dc  ;//* 0.95;
-            */
             dsp->DFT.X[0] = 0;
-            Nidft(&dsp->DFT, dsp->DFT.X, (dsp->DFT).cx);
-            for (i = 0; i < dsp->DFT.N; i++) (dsp->DFT).xn[i] = creal((dsp->DFT).cx[i])/(float)dsp->DFT.N;
+            Nidft(&dsp->DFT, dsp->DFT.X, dsp->DFT.cx);
+            for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.xn[i] = creal(dsp->DFT.cx[i])/(float)dsp->DFT.N;
 
             for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.Z[i] = dsp->DFT.X[i]*dsp->DFT.Fm[i];
 
@@ -271,12 +257,11 @@ static int getCorrDFT(dsp_t *dsp) {
 
             mpos = pos - (dsp->K + dsp->L-1) + mp; // t = L-1
 
-            //xnorm = sqrt(dsp->qs[(mpos + 2*dsp->M) % dsp->M]); // Nvar = L
             xnorm = 0.0;
-            for (i = 0; i < dsp->L; i++) xnorm += (dsp->DFT).xn[mp-i]*(dsp->DFT).xn[mp-i];
+            for (i = 0; i < dsp->L; i++) xnorm += dsp->DFT.xn[mp-i]*dsp->DFT.xn[mp-i];
             xnorm = sqrt(xnorm);
 
-            mx /= xnorm*(dsp->DFT).N;
+            mx /= xnorm*dsp->DFT.N;
 
 
             dsp->mv2 = mx;
@@ -289,10 +274,11 @@ static int getCorrDFT(dsp_t *dsp) {
     {
         double dc = 0.0;
         int mp_ofs = 0;
-        if (dsp->opt_iq >= 2) {
+        if (dsp->opt_iq >= 2  &&  dsp->mv2_pos == 0) {
             mp_ofs = (dsp->lpFMtaps - (dsp->sps-1))/2;
         }
         dc = 0.0;  // rs41 without preamble?
+        // unbalanced header?
         for (i = 0; i < dsp->L; i++) dc += dcbuf[(mp_ofs + mpos - i + dsp->M) % dsp->M];
         dc /= (float)dsp->L;
         dsp->dc = dc;
