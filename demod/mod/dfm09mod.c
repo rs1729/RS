@@ -731,8 +731,9 @@ static void print_gpx(gpx_t *gpx) {
             for (i = 0; i < 9; i++) {
                 for (j = 0; j < 13; j++) gpx->dat_str[i][j] = ' ';
             }
+            printf("\n");
         }
-        else {
+        else if (!gpx->option.raw) {
             if (gpx->option.aut && gpx->option.vbs >= 2) printf("<%c> ", gpx->option.inv?'-':'+');
             printf("[%3d] ", gpx->frnr);
             printf("%4d-%02d-%02d ", gpx->jahr, gpx->monat, gpx->tag);
@@ -776,17 +777,17 @@ static void print_gpx(gpx_t *gpx) {
                     gpx->sonde_typ ^= SNbit;
                 }
             }
-        }
-        printf("\n");
-
-        if (gpx->option.sat) {
-            printf("  ");
-            printf("  dMSL: %+.2f", gpx->gps.dMSL); // MSL = alt + gps.dMSL
-            printf("  sats: %d", gpx->gps.nSV);
-            printf("  (");
-            for (j = 0; j < 32; j++) { if ((gpx->gps.prn >> j)&1) printf(" %02d", j+1); }
-            printf(" )");
             printf("\n");
+
+            if (gpx->option.sat) {
+                printf("  ");
+                printf("  dMSL: %+.2f", gpx->gps.dMSL); // MSL = alt + gps.dMSL
+                printf("  sats: %d", gpx->gps.nSV);
+                printf("  (");
+                for (j = 0; j < 32; j++) { if ((gpx->gps.prn >> j)&1) printf(" %02d", j+1); }
+                printf(" )");
+                printf("\n");
+            }
         }
 
         if (gpx->option.jsn && jsonout && gpx->sek < 60.0)
@@ -902,29 +903,32 @@ static int print_frame(gpx_t *gpx) {
         printf("\n");
 
     }
-    else if (gpx->option.ecc) {
+    if ( gpx->option.raw != 1 || gpx->option.jsn )
+    {
+        if (gpx->option.ecc) {
 
-        if (ret0 == 0 || ret0 > 0 || gpx->option.ecc == 2) {
-            conf_out(gpx, block_conf, ret0);
+            if (ret0 == 0 || ret0 > 0 || gpx->option.ecc == 2) {
+                conf_out(gpx, block_conf, ret0);
+            }
+            if (ret1 == 0 || ret1 > 0 || gpx->option.ecc == 2) {
+                frid = dat_out(gpx, block_dat1, ret1);
+                if (frid == 8) print_gpx(gpx);
+            }
+            if (ret2 == 0 || ret2 > 0 || gpx->option.ecc == 2) {
+                frid = dat_out(gpx, block_dat2, ret2);
+                if (frid == 8) print_gpx(gpx);
+            }
+
         }
-        if (ret1 == 0 || ret1 > 0 || gpx->option.ecc == 2) {
+        else {
+
+            conf_out(gpx, block_conf, ret0);
             frid = dat_out(gpx, block_dat1, ret1);
             if (frid == 8) print_gpx(gpx);
-        }
-        if (ret2 == 0 || ret2 > 0 || gpx->option.ecc == 2) {
             frid = dat_out(gpx, block_dat2, ret2);
             if (frid == 8) print_gpx(gpx);
+
         }
-
-    }
-    else {
-
-        conf_out(gpx, block_conf, ret0);
-        frid = dat_out(gpx, block_dat1, ret1);
-        if (frid == 8) print_gpx(gpx);
-        frid = dat_out(gpx, block_dat2, ret2);
-        if (frid == 8) print_gpx(gpx);
-
     }
 
     return ret;
@@ -947,6 +951,7 @@ int main(int argc, char **argv) {
     int option_iqdc = 0;
     int option_lp = 0;
     int option_dc = 0;
+    int option_noLUT = 0;
     int option_bin = 0;
     int option_softin = 0;
     int option_json = 0;     // JSON blob output (for auto_rx)
@@ -1076,20 +1081,22 @@ int main(int argc, char **argv) {
             dsp.xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
-        else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
-        else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
-        else if   (strcmp(*argv, "--min") == 0) {
-            option_min = 1;
-        }
-        else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
+        else if   (strcmp(*argv, "--lpIQ") == 0) { option_lp |= LP_IQ; }  // IQ/IF lowpass
         else if   (strcmp(*argv, "--lpbw") == 0) {  // IQ lowpass BW / kHz
             double bw = 0.0;
             ++argv;
             if (*argv) bw = atof(*argv);
             else return -1;
             if (bw > 4.6 && bw < 24.0) lpIQ_bw = bw*1e3;
-            option_lp = 1;
+            option_lp |= LP_IQ;
         }
+        else if   (strcmp(*argv, "--lpFM") == 0) { option_lp |= LP_FM; }  // FM lowpass
+        else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
+        else if   (strcmp(*argv, "--noLUT") == 0) { option_noLUT = 1; }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
+        else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
         else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
@@ -1118,6 +1125,14 @@ int main(int argc, char **argv) {
         ++argv;
     }
     if (!wavloaded) fp = stdin;
+
+    if (option_iq == 5 && option_dc) option_lp |= LP_FM;
+
+    // LUT faster for decM, however frequency correction after decimation
+    // LUT recommonded if decM > 2
+    //
+    if (option_noLUT && option_iq == 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
+
 
     // ecc2-soft_decision accepts also 2-error words,
     // so the probability for 3 errors is high and will
