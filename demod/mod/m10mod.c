@@ -1001,8 +1001,11 @@ static int print_pos(gpx_t *gpx, int csOK) {
 
                 fprintf(stdout, "{ \"type\": \"%s\"", "M10");
                 fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)(sec_gps0+0.5));
-                fprintf(stdout, "\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                               sn_id, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
+                fprintf(stdout, "\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
+                               sn_id, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV);
+                if (gpx->type == t_M10) {
+                    fprintf(stdout, ", \"sats\": %d", gpx->numSV);
+                }
                 // APRS id, 9 characters
                 aprs_id[0] = gpx->frame_bytes[pos_SN+2];
                 aprs_id[1] = gpx->frame_bytes[pos_SN] & 0xF;
@@ -1140,6 +1143,7 @@ int main(int argc, char **argv) {
     int option_iqdc = 0;
     int option_lp = 0;
     int option_dc = 0;
+    int option_noLUT = 0;
     int option_chk = 0;
     int option_softin = 0;
     int option_pcmraw = 0;
@@ -1166,6 +1170,8 @@ int main(int argc, char **argv) {
 
     float thres = 0.76;
     float _mv = 0.0;
+
+    float lpIQ_bw = 24e3;
 
     int symlen = 2;
     int bitofs = 0; // 0 .. +2
@@ -1251,8 +1257,18 @@ int main(int argc, char **argv) {
             dsp.xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
-        else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
+        else if   (strcmp(*argv, "--lpIQ") == 0) { option_lp |= LP_IQ; }  // IQ/IF lowpass
+        else if   (strcmp(*argv, "--lpbw") == 0) {  // IQ lowpass BW / kHz
+            double bw = 0.0;
+            ++argv;
+            if (*argv) bw = atof(*argv);
+            else return -1;
+            if (bw > 4.6 && bw < 48.0) lpIQ_bw = bw*1e3;
+            option_lp |= LP_IQ;
+        }
+        else if   (strcmp(*argv, "--lpFM") == 0) { option_lp |= LP_FM; }  // FM lowpass
         else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
+        else if   (strcmp(*argv, "--noLUT") == 0) { option_noLUT = 1; }
         else if   (strcmp(*argv, "--min") == 0) {
             option_min = 1;
         }
@@ -1292,6 +1308,13 @@ int main(int argc, char **argv) {
         ++argv;
     }
     if (!wavloaded) fp = stdin;
+
+    if (option_iq == 5 && option_dc) option_lp |= LP_FM;
+
+    // LUT faster for decM, however frequency correction after decimation
+    // LUT recommonded if decM > 2
+    //
+    if (option_noLUT && option_iq == 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
 
 
     // init gpx
@@ -1354,7 +1377,7 @@ int main(int argc, char **argv) {
             dsp.opt_iq = option_iq;
             dsp.opt_iqdc = option_iqdc;
             dsp.opt_lp = option_lp;
-            dsp.lpIQ_bw = 24e3; // IF lowpass bandwidth
+            dsp.lpIQ_bw = lpIQ_bw; //24e3; // IF lowpass bandwidth
             dsp.lpFM_bw = 10e3; // FM audio lowpass
             dsp.opt_dc = option_dc;
             dsp.opt_IFmin = option_min;

@@ -6,7 +6,7 @@ alternative decoders using cross-correlation for better header-synchronization
 #### Files
 
   * `demod_mod.c`, `demod_mod.h`, <br />
-    `rs41mod.c`, `rs92mod.c`, `dfm09mod.c`, `m10mod.c`, `lms6mod.c`, `lms6Xmod.c`, `meisei100mod.c`, `imet54mod.c`,<br />
+    `rs41mod.c`, `rs92mod.c`, `dfm09mod.c`, `m10mod.c`, `lms6mod.c`, `lms6Xmod.c`, `meisei100mod.c`, `imet54mod.c`, `mp3h1mod.c`,<br />
     `bch_ecc_mod.c`, `bch_ecc_mod.h`
 
 #### Compile
@@ -40,6 +40,9 @@ alternative decoders using cross-correlation for better header-synchronization
 
   gcc rs41mod.c demod_mod.o bch_ecc_mod.o -lm -o rs41mod
   gcc dfm09mod.c demod_mod.o -lm -o dfm09mod
+  
+  `gcc rs92mod.c demod_mod.o bch_ecc_mod.o -lm -o rs92mod` (needs `RS/rs92/nav_gps_vel.c`) <br />
+  `gcc mp3h1mod.c demod_mod.o -lm -o mp3h1mod`
 
 #### Usage/Examples
   `./rs41mod --ecc2 -vx --ptu <audio.wav>` <br />
@@ -51,9 +54,9 @@ alternative decoders using cross-correlation for better header-synchronization
   If the IQ data is downsampled and centered (IF band), use <br />
   `./rs41mod --iq2 <iq_data.wav>` <br />
   or with lowpass filter <br />
-  `./rs41mod --iq2 --lp <iq_data.wav>` <br />
+  `./rs41mod --iq2 --lpIQ <iq_data.wav>` <br />
   For baseband IQ data, use
-  `./rs41mod --IQ <fq> --lp <iq_data.wav>` <br />
+  `./rs41mod --IQ <fq> --lpIQ <iq_data.wav>` <br />
   where `<fq>` is the relative frequency in `-0.5 .. 0.5`;
   e.g. if the receiver is tuned to 403MHz and the (complex) sample rate is 2MHz,
   a signal at 402.5MHz would be -0.5MHz off, i.e. `<fq> = -0.5/2 = -0.25`. <br />
