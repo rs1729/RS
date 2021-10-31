@@ -33,6 +33,9 @@ meisei100mod: meisei100mod.c demod_mod.o bch_ecc_mod.o
 rs92mod: rs92mod.c demod_mod.o bch_ecc_mod.o nav_gps_vel.c
 	$(CC) $(COPTS) -o rs92mod rs92mod.c demod_mod.o bch_ecc_mod.o -lm
 
+mp3h1mod: mp3h1mod.c demod_mod.o
+	$(CC) $(COPTS) -o mp3h1mod mp3h1mod.c demod_mod.o -lm
+
 demod_mod.o: demod_mod.c demod_mod.h
 	$(CC) -Ofast -c demod_mod.c
 

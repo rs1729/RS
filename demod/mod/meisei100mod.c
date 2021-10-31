@@ -254,6 +254,7 @@ int main(int argc, char **argv) {
     int option_iqdc = 0;
     int option_lp = 0;
     int option_dc = 0;
+    int option_noLUT = 0;
     int option_softin = 0;
     int option_pcmraw = 0;
     int sel_wavch = 0;
@@ -304,6 +305,8 @@ int main(int argc, char **argv) {
 
     float thres = 0.7;
     float _mv = 0.0;
+
+    float lpIQ_bw = 16e3;
 
     int symlen = 1;
     int bitofs = 0; // 0..+1
@@ -389,8 +392,18 @@ int main(int argc, char **argv) {
             dsp.xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
             option_iq = 5;
         }
-        else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
-        else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
+        else if   (strcmp(*argv, "--lpIQ") == 0) { option_lp |= LP_IQ; }  // IQ/IF lowpass
+        else if   (strcmp(*argv, "--lpbw") == 0) {  // IQ lowpass BW / kHz
+            double bw = 0.0;
+            ++argv;
+            if (*argv) bw = atof(*argv);
+            else return -1;
+            if (bw > 4.6 && bw < 32.0) lpIQ_bw = bw*1e3;
+            option_lp |= LP_IQ;
+        }
+        else if   (strcmp(*argv, "--lpFM") == 0) { option_lp |= LP_FM; }  // FM lowpass
+        else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
+        else if   (strcmp(*argv, "--noLUT") == 0) { option_noLUT = 1; }
         else if   (strcmp(*argv, "--min") == 0) {
             option_min = 1;
         }
@@ -434,6 +447,13 @@ int main(int argc, char **argv) {
         ++argv;
     }
     if (!wavloaded) fp = stdin;
+
+    if (option_iq == 5 && option_dc) option_lp |= LP_FM;
+
+    // LUT faster for decM, however frequency correction after decimation
+    // LUT recommonded if decM > 2
+    //
+    if (option_noLUT && option_iq == 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
 
     if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
@@ -490,7 +510,7 @@ int main(int argc, char **argv) {
         dsp.opt_iq = option_iq;
         dsp.opt_iqdc = option_iqdc;
         dsp.opt_lp = option_lp;
-        dsp.lpIQ_bw = 16e3; // IF lowpass bandwidth
+        dsp.lpIQ_bw = lpIQ_bw; //16e3; // IF lowpass bandwidth
         dsp.lpFM_bw = 4e3; // FM audio lowpass
         dsp.opt_dc = option_dc;
         dsp.opt_IFmin = option_min;
@@ -700,6 +720,7 @@ int main(int argc, char **argv) {
                                     gpx.sek = (double)ms/1000.0;
 
                                     if (option_jsn && err_blks==0 && gpx.frnr1-gpx.frnr==1) {
+                                        char *ver_jsn = NULL;
                                         char id_str[] = "xxxxxx\0\0\0\0\0\0";
                                         //if (gpx._sn > 0) { sprintf(id_str, "%08x", gpx._sn); }
                                         if (gpx.sn > 0 && gpx.sn < 1e9) {
@@ -712,6 +733,13 @@ int main(int argc, char **argv) {
                                         if (gpx.jsn_freq > 0) {
                                             printf(", \"freq\": %d", gpx.jsn_freq);
                                         }
+                                        if (gpx.fq > 0) { // include frequency derived from subframe information if available
+                                            fprintf(stdout, ", \"tx_frequency\": %.0f", gpx.fq );
+                                        }
+                                        #ifdef VER_JSN_STR
+                                            ver_jsn = VER_JSN_STR;
+                                        #endif
+                                        if (ver_jsn && *ver_jsn != '\0') printf(", \"version\": \"%s\"", ver_jsn);
                                         printf(" }\n");
                                         printf("\n");
                                     }
@@ -933,6 +961,9 @@ int main(int argc, char **argv) {
                                     printf(", \"subtype\": \"IMS100\"");
                                     if (gpx.jsn_freq > 0) { // not gpx.fq, because gpx.sn not in every frame
                                         printf(", \"freq\": %d", gpx.jsn_freq);
+                                    }
+                                    if (gpx.fq > 0) { // include frequency derived from subframe information if available
+                                        fprintf(stdout, ", \"tx_frequency\": %.0f", gpx.fq );
                                     }
                                     #ifdef VER_JSN_STR
                                         ver_jsn = VER_JSN_STR;

@@ -7,6 +7,10 @@
     #define M_PI  (3.1415926535897932384626433832795)
 #endif
 
+#define LP_IQ    1
+#define LP_FM    2
+#define LP_IQFM  4
+
 
 #ifndef INTTYPES
 #define INTTYPES
@@ -61,6 +65,9 @@ typedef struct {
     float mv;
     ui32_t mv_pos;
     //
+    float mv2;
+    ui32_t mv2_pos;
+    //
     int N_norm;
     int Nvar;
     float xsum;
@@ -94,6 +101,7 @@ typedef struct {
     double dc;
     double Df;
     double dDf;
+    //
 
     ui32_t sample_posframe;
     ui32_t sample_posnoise;
@@ -103,6 +111,7 @@ typedef struct {
     double SNRdB;
 
     // decimate
+    int opt_nolut; // default: LUT
     int opt_IFmin;
     int decM;
     ui32_t sr_base;
@@ -129,7 +138,7 @@ typedef struct {
     int lpFMtaps; // ui32_t
     float *ws_lpFM;
     float *lpFM_buf;
-	float *fm_buffer;
+    float *fm_buffer;
 
 } dsp_t;
 
