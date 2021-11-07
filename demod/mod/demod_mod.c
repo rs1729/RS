@@ -145,7 +145,7 @@ static int dft_window(dft_t *dft, int w) {
 
 /* ------------------------------------------------------------------------------------ */
 
-static int getCorrDFT(dsp_t *dsp) {
+static int getCorrDFT(dsp_t *dsp, float thres) {
     int i;
     int mp = -1;
     float mx = 0.0;
@@ -221,13 +221,13 @@ static int getCorrDFT(dsp_t *dsp) {
     dsp->mv = mx;
     dsp->mv_pos = mpos;
 
-    if (pos == dsp->sample_out) dsp->buffered = dsp->sample_out - mpos;
+    if (pos == dsp->sample_out) dsp->buffered = dsp->sample_out - dsp->mv_pos;
 
 
     dsp->mv2 = 0.0f;
     dsp->mv2_pos = 0;
     if (dsp->opt_dc) {
-        if (dsp->opt_iq >= 2 && !dsp->locked) {
+        if (dsp->opt_iq >= 2 && fabs(mx) < thres) { /*&& !dsp->locked*/
             mx = 0.0f;
             mpos = 0;
 
@@ -265,7 +265,14 @@ static int getCorrDFT(dsp_t *dsp) {
 
 
             dsp->mv2 = mx;
-            dsp->mv2_pos = mpos;
+            dsp->mv2_pos = mpos - (dsp->lpFMtaps - (dsp->sps-1))/2;
+
+            if (dsp->mv2 > thres || dsp->mv2 < -thres) {
+                dsp->mv = dsp->mv2;
+                dsp->mv_pos = dsp->mv2_pos;
+
+                if (pos == dsp->sample_out) dsp->buffered = dsp->sample_out - dsp->mv2_pos;
+            }
         }
     }
 
@@ -1462,7 +1469,7 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
         k += 1;
         if (k >= dsp->K-4) {
             mvpos0 = dsp->mv_pos;
-            mp = getCorrDFT(dsp); // correlation score -> dsp->mv
+            mp = getCorrDFT(dsp, thres); // correlation score -> dsp->mv
             //if (option_auto == 0 && dsp->mv < 0) mv = 0;
             k = 0;
         }
@@ -1471,16 +1478,15 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
             continue;
         }
 
-        if (dsp->mv  > thres || dsp->mv  < -thres
-         || dsp->mv2 > thres || dsp->mv2 < -thres)
+        if (dsp->mv  > thres || dsp->mv  < -thres)
         {
             if (dsp->opt_dc)
             {
                 if (dsp->opt_iq) {
-                    if (fabs(dsp->dDf) > 50.0)
+                    if (fabs(dsp->dDf) > 100.0)
                     {
                         double diffDf = dsp->dDf*0.6; //0.4
-                        if (dsp->opt_iq >= 2) {
+                        if (1 && dsp->opt_iq >= 2) {
                             // update rot_iqbuf, F1sum, F2sum
                             double f1 = -dsp->h*dsp->sr/(2*dsp->sps);
                             double f2 = -f1;
