@@ -126,7 +126,7 @@ static int dft_window(dft_t *dft, int w) {
                     dft->win[n] = 0.5 * ( 1.0 - cos(2*M_PI*n/(float)(dft->N2-1)) );
                     break ;
             case 2: // Hamming
-                    dft->win[n] = 25/46.0 + (1.0 - 25/46.0)*cos(2*M_PI*n / (float)(dft->N2-1));
+                    dft->win[n] = 25/46.0 - (1.0 - 25/46.0)*cos(2*M_PI*n / (float)(dft->N2-1));
                     break ;
             case 3: // Blackmann
                     dft->win[n] =  7938/18608.0
@@ -143,7 +143,7 @@ static int dft_window(dft_t *dft, int w) {
 
 /* ------------------------------------------------------------------------------------ */
 
-static int getCorrDFT(dsp_t *dsp) {
+static int getCorrDFT(dsp_t *dsp, float thres) {
     int i;
     int mp = -1;
     float mx = 0.0;
@@ -153,9 +153,8 @@ static int getCorrDFT(dsp_t *dsp) {
     ui32_t mpos = 0;
     ui32_t pos = dsp->sample_out;
 
-    double dc = 0.0;
-    int mp_ofs = 0;
     float *sbuf = dsp->bufs;
+    float *dcbuf = dsp->fm_buffer;
 
     dsp->mv = 0.0;
     dsp->dc = 0.0;
@@ -164,37 +163,31 @@ static int getCorrDFT(dsp_t *dsp) {
     if (dsp->sample_out < dsp->L) return -2;
 
 
-    if (dsp->opt_iq > 1 && dsp->opt_dc) {
-        mp_ofs = (dsp->sps-1)/2;
-        sbuf = dsp->fm_buffer;
-    }
-    else {
-        sbuf = dsp->bufs;
-    }
-    for (i = 0; i < dsp->K + dsp->L; i++) (dsp->DFT).xn[i] = sbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
-    while (i < dsp->DFT.N) (dsp->DFT).xn[i++] = 0.0;
+    for (i = 0; i < dsp->K + dsp->L; i++) dsp->DFT.xn[i] = sbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
+    while (i < dsp->DFT.N) dsp->DFT.xn[i++] = 0.0;
 
 
     rdft(&dsp->DFT, dsp->DFT.xn, dsp->DFT.X);
 
 
     if (dsp->opt_dc) {
+        /*
         //X[0] = 0; // nicht ueber gesamte Laenge ... M10
         //
         // L < K ?  // only last 2L samples (avoid M10 carrier offset)
-        dc = 0.0;
-        for (i = dsp->K - dsp->L; i < dsp->K + dsp->L; i++) dc += (dsp->DFT).xn[i];
+        double dc = 0.0;
+        for (i = dsp->K - dsp->L; i < dsp->K + dsp->L; i++) dc += dsp->DFT.xn[i];
         dc /= 2.0*(float)dsp->L;
         dsp->DFT.X[0] -= dsp->DFT.N * dc  ;//* 0.95;
-        Nidft(&dsp->DFT, dsp->DFT.X, (dsp->DFT).cx);
-        for (i = 0; i < dsp->DFT.N; i++) (dsp->DFT).xn[i] = creal((dsp->DFT).cx[i])/(float)dsp->DFT.N;
+        */
+        dsp->DFT.X[0] = 0;
+        Nidft(&dsp->DFT, dsp->DFT.X, dsp->DFT.cx);
+        for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.xn[i] = creal(dsp->DFT.cx[i])/(float)dsp->DFT.N;
     }
 
     for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.Z[i] = dsp->DFT.X[i]*dsp->DFT.Fm[i];
 
     Nidft(&dsp->DFT, dsp->DFT.Z, dsp->DFT.cx);
-
-    if (fabs(dc) < 0.5) dsp->dc = dc;
 
 
     // relativ Peak - Normierung erst zum Schluss;
@@ -218,21 +211,88 @@ static int getCorrDFT(dsp_t *dsp) {
 
     //xnorm = sqrt(dsp->qs[(mpos + 2*dsp->M) % dsp->M]); // Nvar = L
     xnorm = 0.0;
-    for (i = 0; i < dsp->L; i++) xnorm += (dsp->DFT).xn[mp-i]*(dsp->DFT).xn[mp-i];
+    for (i = 0; i < dsp->L; i++) xnorm += dsp->DFT.xn[mp-i]*dsp->DFT.xn[mp-i];
     xnorm = sqrt(xnorm);
 
-    mx /= xnorm*(dsp->DFT).N;
-
-    if (dsp->opt_iq > 1 && dsp->opt_dc) mpos += mp_ofs;
+    mx /= xnorm*dsp->DFT.N;
 
     dsp->mv = mx;
     dsp->mv_pos = mpos;
 
-    if (pos == dsp->sample_out) dsp->buffered = dsp->sample_out - mpos;
+    if (pos == dsp->sample_out) dsp->buffered = dsp->sample_out - dsp->mv_pos;
 
-// FM: s = gain * carg(w)/M_PI = gain * dphi / PI // gain=0.8
-// FM audio gain? dc relative to FM-envelope?!
-//
+
+    dsp->mv2 = 0.0f;
+    dsp->mv2_pos = 0;
+    if (dsp->opt_dc) {
+        if (dsp->opt_iq >= 2 && fabs(mx) < thres) { /*&& !dsp->locked*/
+            mx = 0.0f;
+            mpos = 0;
+
+            for (i = 0; i < dsp->K + dsp->L; i++) dsp->DFT.xn[i] = dcbuf[(pos+dsp->M -(dsp->K + dsp->L-1) + i) % dsp->M];
+            while (i < dsp->DFT.N) dsp->DFT.xn[i++] = 0.0;
+            rdft(&dsp->DFT, dsp->DFT.xn, dsp->DFT.X);
+
+            dsp->DFT.X[0] = 0;
+            Nidft(&dsp->DFT, dsp->DFT.X, dsp->DFT.cx);
+            for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.xn[i] = creal(dsp->DFT.cx[i])/(float)dsp->DFT.N;
+
+            for (i = 0; i < dsp->DFT.N; i++) dsp->DFT.Z[i] = dsp->DFT.X[i]*dsp->DFT.Fm[i];
+
+            Nidft(&dsp->DFT, dsp->DFT.Z, dsp->DFT.cx);
+
+            mx2 = 0.0;                                      // t = L-1
+            for (i = dsp->L-1; i < dsp->K + dsp->L; i++) {  // i=t .. i=t+K < t+1+K
+                re_cx = creal(dsp->DFT.cx[i]);  // imag(cx)=0
+                if (re_cx*re_cx > mx2) {
+                    mx = re_cx;
+                    mx2 = mx*mx;
+                    mp = i;
+                }
+            }
+            if (mp == dsp->L-1 || mp == dsp->K + dsp->L-1) return -4; // Randwert
+            //  mp == t           mp == K+t
+
+            mpos = pos - (dsp->K + dsp->L-1) + mp; // t = L-1
+
+            xnorm = 0.0;
+            for (i = 0; i < dsp->L; i++) xnorm += dsp->DFT.xn[mp-i]*dsp->DFT.xn[mp-i];
+            xnorm = sqrt(xnorm);
+
+            mx /= xnorm*dsp->DFT.N;
+
+
+            dsp->mv2 = mx;
+            dsp->mv2_pos = mpos - (dsp->lpFMtaps - (dsp->sps-1))/2;
+
+            if (dsp->mv2 > thres || dsp->mv2 < -thres) {
+                dsp->mv = dsp->mv2;
+                dsp->mv_pos = dsp->mv2_pos;
+
+                if (pos == dsp->sample_out) dsp->buffered = dsp->sample_out - dsp->mv2_pos;
+            }
+        }
+    }
+
+
+    if (dsp->opt_dc)
+    {
+        double dc = 0.0;
+        int mp_ofs = 0;
+        if (dsp->opt_iq >= 2  &&  dsp->mv2_pos == 0) {
+            mp_ofs = (dsp->lpFMtaps - (dsp->sps-1))/2;
+        }
+        dc = 0.0;  // rs41 without preamble?
+        // unbalanced header?
+        for (i = 0; i < dsp->L; i++) dc += dcbuf[(mp_ofs + mpos - i + dsp->M) % dsp->M];
+        dc /= (float)dsp->L;
+        dsp->dc = dc;
+    }
+
+
+    // FM: s = gain * carg(w)/M_PI = gain * dphi / PI // gain=0.8
+    // FM audio gain? dc relative to FM-envelope?!
+    //
     dsp->dDf = dsp->sr * dsp->dc / (2.0*FM_GAIN);  // remaining freq offset
 
     return mp;
@@ -313,6 +373,7 @@ float read_wav_header(pcm_t *pcm) {
 
     return 0;
 }
+
 
 static int f32read_sample(dsp_t *dsp, float *s) {
     int i;
@@ -677,23 +738,31 @@ int f32buf_sample(dsp_t *dsp, int inv) {
 
     double t = dsp->sample_in / (double)dsp->sr;
 
-    if (dsp->opt_iq) {
-
+    if (dsp->opt_iq)
+    {
         if (dsp->opt_iq == 5) {
             ui32_t s_reset = dsp->dectaps*dsp->lut_len;
             int j;
             if ( f32read_cblock(dsp) < dsp->decM ) return EOF;
             //if ( f32read_cblock(dsp) < dsp->decM * blk_sz) return EOF;
             for (j = 0; j < dsp->decM; j++) {
-                dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % dsp->lut_len];
+                z = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % dsp->lut_len];
+                dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = z;
                 dsp->sample_dec += 1;
                 if (dsp->sample_dec == s_reset) dsp->sample_dec = 0;
             }
-            z = lowpass(dsp->decXbuffer, dsp->sample_dec, dsp->dectaps, ws_dec);
+            if (dsp->decM > 1)
+            {
+                z = lowpass(dsp->decXbuffer, dsp->sample_dec, dsp->dectaps, ws_dec);
+            }
         }
         else if ( f32read_csample(dsp, &z) == EOF ) return EOF;
 
-        z *= cexp(-t*2*M_PI*dsp->Df*I);
+        if (dsp->opt_dc)
+        {
+            z *= cexp(-t*2*M_PI*dsp->Df*I);
+        }
+
 
         // IF-lowpass
         if (dsp->opt_lp) {
@@ -715,7 +784,7 @@ int f32buf_sample(dsp_t *dsp, int inv) {
             s = re_lowpass(dsp->lpFM_buf, dsp->sample_in, dsp->lpFMtaps, dsp->ws_lpFM);
         }
 
-        dsp->fm_buffer[(dsp->sample_in - dsp->lpFMtaps/2 + dsp->M) % dsp->M] = s;
+        dsp->fm_buffer[dsp->sample_in % dsp->M] = s;
 
 
         if (dsp->opt_iq >= 2)
@@ -779,14 +848,14 @@ int f32buf_sample(dsp_t *dsp, int inv) {
 
     if (inv) s = -s;
     dsp->bufs[dsp->sample_in % dsp->M] = s;
-/*
+    /*
     xneu = dsp->bufs[(dsp->sample_in  ) % dsp->M];
     xalt = dsp->bufs[(dsp->sample_in+dsp->M - dsp->Nvar) % dsp->M];
     dsp->xsum +=  xneu - xalt;                 // + xneu - xalt
     dsp->qsum += (xneu - xalt)*(xneu + xalt);  // + xneu*xneu - xalt*xalt
     dsp->xs[dsp->sample_in % dsp->M] = dsp->xsum;
     dsp->qs[dsp->sample_in % dsp->M] = dsp->qsum;
-*/
+    */
 
     dsp->sample_out = dsp->sample_in - dsp->delay;
 
@@ -802,20 +871,23 @@ static int read_bufbit(dsp_t *dsp, int symlen, char *bits, ui32_t mvp, int pos) 
     ui32_t rcount = ceil(rbitgrenze);//+0.99; // dfm?
 
     double sum = 0.0;
+    double dc = 0.0;
+
+    if (dsp->opt_dc && dsp->opt_iq < 2) dc = dsp->dc;
 
     // bei symlen=2 (Manchester) kein dc noetig: -dc+dc=0 ;
     // allerdings M10-header mit symlen=1
 
     rbitgrenze += dsp->sps;
     do {
-        sum += dsp->bufs[(rcount + mvp + dsp->M) % dsp->M] - dsp->dc;
+        sum += dsp->bufs[(rcount + mvp + dsp->M) % dsp->M] - dc;
         rcount++;
     } while (rcount < rbitgrenze);  // n < dsp->sps
 
     if (symlen == 2) {
         rbitgrenze += dsp->sps;
         do {
-            sum -= dsp->bufs[(rcount + mvp + dsp->M) % dsp->M] - dsp->dc;
+            sum -= dsp->bufs[(rcount + mvp + dsp->M) % dsp->M] - dc;
             rcount++;
         } while (rcount < rbitgrenze);  // n < dsp->sps
     }
@@ -841,7 +913,7 @@ static int headcmp(dsp_t *dsp, int opt_dc) {
     int len = dsp->hdrlen/dsp->symhd;
     int inv = dsp->mv < 0;
 
-    if (opt_dc == 0 || dsp->opt_iq > 1) dsp->dc = 0; // reset? e.g. 2nd pass
+    //if (opt_dc == 0 || dsp->opt_iq > 1) dsp->dc = 0; // reset? e.g. 2nd pass
 
     if (dsp->symhd != 1) step = 2;
     if (inv) sign=1;
@@ -1101,8 +1173,9 @@ int init_buffers(dsp_t *dsp) {
         int taps; // lowpass taps: 4*sr/transition_bw
 
         // IF lowpass
-        f_lp = 24e3; // default
+        f_lp = 24e3/(float)dsp->sr/2.0; // default
         if (dsp->lpIQ_bw) f_lp = dsp->lpIQ_bw/(float)dsp->sr/2.0;
+        //if (dsp->opt_dc)  f_lp *= 1.25;
         taps = 4*dsp->sr/IF_TRANSITION_BW; if (taps%2==0) taps++;
         taps = lowpass_init(1.5*f_lp, taps, &dsp->ws_lpIQ0); if (taps < 0) return -1;
         taps = lowpass_init(f_lp, taps, &dsp->ws_lpIQ1); if (taps < 0) return -1;
@@ -1125,7 +1198,7 @@ int init_buffers(dsp_t *dsp) {
 
 
         // FM lowpass
-        f_lp = 10e3; // default
+        f_lp = 10e3/(float)dsp->sr; // default
         if (dsp->lpFM_bw > 0) f_lp = dsp->lpFM_bw/(float)dsp->sr;
         taps = 4*dsp->sr/FM_TRANSITION_BW; if (taps%2==0) taps++;
         taps = lowpass_init(f_lp, taps, &dsp->ws_lpFM); if (taps < 0) return -1;
@@ -1165,10 +1238,10 @@ int init_buffers(dsp_t *dsp) {
 
     dsp->bufs  = (float *)calloc( M+1, sizeof(float)); if (dsp->bufs  == NULL) return -100;
     dsp->match = (float *)calloc( L+1, sizeof(float)); if (dsp->match == NULL) return -100;
-/*
+    /*
     dsp->xs = (float *)calloc( M+1, sizeof(float)); if (dsp->xs == NULL) return -100;
     dsp->qs = (float *)calloc( M+1, sizeof(float)); if (dsp->qs == NULL) return -100;
-*/
+    */
     dsp->rawbits = (char *)calloc( 2*dsp->hdrlen+1, sizeof(char)); if (dsp->rawbits == NULL) return -100;
 
 
@@ -1250,10 +1323,10 @@ int free_buffers(dsp_t *dsp) {
     if (dsp->match) { free(dsp->match); dsp->match = NULL; }
     if (dsp->bufs)  { free(dsp->bufs);  dsp->bufs  = NULL; }
     if (dsp->rawbits) { free(dsp->rawbits); dsp->rawbits = NULL; }
-/*
+    /*
     if (dsp->xs)  { free(dsp->xs);  dsp->xs  = NULL; }
     if (dsp->qs)  { free(dsp->qs);  dsp->qs  = NULL; }
-*/
+    */
     if (dsp->DFT.xn) { free(dsp->DFT.xn); dsp->DFT.xn = NULL; }
     if (dsp->DFT.ew) { free(dsp->DFT.ew); dsp->DFT.ew = NULL; }
     if (dsp->DFT.Fm) { free(dsp->DFT.Fm); dsp->DFT.Fm = NULL; }
@@ -1317,7 +1390,7 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
         k += 1;
         if (k >= dsp->K-4) {
             mvpos0 = dsp->mv_pos;
-            mp = getCorrDFT(dsp); // correlation score -> dsp->mv
+            mp = getCorrDFT(dsp, thres); // correlation score -> dsp->mv
             //if (option_auto == 0 && dsp->mv < 0) mv = 0;
             k = 0;
 
@@ -1336,17 +1409,40 @@ int find_header(dsp_t *dsp, float thres, int hdmax, int bitofs, int opt_dc) {
             continue;
         }
 
-        if (dsp->mv > thres || dsp->mv < -thres) {
-
-            if (dsp->opt_dc) {  // Problem: FM-gain
-                if (dsp->opt_iq < 2) dsp->Df += dsp->dDf*0.4;
-                else {
-                    double ofs = fabs(dsp->dDf);  // (iq-decode controls FM-gain)
-                    if (ofs > 200.0)
+        if (dsp->mv  > thres || dsp->mv  < -thres)
+        {
+            if (dsp->opt_dc)
+            {
+                if (dsp->opt_iq) {
+                    if (fabs(dsp->dDf) > 100.0)
                     {
-                        dsp->Df += dsp->dDf * 2/3.0;
+                        double diffDf = dsp->dDf*0.6; //0.4
+                        if (1 && dsp->opt_iq >= 2) {
+                            // update rot_iqbuf, F1sum, F2sum
+                            double f1 = -dsp->h*dsp->sr/(2*dsp->sps);
+                            double f2 = -f1;
+                            float complex X1 = 0;
+                            float complex X2 = 0;
+                            float complex _z = 0;
+                            int _n = dsp->sps;
+                            while ( _n > 0 )
+                            {
+                                // update rot_iqbuf
+                                double _tn = (dsp->sample_in - _n) / (double)dsp->sr;
+                                dsp->rot_iqbuf[(dsp->sample_in - _n + dsp->N_IQBUF) % dsp->N_IQBUF] *= cexp(-_tn*2*M_PI*diffDf*I);
+                                //
+                                //update/reset F1sum, F2sum
+                                _z = dsp->rot_iqbuf[(dsp->sample_in - _n + dsp->N_IQBUF) % dsp->N_IQBUF];
+                                X1 += _z*cexp(-_tn*2*M_PI*f1*I);
+                                X2 += _z*cexp(-_tn*2*M_PI*f2*I);
+                                _n--;
+                            }
+                            dsp->F1sum = X1;
+                            dsp->F2sum = X2;
+                        }
+                        dsp->Df += diffDf;
                     }
-                    if (ofs > 1000.0) {  //dsp->opt_lp
+                    if (fabs(dsp->dDf) > 1e3) {
                         if (dsp->locked) {
                             dsp->locked = 0;
                             dsp->ws_lpIQ = dsp->ws_lpIQ0;

@@ -80,17 +80,19 @@ typedef struct {
     float *match;
     float *bufs;
     float mv;
+    float mv2;
     ui32_t mv_pos;
+    ui32_t mv2_pos;
     ui32_t last_detect;
     //
     int N_norm;
     int Nvar;
-/*
+    /*
     float xsum;
     float qsum;
     float *xs;
     float *qs;
-*/
+    */
 
     // IQ-data
     int opt_iq;
