@@ -587,7 +587,7 @@ static float get_Temp(gpx_t *gpx) {
     float Rs[3] = { 12.1e3 ,  36.5e3 ,  475.0e3 }; // bias/series
     float Rp[3] = { 1e20   , 330.0e3 , 2000.0e3 }; // parallel, Rp[0]=inf
 
-    ui8_t  scT;     // {0,1,2}, range/scale voltage divider
+    ui8_t  scT = 0; // {0,1,2}, range/scale voltage divider
     ui16_t ADC_RT;  // ADC12
     //ui16_t Tcal[2];
 
@@ -595,36 +595,21 @@ static float get_Temp(gpx_t *gpx) {
     float x, R;
     float T = 0;    // T/Kelvin
 
-    ui8_t sc =  gpx->frame_bytes[0x32] & 3;
-    ADC_RT   = (gpx->frame_bytes[0x5] << 8) | gpx->frame_bytes[0x4];
+    ADC_RT  = (gpx->frame_bytes[0x5] << 8) | gpx->frame_bytes[0x4];
 
-    // sc: 0x9=0b1001:0, 0xA=0b1010:1, 0x8=0b1000:2
+    //ui8_t sc = gpx->frame_bytes[0x32] & 3; // (frame[0x32]<<8)|frame[0x31]
+    // frame[0x31..0x32], frame[0x32]: 0x9=0b1001:0, 0xA=0b1010:1, 0x8=0b1000:2
     // range: 0:0..4095 , 1:4096..8191 , 2:8192..12287
-    if (sc == 0x1) {
-        scT = 0;
-    }
-    else if (sc == 0x2) {
-        scT = 1;
-        ADC_RT -= 4096;
-    }
-    else if (sc == 0x0) {
-        scT = 2;
-        ADC_RT -= 8192;
-    }
-    else { // sc == 0x3  // test only range ?
-        if (ADC_RT > 8191) {
-            scT = 2;
-            ADC_RT -= 8192;
-        }
-        else if (ADC_RT > 4095) {
-            scT = 1;
-            ADC_RT -= 4096;
-        }
-        else {
-            scT = 0;
-        }
-    }
-
+    /*
+    if      (sc == 0x1) { scT = 0; }
+    else if (sc == 0x2) { scT = 1; ADC_RT -= 4096; }
+    else if (sc == 0x0) { scT = 2; ADC_RT -= 8192; }
+    else: // sc == 0x3  // test only range below:
+    */
+    // range, i.e. (ADC_RT>>12)&3
+    if      (ADC_RT > 8191) { scT = 2; ADC_RT -= 8192; }
+    else if (ADC_RT > 4095) { scT = 1; ADC_RT -= 4096; }
+    else                    { scT = 0; } // also if (ADC_RT>>12)&3 == 3
 
     x = (adc_max-ADC_RT)/ADC_RT;  // (Vcc-Vout)/Vout = Vcc/Vout - 1
     R =  Rs[scT] /( x - Rs[scT]/Rp[scT] );
@@ -669,7 +654,7 @@ static float get_RHraw(gpx_t *gpx) {
     _RH = -1.0;
     if (_rh < 1.05) _RH = _rh*100.0;
 
-    // (Hyland and Wexler) Tntc2 (T_RH) ?
+    // (Hyland and Wexler) Tntc2 (T_RH) <-> Tmain ?
 
     return _RH;
 }
@@ -730,7 +715,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         float _RHraw = get_RHraw(gpx);
                         fprintf(stdout, " ");
                         if (Tc > -270.0) fprintf(stdout, " T:%.1fC", Tc);
-                        if (_RHraw > -0.5) fprintf(stdout, " _RHraw=%.0f%%", _RHraw);
+                        if (_RHraw > -0.5) fprintf(stdout, " (_RH=%.0f%%)", _RHraw);
                         if (TH > -270.0) fprintf(stdout, " TH:%.1fC", TH);
                     }
                 }
