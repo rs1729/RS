@@ -102,6 +102,7 @@ typedef struct {
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vx; double vy; double vD2;
+    float T;  float _RH; float TH;
     ui8_t numSV;
     ui8_t utc_ofs;
     char SN[12+4];
@@ -184,9 +185,9 @@ frame[0x0] = framelen        // (0x43,) 0x45
 frame[0x1] = 0x20 (type M20)
 
 frame[0x02..0x18]: most important data at beginning (incl. counter + M10check)
-frame[0x02..0x03]: ADC
-frame[0x04..0x05]: ADC
-frame[0x06..0x07]: ADC temperature
+frame[0x02..0x03]: ADC RH (incl.555)
+frame[0x04..0x05]: ADC Temperatur , frame[0x46]: scale/range ?
+frame[0x06..0x07]: ADC RH-Temperature     range: 0:0..4095 , 1:4096..8191 , 2:8192..12287
 frame[0x08..0x0A]: GPS altitude
 frame[0x0B..0x0E]: GPS hor.Vel. (velE,velN)
 frame[0x0F..0x11]: GPS TOW
@@ -551,13 +552,81 @@ static int blk_checkM10(int len, ui8_t *msg) {
 
 /* -------------------------------------------------------------------------- */
 
-static float get_Tntc0(gpx_t *gpx) {
-// SMD ntc
+static float get_Temp(gpx_t *gpx) {
+// NTC-Thermistor Shibaura PB5-41E ?
+// T00 = 273.15 +  0.0 , R00 = 15e3
+// T25 = 273.15 + 25.0 , R25 = 5.369e3
+// B00 = 3450.0 Kelvin // 0C..100C, poor fit low temps
+// [  T/C  , R/1e3 ] ( [P__-43]/2.0 ):
+// [ -50.0 , 204.0 ]
+// [ -45.0 , 150.7 ]
+// [ -40.0 , 112.6 ]
+// [ -35.0 , 84.90 ]
+// [ -30.0 , 64.65 ]
+// [ -25.0 , 49.66 ]
+// [ -20.0 , 38.48 ]
+// [ -15.0 , 30.06 ]
+// [ -10.0 , 23.67 ]
+// [  -5.0 , 18.78 ]
+// [   0.0 , 15.00 ]
+// [   5.0 , 12.06 ]
+// [  10.0 , 9.765 ]
+// [  15.0 , 7.955 ]
+// [  20.0 , 6.515 ]
+// [  25.0 , 5.370 ]
+// [  30.0 , 4.448 ]
+// [  35.0 , 3.704 ]
+// [  40.0 , 3.100 ]
+// -> Steinhart-Hart coefficients (polyfit):
+    float p0 = 1.07303516e-03,
+          p1 = 2.41296733e-04,
+          p2 = 2.26744154e-06,
+          p3 = 6.52855181e-08;
+// T/K = 1/( p0 + p1*ln(R) + p2*ln(R)^2 + p3*ln(R)^3 )
+
+    // range/scale 0, 1, 2:                        // M10-pcb
+    float Rs[3] = { 12.1e3 ,  36.5e3 ,  475.0e3 }; // bias/series
+    float Rp[3] = { 1e20   , 330.0e3 , 2000.0e3 }; // parallel, Rp[0]=inf
+
+    ui8_t  scT = 0; // {0,1,2}, range/scale voltage divider
+    ui16_t ADC_RT;  // ADC12
+    //ui16_t Tcal[2];
+
+    float adc_max = 4095.0; // ADC12 , 4096 = 1<<12
+    float x, R;
+    float T = 0;    // T/Kelvin
+
+    ADC_RT  = (gpx->frame_bytes[0x5] << 8) | gpx->frame_bytes[0x4];
+
+    //ui8_t sc = gpx->frame_bytes[0x32] & 3; // (frame[0x32]<<8)|frame[0x31]
+    // frame[0x31..0x32], frame[0x32]: 0x9=0b1001:0, 0xA=0b1010:1, 0x8=0b1000:2
+    // range: 0:0..4095 , 1:4096..8191 , 2:8192..12287
+    /*
+    if      (sc == 0x1) { scT = 0; }
+    else if (sc == 0x2) { scT = 1; ADC_RT -= 4096; }
+    else if (sc == 0x0) { scT = 2; ADC_RT -= 8192; }
+    else: // sc == 0x3  // test only range below:
+    */
+    // range, i.e. (ADC_RT>>12)&3
+    if      (ADC_RT > 8191) { scT = 2; ADC_RT -= 8192; }
+    else if (ADC_RT > 4095) { scT = 1; ADC_RT -= 4096; }
+    else                    { scT = 0; } // also if (ADC_RT>>12)&3 == 3
+
+    x = (adc_max-ADC_RT)/ADC_RT;  // (Vcc-Vout)/Vout = Vcc/Vout - 1
+    R =  Rs[scT] /( x - Rs[scT]/Rp[scT] );
+
+    if (R > 0)  T = 1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
+
+    return  T - 273.15; // Celsius
+}
+
+static float get_Tntc2(gpx_t *gpx) {
+    // SMD ntc , RH-Temperature
     float Rs = 22.1e3;          // P5.6=Vcc
-  float R25 = 2.2e3;// 0.119e3; //2.2e3;
-  float b = 3650.0;           // B/Kelvin
-  float T25 = 25.0 + 273.15;  // T0=25C, R0=R25=5k
-// -> Steinhart–Hart coefficients (polyfit):
+    float R25 = 2.2e3;// 0.119e3; //2.2e3;
+    float b = 3650.0;           // B/Kelvin
+    float T25 = 25.0 + 273.15;  // T0=25C, R0=R25=5k
+    // -> Steinhart-Hart coefficients (polyfit):
     float p0 =  4.42606809e-03,
           p1 = -6.58184309e-04,
           p2 =  8.95735557e-05,
@@ -573,6 +642,22 @@ static float get_Tntc0(gpx_t *gpx) {
     //if (R > 0)  T =  1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
 
     return T - 273.15;
+}
+
+static float get_RHraw(gpx_t *gpx) {
+    float _rh = -1.0;
+    float _RH = -1.0;
+    float ADC_rh;
+
+    ADC_rh = (gpx->frame_bytes[0x03] << 8) | gpx->frame_bytes[0x02];
+    _rh = ADC_rh / (float)(1<<15);
+
+    _RH = -1.0;
+    if (_rh < 1.05) _RH = _rh*100.0;
+
+    // (Hyland and Wexler) Tntc2 (T_RH) <-> Tmain ?
+
+    return _RH;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -596,6 +681,11 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
         Gps2Date(gpx->week, gpx->gpssec, &gpx->jahr, &gpx->monat, &gpx->tag);
         get_SN(gpx);
 
+        if (gpx->option.ptu && csOK) {
+            gpx->T   = get_Temp(gpx);
+            gpx->TH  = get_Tntc2(gpx);
+            gpx->_RH = get_RHraw(gpx);
+        }
 
         if ( !gpx->option.slt )
         {
@@ -625,10 +715,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
                 }
                 if (gpx->option.ptu && csOK) {
-                    if (gpx->option.vbs >= 3) {
-                        float t0 = get_Tntc0(gpx);
-                        if (t0 > -270.0) fprintf(stdout, " (T0:%.1fC) ", t0);
-                    }
+                    fprintf(stdout, " ");
+                    if (gpx->T > -273.0)  fprintf(stdout, " T:%.1fC", gpx->T);
+                    if (gpx->_RH > -0.5)  fprintf(stdout, " (_RH=%.0f%%)", gpx->_RH);
+                    if (gpx->TH > -273.0) fprintf(stdout, " TH:%.1fC", gpx->TH);
                 }
                 fprintf(stdout, ANSI_COLOR_RESET"");
             }
@@ -655,10 +745,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
                 }
                 if (gpx->option.ptu && csOK) {
-                    if (gpx->option.vbs >= 3) {
-                        float t0 = get_Tntc0(gpx);
-                        if (t0 > -270.0) fprintf(stdout, " (T0:%.1fC) ", t0);
-                    }
+                    fprintf(stdout, " ");
+                    if (gpx->T > -273.0)  fprintf(stdout, " T:%.1fC", gpx->T);
+                    if (gpx->_RH > -0.5)  fprintf(stdout, " (_RH=%.0f%%)", gpx->_RH);
+                    if (gpx->TH > -273.0) fprintf(stdout, " TH:%.1fC", gpx->TH);
                 }
             }
             fprintf(stdout, "\n");
@@ -679,6 +769,9 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
                 fprintf(stdout, "\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                                sn_id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV);
+                if (gpx->option.ptu) { // temperature
+                    if (gpx->T > -273.0) fprintf(stdout, ", \"temp\": %.1f", gpx->T);
+                }
                 fprintf(stdout, ", \"rawid\": \"M20_%02X%02X%02X\"", gpx->frame_bytes[pos_SN], gpx->frame_bytes[pos_SN+1], gpx->frame_bytes[pos_SN+2]); // gpx->type
                 fprintf(stdout, ", \"subtype\": \"0x%02X\"", gpx->type);
                 if (gpx->jsn_freq > 0) {
