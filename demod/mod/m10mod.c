@@ -657,7 +657,7 @@ static float get_Temp(gpx_t *gpx) {
 // [  30.0 , 4.448 ]
 // [  35.0 , 3.704 ]
 // [  40.0 , 3.100 ]
-// -> Steinhart–Hart coefficients (polyfit):
+// -> Steinhart-Hart coefficients (polyfit):
     float p0 = 1.07303516e-03,
           p1 = 2.41296733e-04,
           p2 = 2.26744154e-06,
@@ -753,7 +753,7 @@ static float get_Tntc2(gpx_t *gpx) {
 //  float R25 = 2.2e3;
 //  float b = 3650.0;           // B/Kelvin
 //  float T25 = 25.0 + 273.15;  // T0=25C, R0=R25=5k
-// -> Steinhart–Hart coefficients (polyfit):
+// -> Steinhart-Hart coefficients (polyfit):
     float p0 =  4.42606809e-03,
           p1 = -6.58184309e-04,
           p2 =  8.95735557e-05,
