@@ -102,6 +102,7 @@ typedef struct {
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     double vx; double vy; double vD2;
+    float T;  float _RH; float TH;
     ui8_t numSV;
     ui8_t utc_ofs;
     char SN[12+4];
@@ -620,7 +621,7 @@ static float get_Temp(gpx_t *gpx) {
 }
 
 static float get_Tntc2(gpx_t *gpx) {
-    // SMD ntc
+    // SMD ntc , RH-Temperature
     float Rs = 22.1e3;          // P5.6=Vcc
     float R25 = 2.2e3;// 0.119e3; //2.2e3;
     float b = 3650.0;           // B/Kelvin
@@ -680,6 +681,11 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
         Gps2Date(gpx->week, gpx->gpssec, &gpx->jahr, &gpx->monat, &gpx->tag);
         get_SN(gpx);
 
+        if (gpx->option.ptu && csOK) {
+            gpx->T   = get_Temp(gpx);
+            gpx->TH  = get_Tntc2(gpx);
+            gpx->_RH = get_RHraw(gpx);
+        }
 
         if ( !gpx->option.slt )
         {
@@ -709,15 +715,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
                 }
                 if (gpx->option.ptu && csOK) {
-                    if (gpx->option.vbs >= 3) {
-                        float Tc = get_Temp(gpx);
-                        float TH = get_Tntc2(gpx);
-                        float _RHraw = get_RHraw(gpx);
-                        fprintf(stdout, " ");
-                        if (Tc > -270.0) fprintf(stdout, " T:%.1fC", Tc);
-                        if (_RHraw > -0.5) fprintf(stdout, " (_RH=%.0f%%)", _RHraw);
-                        if (TH > -270.0) fprintf(stdout, " TH:%.1fC", TH);
-                    }
+                    fprintf(stdout, " ");
+                    if (gpx->T > -273.0)  fprintf(stdout, " T:%.1fC", gpx->T);
+                    if (gpx->_RH > -0.5)  fprintf(stdout, " (_RH=%.0f%%)", gpx->_RH);
+                    if (gpx->TH > -273.0) fprintf(stdout, " TH:%.1fC", gpx->TH);
                 }
                 fprintf(stdout, ANSI_COLOR_RESET"");
             }
@@ -744,15 +745,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
                 }
                 if (gpx->option.ptu && csOK) {
-                    if (gpx->option.vbs >= 3) {
-                        float Tc = get_Temp(gpx);
-                        float TH = get_Tntc2(gpx);
-                        float _RHraw = get_RHraw(gpx);
-                        fprintf(stdout, " ");
-                        if (Tc > -270.0) fprintf(stdout, " T:%.1fC", Tc);
-                        if (_RHraw > -0.5) fprintf(stdout, " _RHraw=%.0f%%", _RHraw);
-                        if (TH > -270.0) fprintf(stdout, " TH:%.1fC", TH);
-                    }
+                    fprintf(stdout, " ");
+                    if (gpx->T > -273.0)  fprintf(stdout, " T:%.1fC", gpx->T);
+                    if (gpx->_RH > -0.5)  fprintf(stdout, " (_RH=%.0f%%)", gpx->_RH);
+                    if (gpx->TH > -273.0) fprintf(stdout, " TH:%.1fC", gpx->TH);
                 }
             }
             fprintf(stdout, "\n");
@@ -773,6 +769,9 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
                 fprintf(stdout, "\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                                sn_id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV);
+                if (gpx->option.ptu) { // temperature
+                    if (gpx->T > -273.0) fprintf(stdout, ", \"temp\": %.1f", gpx->T);
+                }
                 fprintf(stdout, ", \"rawid\": \"M20_%02X%02X%02X\"", gpx->frame_bytes[pos_SN], gpx->frame_bytes[pos_SN+1], gpx->frame_bytes[pos_SN+2]); // gpx->type
                 fprintf(stdout, ", \"subtype\": \"0x%02X\"", gpx->type);
                 if (gpx->jsn_freq > 0) {
