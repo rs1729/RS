@@ -115,6 +115,7 @@ typedef struct {
     ui8_t type;
 } gpx_t;
 
+int first=1;  //first frame or not 1/0
 
 /* -------------------------------------------------------------------------- */
 #define SECONDS_IN_WEEK  (604800.0)  // 7*86400
@@ -828,6 +829,8 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 strncpy(sn_id+4, gpx->SN, 12+4);
                 sn_id[15+4] = '\0';
 
+                if (!first) fprintf(stdout, ",\n");
+                first=0;
                 fprintf(stdout, "{ \"type\": \"%s\"", "M20");
                 fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
                 fprintf(stdout, "\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
@@ -846,8 +849,8 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     ver_jsn = VER_JSN_STR;
                 #endif
                 if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
-                fprintf(stdout, " }\n");
-                fprintf(stdout, "\n");
+                fprintf(stdout, " }");
+                //fprintf(stdout, "\n");
             }
         }
 
@@ -1160,6 +1163,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "reading float32 soft symbols\n");
     }
     #endif
+    
+    if (gpx.option.jsn) fprintf(stdout, "[\n");
 
     if (!rawhex) {
         if (!option_softin) {
@@ -1371,6 +1376,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (gpx.option.jsn) fprintf(stdout, "\n]\n");
     fclose(fp);
 
     return 0;
