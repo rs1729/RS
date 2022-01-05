@@ -48,6 +48,7 @@ typedef struct {
     i8_t ecc;  // M10/M20: no ECC
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature
+    i8_t dwp;  // PTU derived: dew point
     i8_t inv;
     i8_t aut;
     i8_t col;  // colors
@@ -775,6 +776,17 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
                         else                 fprintf(stdout, " P=%.1fhPa ", gpx->P);
                     }
+                    // dew point
+                    if (gpx->option.dwp)
+                    {
+                        float rh = gpx->RH;
+                        float Td = -273.15f; // dew point Td
+                        if (rh > 0.0f && gpx->T > -273.0f) {
+                            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
+                            Td = 243.04f * gamma / (17.625f - gamma);
+                            fprintf(stdout, " Td=%.1fC ", Td);
+                        }
+                    }
                 }
                 fprintf(stdout, ANSI_COLOR_RESET"");
             }
@@ -813,6 +825,17 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
                         else                 fprintf(stdout, " P=%.1fhPa ", gpx->P);
                     }
+                    // dew point
+                    if (gpx->option.dwp)
+                    {
+                        float rh = gpx->RH;
+                        float Td = -273.15f; // dew point Td
+                        if (rh > 0.0f && gpx->T > -273.0f) {
+                            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
+                            Td = 243.04f * gamma / (17.625f - gamma);
+                            fprintf(stdout, " Td=%.1fC ", Td);
+                        }
+                    }
                 }
             }
             fprintf(stdout, "\n");
@@ -839,6 +862,15 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     if (gpx->T > -273.0f) fprintf(stdout, ", \"temp\": %.1f", gpx->T );
                     if (gpx->RH > -0.5f)  fprintf(stdout, ", \"humidity\": %.1f", gpx->RH );
                     if (gpx->P > 0.0f)    fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
+                    if (gpx->option.dwp) {
+                        float rh = gpx->RH;
+                        float Td = -273.15f; // dew point Td
+                        if (rh > 0.0f && gpx->T > -273.0f) {
+                            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
+                            Td = 243.04f * gamma / (17.625f - gamma);
+                            fprintf(stdout, ", \"dew\": %.1f", Td);
+                        }  
+                    } 
                 }
                 fprintf(stdout, ", \"rawid\": \"M20_%02X%02X%02X\"", gpx->frame_bytes[pos_SN], gpx->frame_bytes[pos_SN+1], gpx->frame_bytes[pos_SN+2]); // gpx->type
                 fprintf(stdout, ", \"subtype\": \"0x%02X\"", gpx->type);
@@ -1056,6 +1088,7 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
             gpx.option.ptu = 1;
         }
+        else if   (strcmp(*argv, "--dewp") == 0) { gpx.option.dwp = 1; }
         else if ( (strcmp(*argv, "--spike") == 0) ) {
             spike = 1;
         }
