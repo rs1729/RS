@@ -18,9 +18,6 @@ m10mod: m10mod.c demod_mod.o
 mXXmod: mXXmod.c demod_mod.o
 	$(CC) $(COPTS) -o mXXmod mXXmod.c demod_mod.o -lm
     
-mp3h1mod: mp3h1mod.c demod_mod.o
-	$(CC) $(COPTS) -o mp3h1mod mp3h1mod.c demod_mod.o bch_ecc_mod.o -lm
-
 imet54mod: imet54mod.c demod_mod.o
 	$(CC) $(COPTS) -o imet54mod imet54mod.c demod_mod.o -lm
 
@@ -41,10 +38,13 @@ demod_mod.o: demod_mod.c demod_mod.h
 
 bch_ecc_mod.o: bch_ecc_mod.c bch_ecc_mod.h
 	$(CC) $(COPTS) -c bch_ecc_mod.c
+    
+xdata: xdata.c
+	$(CC) $(COPTS) -o xdata xdata.c -lm
 
 .PHONY: clean
 clean:
-	rm -f rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod
+	rm -f rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod xdata
 	rm -f demod_mod.o
 	rm -f bch_ecc_mod.o
 

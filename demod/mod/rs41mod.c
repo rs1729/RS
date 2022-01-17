@@ -51,6 +51,7 @@
     #include "bch_ecc_mod.h"
 #endif
 
+#include "xdata.h"
 
 typedef struct {
     i8_t vbs;  // verbose output
@@ -60,6 +61,7 @@ typedef struct {
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature humidity (pressure)
     i8_t dwp;  // PTU derived: dew point
+    i8_t aux;
     i8_t inv;
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
@@ -1559,6 +1561,28 @@ static int prn_ptu(gpx_t *gpx) {
     return 0;
 }
 
+int prn_aux(gpx_t *gpx){
+    char *data, *str, *tofree;    
+    char* instrument;
+    
+    float press=-1;
+    if (gpx->P > 0.0) { press=gpx->P; }
+    
+    tofree = str = strdup(gpx->xdata);  // We own str's memory now.
+    while ((data = strsep(&str, "#"))) {
+        instrument=parseType(data);
+        if(strcmp(instrument,"OIF411") == 0){          
+            output_oif411 output={0};
+            parseOIF411(&output,data,press);
+             
+            if(strcmp(output.data_type,"Measurement Data") == 0){ 
+                fprintf(stdout," O3_P=%.2fmPa ",output.O3_partial_pressure);
+            }
+        }
+    }
+    free(tofree); 
+}
+
 static int prn_gpstime(gpx_t *gpx) {
     //Gps2Date(gpx);
     fprintf(stdout, "%s ", weekday[gpx->wday]);
@@ -1789,6 +1813,7 @@ static int print_position(gpx_t *gpx, int ec) {
                 if (gpx->option.ptu && !sat && !encrypted && pck_ptu > 0) {
                     err0 = get_PTU(gpx, ofs_ptu, pck_ptu, !err3);
                     if (!err0 && out) prn_ptu(gpx);
+                    if (gpx->option.aux && out) { prn_aux(gpx); }
                 }
                 pck_ptu = 0;
 
@@ -1837,6 +1862,38 @@ static int print_position(gpx_t *gpx, int ec) {
                             }  
                             if (gpx->P > 0.0) {
                                 fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
+                            }
+                            if (gpx->option.aux && gpx->aux) {
+                                float press=-1;
+                                if (gpx->P > 0.0) { press=gpx->P; }
+                                
+                                char *data, *str, *tofree;    
+                                char* instrument;
+                                int i=1;
+                                tofree = str = strdup(gpx->xdata);  // We own str's memory now.
+                                while ((data = strsep(&str, "#"))) {
+                                    instrument=parseType(data);
+                                    if(strcmp(instrument,"OIF411") == 0){          
+                                        output_oif411 output={0};
+                                        parseOIF411(&output,data,press);
+                                        
+                                        fprintf(stdout, ", \"aux_inst_%d\": \"%s\"",i,instrument); 
+                                        if(strcmp(output.data_type,"ID Data") == 0){   
+                                            fprintf(stdout,", \"O3_serial\": %d",output.serial);
+                                            fprintf(stdout,", \"O3_diagnostics\": \"%s\"",output.diagnostics);
+                                            fprintf(stdout,", \"O3_version\": %d",output.version);
+                                        } 
+                                        else {
+                                            fprintf(stdout,", \"O3_pump_temp\": %.2f",output.ozone_pump_temp);
+                                            fprintf(stdout,", \"O3_current\": %.3f",output.ozone_current_uA);
+                                            fprintf(stdout,", \"O3_battery_volt\": %.1f",output.ozone_battery_v);
+                                            fprintf(stdout,", \"O3_pump_current\": %.1f",output.ozone_pump_curr_mA);
+                                            fprintf(stdout,", \"O3_external_volt\": %.2f",output.ext_voltage);
+                                            fprintf(stdout,", \"O3_pressure\": %.3f",output.O3_partial_pressure);
+                                        }
+                                    }
+                                }
+                                free(tofree);  
                             }
                         }
                         if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
@@ -2117,8 +2174,12 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--ecc4") == 0) { gpx.option.ecc = 4; }
         else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
         else if   (strcmp(*argv, "--ptu" ) == 0) { gpx.option.ptu = 1; }
-        else if   (strcmp(*argv, "--ptu2") == 0) { gpx.option.ptu = 2; }
+        else if   (strcmp(*argv, "--ptu2") == 0) { gpx.option.ptu = 2; }   
         else if   (strcmp(*argv, "--dewp") == 0) { gpx.option.dwp = 1; }
+        else if   (strcmp(*argv, "--aux") == 0) { 
+            gpx.option.aux = 1; 
+            if (gpx.option.ptu == 0) { gpx.option.ptu = 1; }
+        }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
         else if   (strcmp(*argv, "--auto") == 0) { gpx.option.aut = 1; }
         else if   (strcmp(*argv, "--bin") == 0) { option_bin = 1; }  // bit/byte binary input
@@ -2180,7 +2241,7 @@ int main(int argc, char *argv[]) {
             if (*argv) frq = atoi(*argv); else return -1;
             if (frq < 300000000) frq = -1;
             cfreq = frq;
-        }
+        } 
         else if   (strcmp(*argv, "--rawhex") == 0) { rawhex = 2; }  // raw hex input
         else if   (strcmp(*argv, "--xorhex") == 0) { rawhex = 2; xorhex = 1; }  // raw xor input
         else if (strcmp(*argv, "-") == 0) {
