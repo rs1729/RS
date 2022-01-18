@@ -1874,13 +1874,13 @@ static int print_position(gpx_t *gpx, int ec) {
                                 tofree = str = strdup(gpx->xdata);  // We own str's memory now.
                                 while ((data = strsep(&str, "#"))) {
                                     instrument=parseType(data);
+                                    fprintf(stdout, ", \"aux_inst_%d\": \"%s\"",i,instrument); 
                                     if(strcmp(instrument,"OIF411") == 0){          
                                         output_oif411 output={0};
-                                        parseOIF411(&output,data,press);
+                                        parseOIF411(&output,data,press);                                        
                                         
-                                        fprintf(stdout, ", \"aux_inst_%d\": \"%s\"",i,instrument); 
                                         if(strcmp(output.data_type,"ID Data") == 0){   
-                                            fprintf(stdout,", \"O3_serial\": %s",output.serial);
+                                            fprintf(stdout,", \"O3_serial\": \"%s\"",output.serial);
                                             fprintf(stdout,", \"O3_diagnostics\": \"%s\"",output.diagnostics);
                                             fprintf(stdout,", \"O3_version\": %d",output.version);
                                         } 
