@@ -1880,7 +1880,7 @@ static int print_position(gpx_t *gpx, int ec) {
                                         
                                         fprintf(stdout, ", \"aux_inst_%d\": \"%s\"",i,instrument); 
                                         if(strcmp(output.data_type,"ID Data") == 0){   
-                                            fprintf(stdout,", \"O3_serial\": %d",output.serial);
+                                            fprintf(stdout,", \"O3_serial\": %s",output.serial);
                                             fprintf(stdout,", \"O3_diagnostics\": \"%s\"",output.diagnostics);
                                             fprintf(stdout,", \"O3_version\": %d",output.version);
                                         } 

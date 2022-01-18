@@ -156,7 +156,7 @@ void parseOIF411(output_oif411 *output, char *xdata, float pressure){
         // Serial number
         memcpy(tmp,&xdata[4],8);
         tmp[8]='\0';
-        output->serial = tmp;
+        asprintf(&output->serial,"%s",tmp);
 
         // Diagnostics word. 
         char diagnostics_word[4];

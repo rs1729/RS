@@ -32,7 +32,7 @@ void main(int argc, char *argv[]){
          
         printf("diagnostics: %s\n",output.data_type);
         if(strcmp(output.data_type,"ID Data") == 0){   
-            printf("serial: %d\n",output.serial);
+            printf("serial: %s\n",output.serial);
             printf("diagnostics: %s\n",output.diagnostics);
             printf("version: %d\n",output.version);
         } 
