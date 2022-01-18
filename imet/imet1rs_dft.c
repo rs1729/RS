@@ -391,13 +391,76 @@ int print_ePTU(int pos) {
     return (crc_val != crc);
 }
 
+
+/*
+Extra Data Packet
+offset bytes description
+ 0     1     SOH = 0x01
+ 1     1     PKT_ID = 0x03
+ 2     2     N = number of data bytes to follow
+ 3+N   2     CRC (16-bit)
+N=8: Ozonesonde
+ 3     1     Instrument_type = 0x01
+ 4     1     Instrument_number
+ 5     2     Icell, uA (I = n/1000)
+ 7     2     Tpump, °C (T = n/100)
+ 9     1     Ipump, mA
+10     2     Vbat, (V = n/10)
+11     2     CRC (16-bit)
+packet size = 12 bytes
+*/
+
+int print_xdata(int pos, ui8_t N) {
+    int P, U;
+    ui8_t InstrumentNum;
+    short Tpump;
+    unsigned short Icell, Ipump, Vbat;
+    int crc_val, crc;
+    int crc_len = 3+N;
+
+    crc_val = ((byteframe+pos)[crc_len] << 8) | (byteframe+pos)[crc_len+1];
+    crc = crc16(byteframe+pos, crc_len); // len=pos
+
+    fprintf(stdout, " XDATA ");
+    if (N == 8 && (byteframe+pos)[3] == 0x01) {
+        InstrumentNum = (byteframe+pos)[4];
+        Icell = (byteframe+pos)[5] | ((byteframe+pos)[5+1]<<8);
+        Tpump = (byteframe+pos)[7] | ((byteframe+pos)[7+1]<<8);
+        Ipump = (byteframe+pos)[9];
+        Vbat  = (byteframe+pos)[10];
+        fprintf(stdout, " Icell:%.3fuA ", Icell/1000.0);
+        fprintf(stdout, " Tpump:%.2f°C ", Tpump/100.0);
+        fprintf(stdout, " Ipump:%dmA ", Ipump);
+        fprintf(stdout, " Vbat:%.1fV ", Vbat/10.0);
+    }
+    else {
+        int j;
+        fprintf(stdout, " (N=0x%02X)", N);
+        for (j = 0; j < N; j++) fprintf(stdout, " %02X", (byteframe+pos)[3+j]);
+    }
+
+    fprintf(stdout, " # ");
+    fprintf(stdout, " CRC: %04X ", crc_val);
+    fprintf(stdout, "- %04X ", crc);
+    if (crc_val == crc) {
+        fprintf(stdout, "[OK]");
+    }
+    else {
+        fprintf(stdout, "[NO]");
+    }
+
+    return (crc_val != crc);
+}
+
 /* -------------------------------------------------------------------------- */
 
 int print_frame(int len) {
     int i;
     int framelen;
     int crc_err1 = 0,
-        crc_err2 = 0;
+        crc_err2 = 0,
+        crc_err3 = 0;
+    int ofs = 0;
     int out = 0;
 
     if ( len < 2 || len > LEN_BYTEFRAME) return -1;
@@ -419,27 +482,49 @@ int print_frame(int len) {
                 fprintf(stdout, "%02X ", byteframe[i]);
             }
             fprintf(stdout, "\n");
-            out |= 4;
+            out |= 8;
         }
         //else
         {
-            if ((byteframe[0] == 0x01) && (byteframe[1] == 0x02)) { // GPS Data Packet
-                crc_err1 = print_GPS(0x00);  // packet offset in byteframe
-                fprintf(stdout, "\n");
-                out |= 1;
+            ofs = 0;
+            while (ofs < framelen && byteframe[ofs] == 0x01)
+            {
+                ui8_t PKT_ID = byteframe[ofs+1];
+                if (PKT_ID == 0x02) // GPS Data Packet
+                {
+                    crc_err1 = print_GPS(ofs);  // packet offset in byteframe
+                    fprintf(stdout, "\n");
+                    ofs += pos_GPScrc+2;
+                    out |= 1;
+                }
+                else if (PKT_ID == 0x04) // PTU Data Packet
+                {
+                    crc_err2 = print_ePTU(ofs);  // packet offset in byteframe
+                    fprintf(stdout, "\n");
+                    ofs += pos_PTUcrc+2;
+                    out |= 2;
+                }
+                else if (PKT_ID == 0x03) // Extra Data Packet
+                {
+                    ui8_t N = byteframe[ofs+2];
+                    if (N > 0 && ofs+2+N+2 < framelen)
+                    {
+                        crc_err3 = print_xdata(ofs, N);  // packet offset in byteframe
+                        fprintf(stdout, "\n");
+                        ofs += N+3+2;
+                        out |= 4;
+                    }
+                    else {
+                        break;
+                    }
+                }
+                else {
+                    break;
+                }
             }
-            if ((byteframe[pos_GPScrc+2+0] == 0x01) && (byteframe[pos_GPScrc+2+1] == 0x04)) { // PTU Data Packet
-                crc_err2 = print_ePTU(pos_GPScrc+2);  // packet offset in byteframe
-                fprintf(stdout, "\n");
-                out |= 2;
-            }
-/*
-            if ((byteframe[0] == 0x01) && (byteframe[1] == 0x04)) { // PTU Data Packet
-                print_ePTU(0x00);  // packet offset in byteframe
-                fprintf(stdout, "\n");
-            }
-*/
+
 //          // if (crc_err1==0 && crc_err2==0) { }
+
 
             if (option_json) {
                 if (gpx.gps_valid && gpx.ptu_valid) // frameNb part of PTU-pck
