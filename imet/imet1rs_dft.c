@@ -30,34 +30,6 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_json = 0,
     wavloaded = 0;
 
-// Bell202, 1200 baud (1200Hz/2200Hz), 8N1
-#define BAUD_RATE 1200
-
-
-typedef struct {
-    // GPS
-    int hour;
-    int min;
-    int sec;
-    float lat;
-    float lon;
-    int alt;
-    int sats;
-    // PTU
-    int frame;
-    float temp;
-    float pressure;
-    float humidity;
-    float batt;
-    //
-    int gps_valid;
-    int ptu_valid;
-    //
-    int jsn_freq;   // freq/kHz (SDR)
-} gpx_t;
-
-gpx_t gpx;
-
 /* ------------------------------------------------------------------------------------ */
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
@@ -158,10 +130,41 @@ int f32read_sample(FILE *fp, float *s) {
 /* ------------------------------------------------------------------------------------ */
 
 
+// Bell202, 1200 baud (1200Hz/2200Hz), 8N1
+#define BAUD_RATE 1200
+
 #define BITS (10)
 #define LEN_BITFRAME  BAUD_RATE
 #define LEN_BYTEFRAME  (LEN_BITFRAME/BITS)
 #define HEADLEN 30
+
+typedef struct {
+    // GPS
+    int hour;
+    int min;
+    int sec;
+    float lat;
+    float lon;
+    int alt;
+    int sats;
+    // PTU
+    int frame;
+    float temp;
+    float pressure;
+    float humidity;
+    float batt;
+    // XDATA
+    char xdata[2*LEN_BYTEFRAME+1]; // xdata hex string: aux_str1#aux_str2...
+    char *paux;
+    //
+    int gps_valid;
+    int ptu_valid;
+    //
+    int jsn_freq;   // freq/kHz (SDR)
+} gpx_t;
+
+gpx_t gpx;
+
 
 char header[] = "1111111111111111111""10""10000000""1";
 char buf[HEADLEN+1] = "x";
@@ -393,13 +396,13 @@ int print_ePTU(int pos) {
 
 
 /*
-Extra Data Packet - XDATA (MSB)
+Extra Data Packet - XDATA
 offset bytes description
  0     1     SOH = 0x01
  1     1     PKT_ID = 0x03
  2     2     N = number of data bytes to follow
  3+N   2     CRC (16-bit)
-N=8: Ozonesonde
+N=8: Ozonesonde (MSB)
  3     1     Instrument_type = 0x01
  4     1     Instrument_number
  5     2     Icell, uA (I = n/1000)
@@ -422,7 +425,8 @@ int print_xdata(int pos, ui8_t N) {
     crc = crc16(byteframe+pos, crc_len); // len=pos
 
     fprintf(stdout, " XDATA ");
-    if (N == 8 && (byteframe+pos)[3] == 0x01) {
+    // (byteframe+pos)[2] = N
+    if (N == 8 && (byteframe+pos)[3] == 0x01) { // Ozonesonde 01030801 (MSB)
         InstrumentNum = (byteframe+pos)[4];
         Icell = (byteframe+pos)[5+1] | ((byteframe+pos)[5]<<8); // MSB
         Tpump = (byteframe+pos)[7+1] | ((byteframe+pos)[7]<<8); // MSB
@@ -437,6 +441,22 @@ int print_xdata(int pos, ui8_t N) {
         int j;
         fprintf(stdout, " (N=0x%02X)", N);
         for (j = 0; j < N; j++) fprintf(stdout, " %02X", (byteframe+pos)[3+j]);
+    }
+
+    if (crc_val == crc && (gpx.paux-gpx.xdata)+2*(N+1) < 2*LEN_BYTEFRAME) {
+        // hex(xdata[2:3+N]) , strip [0103]..[CRC16] , '#'-separated
+        int j;
+        if (gpx.paux > gpx.xdata) {
+            *(gpx.paux) = '#';
+            gpx.paux += 1;
+        }
+        sprintf(gpx.paux, "%02X", (byteframe+pos)[2]); // (byteframe+pos)[2] = N
+        gpx.paux += 2;
+        for (j = 0; j < N; j++) {
+            sprintf(gpx.paux, "%02X", (byteframe+pos)[3+j]);
+            gpx.paux += 2;
+        }
+        *(gpx.paux) = '\0';
     }
 
     fprintf(stdout, " # ");
@@ -487,6 +507,8 @@ int print_frame(int len) {
         //else
         {
             ofs = 0;
+            gpx.xdata[0] = '\0';
+            gpx.paux = gpx.xdata;
             while (ofs < framelen && byteframe[ofs] == 0x01)
             {
                 ui8_t PKT_ID = byteframe[ofs+1];
@@ -533,6 +555,9 @@ int print_frame(int len) {
                     fprintf(stdout, "{ \"type\": \"%s\"", "IMET");
                     fprintf(stdout, ", \"frame\": %d, \"id\": \"iMet\", \"datetime\": \"%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %d, \"sats\": %d, \"temp\": %.2f, \"humidity\": %.2f, \"pressure\": %.2f, \"batt\": %.1f",
                             gpx.frame, gpx.hour, gpx.min, gpx.sec, gpx.lat, gpx.lon, gpx.alt, gpx.sats, gpx.temp, gpx.humidity, gpx.pressure, gpx.batt);
+                    if (gpx.xdata[0]) {
+                        fprintf(stdout, ", \"aux\": \"%s\"",  gpx.xdata );
+                    }
                     if (gpx.jsn_freq > 0) {
                         fprintf(stdout, ", \"freq\": %d", gpx.jsn_freq);
                     }
