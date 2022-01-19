@@ -257,7 +257,7 @@ int crc16(ui8_t bytes[], int len) {
 
 
 /*
-GPS Data Packet
+GPS Data Packet (LSB)
 offset bytes description
  0     1     SOH = 0x01
  1     1     PKT_ID = 0x02
@@ -327,7 +327,7 @@ int print_GPS(int pos) {
 
 
 /*
-PTU (enhanced) Data Packet
+PTU (enhanced) Data Packet (LSB)
 offset bytes description
  0     1     SOH = 0x01
  1     1     PKT_ID = 0x04
@@ -393,7 +393,7 @@ int print_ePTU(int pos) {
 
 
 /*
-Extra Data Packet
+Extra Data Packet - XDATA (MSB)
 offset bytes description
  0     1     SOH = 0x01
  1     1     PKT_ID = 0x03
@@ -424,8 +424,8 @@ int print_xdata(int pos, ui8_t N) {
     fprintf(stdout, " XDATA ");
     if (N == 8 && (byteframe+pos)[3] == 0x01) {
         InstrumentNum = (byteframe+pos)[4];
-        Icell = (byteframe+pos)[5] | ((byteframe+pos)[5+1]<<8);
-        Tpump = (byteframe+pos)[7] | ((byteframe+pos)[7+1]<<8);
+        Icell = (byteframe+pos)[5+1] | ((byteframe+pos)[5]<<8); // MSB
+        Tpump = (byteframe+pos)[7+1] | ((byteframe+pos)[7]<<8); // MSB
         Ipump = (byteframe+pos)[9];
         Vbat  = (byteframe+pos)[10];
         fprintf(stdout, " Icell:%.3fuA ", Icell/1000.0);
