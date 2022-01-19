@@ -12,8 +12,12 @@
 void main(int argc, char *argv[]){
   char* xdata;
   float press=-1;
+  float temperature=0;
   
   xdata=argv[1];
+  
+  if (argc>2) {press=(float)strtof(argv[2], NULL);}
+  if (argc>3) {temperature=(float)strtof(argv[3], NULL);}
   
   printf("input_data: %s\n\n",xdata);
 
@@ -106,6 +110,48 @@ void main(int argc, char *argv[]){
         output_skydew output={0};
         parseSKYDEW(&output,data); 
         printf("number: %d\n",output.instrument_number);
+        printf("mirror_temperature: %d\n",output.mirror_temperature);
+        printf("scattered_light: %g\n",output.scattered_light);
+        printf("peltier_current: %g\n",output.peltier_current);
+        printf("heatsink_temperature: %g\n",output.heatsink_temperature);
+        printf("board_temperature: %g\n",output.circuit_board_temperature);
+        printf("battery: %d\n",output.battery);
+        printf("pid: %d\n",output.pid);
+    
+        switch (output.parameterType){
+            case 0: 
+                printf("serial_number: %d\n",output.serial_number);
+                break;
+            case 1: 
+                printf("coefficient_b: %d\n",output.coefficient_b);
+                break;
+            case 2: 
+                printf("coefficient_c: %d\n",output.coefficient_c);
+                break;
+            case 3: 
+                printf("coefficient_d: %d\n",output.coefficient_d);
+                break;
+            case 4: 
+                printf("coefficient_e: %d\n",output.coefficient_e);
+                break;
+            case 5: 
+                printf("firmware_version: %d\n",output.firmware_version);
+                break;
+        }
+      } 
+      else if(strcmp(instrument,"FLASH-B") == 0){ 
+        output_flashb output={0};
+        parseFLASHB(&output,data,press,temperature); 
+        printf("number: %d\n",output.instrument_number);
+        printf("background_counts: %d\n",output.photomultiplier_background_counts);
+        printf("counts: %d\n",output.photomultiplier_counts);
+        printf("temperature: %g\n",output.photomultiplier_temperature);
+        printf("battery_voltage: %g\n",output.battery_voltage);
+        printf("yuv_current: %g\n",output.yuv_current);
+        printf("pmt_voltage: %g\n",output.pmt_voltage);
+        printf("firmware_version: %g\n",output.firmware_version);
+        printf("production_year: %d\n",output.production_year);
+        printf("hardware_version: %d\n",output.hardware_version);
       } 
       printf("-----------------\n");    
   } 

@@ -48,6 +48,20 @@ typedef struct {
 
 typedef struct {
     int instrument_number;
+    int mirror_temperature;
+    float scattered_light;
+    float peltier_current;
+    float heatsink_temperature;
+    float circuit_board_temperature;
+    int battery;
+    int pid;
+    char parameterType;
+    int serial_number;
+    int coefficient_b;
+    int coefficient_c;
+    int coefficient_d;
+    int coefficient_e;
+    int firmware_version;
 } output_skydew;
 
 typedef struct {
@@ -80,6 +94,19 @@ typedef struct {
     float v45_logic_supply_battery_voltage;
     float v45_peltier_and_heater_supply_battery_voltage;
 } output_pcfh;
+
+typedef struct {
+    int instrument_number;
+    int photomultiplier_background_counts;
+    int photomultiplier_counts;
+    float photomultiplier_temperature;
+    float battery_voltage;
+    float yuv_current;
+    float pmt_voltage;
+    float firmware_version;
+    int production_year;
+    int hardware_version;
+} output_flashb;
 
 float lerp(float x, float y, float a){
     // Helper function for linear interpolation between two points
@@ -366,18 +393,86 @@ void parseSKYDEW(output_skydew *output,char* xdata) {
     tmp[2]='\0';
     output->instrument_number = (int)strtol(tmp, NULL, 16);
 
-    // Other fields may include
-    // Serial number
-    // Mirror temperature (-120 - 30)
-    // Mixing ratio V (ppmV)
-    // PT100 (Ohm 60 - 120)
-    // SCA light
-    // SCA base
-    // PLT current
-    // HS temp
-    // CB temp
-    // PID
+    
+    // Mirror temperature value
+    // This requires the four coefficients to actually get a value
+    memcpy(tmp,&xdata[4],4);
+    tmp[4]='\0';
+    output->mirror_temperature = (int)strtol(tmp, NULL, 16);
+
+    // Scattered light level
+    memcpy(tmp,&xdata[8],4);
+    tmp[4]='\0';
+    output->scattered_light = (int)strtol(tmp, NULL, 16)*0.0000625; // V
+
+    // Reference resistance
+    // Used to calculate mirror temperature
+    memcpy(tmp,&xdata[12],4);
+    tmp[4]='\0';
+    int reference_resistance = (int)strtol(tmp, NULL, 16);
+
+    // Offset value
+    // Used to calculate mirror temperature
+    memcpy(tmp,&xdata[16],4);
+    tmp[4]='\0';
+    int offset_value = (int)strtol(tmp, NULL, 16);
+
+    // Peltier current
+    memcpy(tmp,&xdata[20],4);
+    tmp[4]='\0';
+    output->peltier_current = ((int)strtol(tmp, NULL, 16)*0.00040649414 - 1.5)*2; // A
+
+    // Heatsink temperature
+    memcpy(tmp,&xdata[24],2);
+    tmp[2]='\0';
+    output->heatsink_temperature = 1./((((log((((int)strtol(tmp, NULL, 16)/8192.)*141.9)/(3.3-((int)strtol(tmp, NULL, 16)/8192.)*3.3)/6))/3390)+1)/273.16)-276.16; // Degrees C
+
+    // Circuit board temperature
+    memcpy(tmp,&xdata[26],2);
+    tmp[2]='\0';
+    output->circuit_board_temperature = 1./((((log((((int)strtol(tmp, NULL, 16)/8192.)*39.6)/(3.3-((int)strtol(tmp, NULL, 16)/8192.)*3.3)/6))/3390)+1)/273.16)-276.16; // Degrees C
+
     // Battery
+    memcpy(tmp,&xdata[28],2);
+    tmp[2]='\0';
+    output->battery = (int)strtol(tmp, NULL, 16);
+
+    // PID
+    memcpy(tmp,&xdata[30],2);
+    tmp[2]='\0';
+    output->pid = (int)strtol(tmp, NULL, 16);
+
+    // Parameter
+    memcpy(tmp,&xdata[32],4);
+    tmp[4]='\0';
+    int parameter = (int)strtol(tmp, NULL, 16);
+
+    // Coefficent type
+    memcpy(tmp,&xdata[36],2);
+    tmp[2]='\0';
+    output->parameterType = (int)strtol(tmp, NULL, 16);
+
+    // Parameter Type
+    switch(output->parameterType) {
+        case 0: 
+            output->serial_number = parameter;
+            break;
+        case 1: 
+            output->coefficient_b = parameter;
+            break;
+        case 2: 
+            output->coefficient_c = parameter;
+            break;
+        case 3: 
+            output->coefficient_d = parameter;
+            break;
+        case 4: 
+            output->coefficient_e = parameter;
+            break;
+        case 5: 
+            output->firmware_version = parameter;
+            break;
+    }
 }
 
 char* getPCFHdate(char *code) {
@@ -579,6 +674,92 @@ void parsePCFH(output_pcfh *output, char *xdata) {
         output->v45_peltier_and_heater_supply_battery_voltage = ((int)strtol(tmp, NULL, 16)*0.02) + 2.5;
     }     
 }
+
+float calculateFLASHBWaterVapour(float S, float B, float P, float T) {
+    //todo...
+    float K1 = 0;
+    float K2 = 0;
+    float U = 0;
+
+    float F = S - B + K2*(S-B);
+
+    if (P < 36) {
+        U = K1*F*0.956*(1+((0.00781*(T+273.16))/P));
+    } else if (36 <= 36 < 300) {
+        U = K1*F*(1 + 0.00031*P);
+    }
+
+    //return U;
+    return S;
+}
+
+void parseFLASHB(output_flashb *output, char *xdata, float pressure, float temperature) {
+    // Attempt to parse an XDATA string from a Fluorescent Lyman-Alpha Stratospheric Hygrometer for Balloon (FLASH-B)
+    // Returns an object with parameters to be added to the sondes telemetry.
+    //
+    //
+    // Sample data:      3D0204E20001407D00E4205DC24406B1012   (length = 35 characters)
+
+    // Run some checks over the input
+    int length=strlen(xdata);
+    if (length > 35){
+        // Invalid FLASH-B dataset
+        return;
+    }
+
+    char tmp[40];
+    memcpy(tmp,&xdata[0],2);
+    tmp[2]='\0';
+    //printf("-%s-\n",tmp);
+    if (strcmp(tmp,"3D") != 0){
+        // Not a FLASH-B (shouldn't get here)
+        return;
+    }
+
+    // Instrument number is common to all XDATA types.
+    memcpy(tmp,&xdata[2],2);
+    tmp[2]='\0';
+    output->instrument_number = (int)strtol(tmp, NULL, 16);
+
+    memcpy(tmp,&xdata[5],4);
+    tmp[4]='\0';
+    int photomultiplier_counts = (int)strtol(tmp, NULL, 16);
+
+    memcpy(tmp,&xdata[9],4);
+    tmp[4]='\0';
+    output->photomultiplier_background_counts = (int)strtol(tmp, NULL, 16);
+
+    output->photomultiplier_counts = calculateFLASHBWaterVapour(photomultiplier_counts, output->photomultiplier_background_counts, pressure, temperature);
+
+    memcpy(tmp,&xdata[13],4);
+    tmp[4]='\0';
+    output->photomultiplier_temperature = (-21.103*log(((int)strtol(tmp, NULL, 16)*0.0183)/(2.49856 - ((int)strtol(tmp, NULL, 16)*0.00061)))) + 97.106;
+
+    memcpy(tmp,&xdata[17],4);
+    tmp[4]='\0';
+    output->battery_voltage = (int)strtol(tmp, NULL, 16)*0.005185;
+
+    memcpy(tmp,&xdata[21],4);
+    tmp[4]='\0';
+    output->yuv_current = (int)strtol(tmp, NULL, 16)*0.0101688;
+
+    memcpy(tmp,&xdata[25],4);
+    tmp[4]='\0';
+    output->pmt_voltage = (int)strtol(tmp, NULL, 16)*0.36966;
+
+    memcpy(tmp,&xdata[25],4);
+    tmp[4]='\0';
+    output->firmware_version = (int)strtol(tmp, NULL, 16)*0.1;
+
+    memcpy(tmp,&xdata[31],2);
+    tmp[2]='\0';
+    output->production_year = (int)strtol(tmp, NULL, 16);
+    
+    memcpy(tmp,&xdata[33],2);
+    tmp[2]='\0';
+    output->hardware_version = (int)strtol(tmp, NULL, 16);
+}
+
 
 char* parseType(char *data){
     int i=0;
