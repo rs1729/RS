@@ -30,34 +30,6 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_json = 0,
     wavloaded = 0;
 
-// Bell202, 1200 baud (1200Hz/2200Hz), 8N1
-#define BAUD_RATE 1200
-
-
-typedef struct {
-    // GPS
-    int hour;
-    int min;
-    int sec;
-    float lat;
-    float lon;
-    int alt;
-    int sats;
-    // PTU
-    int frame;
-    float temp;
-    float pressure;
-    float humidity;
-    float batt;
-    //
-    int gps_valid;
-    int ptu_valid;
-    //
-    int jsn_freq;   // freq/kHz (SDR)
-} gpx_t;
-
-gpx_t gpx;
-
 /* ------------------------------------------------------------------------------------ */
 
 int sample_rate = 0, bits_sample = 0, channels = 0;
@@ -158,10 +130,41 @@ int f32read_sample(FILE *fp, float *s) {
 /* ------------------------------------------------------------------------------------ */
 
 
+// Bell202, 1200 baud (1200Hz/2200Hz), 8N1
+#define BAUD_RATE 1200
+
 #define BITS (10)
 #define LEN_BITFRAME  BAUD_RATE
 #define LEN_BYTEFRAME  (LEN_BITFRAME/BITS)
 #define HEADLEN 30
+
+typedef struct {
+    // GPS
+    int hour;
+    int min;
+    int sec;
+    float lat;
+    float lon;
+    int alt;
+    int sats;
+    // PTU
+    int frame;
+    float temp;
+    float pressure;
+    float humidity;
+    float batt;
+    // XDATA
+    char xdata[2*LEN_BYTEFRAME+1]; // xdata hex string: aux_str1#aux_str2...
+    char *paux;
+    //
+    int gps_valid;
+    int ptu_valid;
+    //
+    int jsn_freq;   // freq/kHz (SDR)
+} gpx_t;
+
+gpx_t gpx;
+
 
 char header[] = "1111111111111111111""10""10000000""1";
 char buf[HEADLEN+1] = "x";
@@ -257,7 +260,7 @@ int crc16(ui8_t bytes[], int len) {
 
 
 /*
-GPS Data Packet
+GPS Data Packet (LSB)
 offset bytes description
  0     1     SOH = 0x01
  1     1     PKT_ID = 0x02
@@ -327,7 +330,7 @@ int print_GPS(int pos) {
 
 
 /*
-PTU (enhanced) Data Packet
+PTU (enhanced) Data Packet (LSB)
 offset bytes description
  0     1     SOH = 0x01
  1     1     PKT_ID = 0x04
@@ -391,13 +394,93 @@ int print_ePTU(int pos) {
     return (crc_val != crc);
 }
 
+
+/*
+Extra Data Packet - XDATA
+offset bytes description
+ 0     1     SOH = 0x01
+ 1     1     PKT_ID = 0x03
+ 2     2     N = number of data bytes to follow
+ 3+N   2     CRC (16-bit)
+N=8: Ozonesonde (MSB)
+ 3     1     Instrument_type = 0x01
+ 4     1     Instrument_number
+ 5     2     Icell, uA (I = n/1000)
+ 7     2     Tpump, °C (T = n/100)
+ 9     1     Ipump, mA
+10     2     Vbat, (V = n/10)
+11     2     CRC (16-bit)
+packet size = 12 bytes
+*/
+
+int print_xdata(int pos, ui8_t N) {
+    int P, U;
+    ui8_t InstrumentNum;
+    short Tpump;
+    unsigned short Icell, Ipump, Vbat;
+    int crc_val, crc;
+    int crc_len = 3+N;
+
+    crc_val = ((byteframe+pos)[crc_len] << 8) | (byteframe+pos)[crc_len+1];
+    crc = crc16(byteframe+pos, crc_len); // len=pos
+
+    fprintf(stdout, " XDATA ");
+    // (byteframe+pos)[2] = N
+    if (N == 8 && (byteframe+pos)[3] == 0x01) { // Ozonesonde 01030801 (MSB)
+        InstrumentNum = (byteframe+pos)[4];
+        Icell = (byteframe+pos)[5+1] | ((byteframe+pos)[5]<<8); // MSB
+        Tpump = (byteframe+pos)[7+1] | ((byteframe+pos)[7]<<8); // MSB
+        Ipump = (byteframe+pos)[9];
+        Vbat  = (byteframe+pos)[10];
+        fprintf(stdout, " Icell:%.3fuA ", Icell/1000.0);
+        fprintf(stdout, " Tpump:%.2f°C ", Tpump/100.0);
+        fprintf(stdout, " Ipump:%dmA ", Ipump);
+        fprintf(stdout, " Vbat:%.1fV ", Vbat/10.0);
+    }
+    else {
+        int j;
+        fprintf(stdout, " (N=0x%02X)", N);
+        for (j = 0; j < N; j++) fprintf(stdout, " %02X", (byteframe+pos)[3+j]);
+    }
+
+    if (crc_val == crc && (gpx.paux-gpx.xdata)+2*(N+1) < 2*LEN_BYTEFRAME) {
+        // hex(xdata[2:3+N]) , strip [0103]..[CRC16] , '#'-separated
+        int j;
+        if (gpx.paux > gpx.xdata) {
+            *(gpx.paux) = '#';
+            gpx.paux += 1;
+        }
+        sprintf(gpx.paux, "%02X", (byteframe+pos)[2]); // (byteframe+pos)[2] = N
+        gpx.paux += 2;
+        for (j = 0; j < N; j++) {
+            sprintf(gpx.paux, "%02X", (byteframe+pos)[3+j]);
+            gpx.paux += 2;
+        }
+        *(gpx.paux) = '\0';
+    }
+
+    fprintf(stdout, " # ");
+    fprintf(stdout, " CRC: %04X ", crc_val);
+    fprintf(stdout, "- %04X ", crc);
+    if (crc_val == crc) {
+        fprintf(stdout, "[OK]");
+    }
+    else {
+        fprintf(stdout, "[NO]");
+    }
+
+    return (crc_val != crc);
+}
+
 /* -------------------------------------------------------------------------- */
 
 int print_frame(int len) {
     int i;
     int framelen;
     int crc_err1 = 0,
-        crc_err2 = 0;
+        crc_err2 = 0,
+        crc_err3 = 0;
+    int ofs = 0;
     int out = 0;
 
     if ( len < 2 || len > LEN_BYTEFRAME) return -1;
@@ -419,27 +502,51 @@ int print_frame(int len) {
                 fprintf(stdout, "%02X ", byteframe[i]);
             }
             fprintf(stdout, "\n");
-            out |= 4;
+            out |= 8;
         }
         //else
         {
-            if ((byteframe[0] == 0x01) && (byteframe[1] == 0x02)) { // GPS Data Packet
-                crc_err1 = print_GPS(0x00);  // packet offset in byteframe
-                fprintf(stdout, "\n");
-                out |= 1;
+            ofs = 0;
+            gpx.xdata[0] = '\0';
+            gpx.paux = gpx.xdata;
+            while (ofs < framelen && byteframe[ofs] == 0x01)
+            {
+                ui8_t PKT_ID = byteframe[ofs+1];
+                if (PKT_ID == 0x02) // GPS Data Packet
+                {
+                    crc_err1 = print_GPS(ofs);  // packet offset in byteframe
+                    fprintf(stdout, "\n");
+                    ofs += pos_GPScrc+2;
+                    out |= 1;
+                }
+                else if (PKT_ID == 0x04) // PTU Data Packet
+                {
+                    crc_err2 = print_ePTU(ofs);  // packet offset in byteframe
+                    fprintf(stdout, "\n");
+                    ofs += pos_PTUcrc+2;
+                    out |= 2;
+                }
+                else if (PKT_ID == 0x03) // Extra Data Packet
+                {
+                    ui8_t N = byteframe[ofs+2];
+                    if (N > 0 && ofs+2+N+2 < framelen)
+                    {
+                        crc_err3 = print_xdata(ofs, N);  // packet offset in byteframe
+                        fprintf(stdout, "\n");
+                        ofs += N+3+2;
+                        out |= 4;
+                    }
+                    else {
+                        break;
+                    }
+                }
+                else {
+                    break;
+                }
             }
-            if ((byteframe[pos_GPScrc+2+0] == 0x01) && (byteframe[pos_GPScrc+2+1] == 0x04)) { // PTU Data Packet
-                crc_err2 = print_ePTU(pos_GPScrc+2);  // packet offset in byteframe
-                fprintf(stdout, "\n");
-                out |= 2;
-            }
-/*
-            if ((byteframe[0] == 0x01) && (byteframe[1] == 0x04)) { // PTU Data Packet
-                print_ePTU(0x00);  // packet offset in byteframe
-                fprintf(stdout, "\n");
-            }
-*/
+
 //          // if (crc_err1==0 && crc_err2==0) { }
+
 
             if (option_json) {
                 if (gpx.gps_valid && gpx.ptu_valid) // frameNb part of PTU-pck
@@ -448,6 +555,9 @@ int print_frame(int len) {
                     fprintf(stdout, "{ \"type\": \"%s\"", "IMET");
                     fprintf(stdout, ", \"frame\": %d, \"id\": \"iMet\", \"datetime\": \"%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %d, \"sats\": %d, \"temp\": %.2f, \"humidity\": %.2f, \"pressure\": %.2f, \"batt\": %.1f",
                             gpx.frame, gpx.hour, gpx.min, gpx.sec, gpx.lat, gpx.lon, gpx.alt, gpx.sats, gpx.temp, gpx.humidity, gpx.pressure, gpx.batt);
+                    if (gpx.xdata[0]) {
+                        fprintf(stdout, ", \"aux\": \"%s\"",  gpx.xdata );
+                    }
                     if (gpx.jsn_freq > 0) {
                         fprintf(stdout, ", \"freq\": %d", gpx.jsn_freq);
                     }
