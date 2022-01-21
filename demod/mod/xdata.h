@@ -108,6 +108,12 @@ typedef struct {
     int hardware_version;
 } output_flashb;
 
+float alt2press(float h){
+    //convert altitude (m) to pressure (hPa) based on NOAA ISA model
+    float press=1013.25*pow(1-h/44307.694,5.2553);    
+    return press;
+}
+
 float lerp(float x, float y, float a){
     // Helper function for linear interpolation between two points
     return x * (1 - a) + y * a;

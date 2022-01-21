@@ -1567,6 +1567,7 @@ int prn_aux(gpx_t *gpx){
     
     float press=-1;
     if (gpx->P > 0.0) { press=gpx->P; }
+    else { press=alt2press(gpx->alt); }
     
     tofree = str = strdup(gpx->xdata);  // We own str's memory now.
     while ((data = strsep(&str, "#"))) {
@@ -1867,6 +1868,7 @@ static int print_position(gpx_t *gpx, int ec) {
                             if (gpx->option.aux && gpx->aux) {
                                 float press=-1;
                                 if (gpx->P > 0.0) { press=gpx->P; }
+                                else { press=alt2press(gpx->alt); }
                                 
                                 char *data, *str, *tofree;    
                                 char* instrument;

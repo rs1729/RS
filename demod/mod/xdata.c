@@ -19,6 +19,10 @@ void main(int argc, char *argv[]){
   if (argc>2) {press=(float)strtof(argv[2], NULL);}
   if (argc>3) {temperature=(float)strtof(argv[3], NULL);}
   
+  if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure
+
+  //printf("%g\n",press);
+  
   printf("input_data: %s\n\n",xdata);
 
   char* instrument; 
