@@ -852,7 +852,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 strncpy(sn_id+4, gpx->SN, 12+4);
                 sn_id[15+4] = '\0';
 
-                if (!first) fprintf(stdout, ",\n");
+                if (!first) {
+                    if (gpx->option.jsn==2) { fprintf(stdout, ","); }
+                    fprintf(stdout, "\n");
+                }
                 first=0;
                 fprintf(stdout, "{ \"type\": \"%s\"", "M20");
                 fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
@@ -1141,6 +1144,7 @@ int main(int argc, char **argv) {
             option_min = 1;
         }
         else if   (strcmp(*argv, "--json") == 0) { gpx.option.jsn = 1; }
+        else if   (strcmp(*argv, "--json2") == 0) { gpx.option.jsn = 2; }
         else if   (strcmp(*argv, "--jsn_cfq") == 0) {
             int frq = -1;  // center frequency / Hz
             ++argv;
@@ -1197,7 +1201,7 @@ int main(int argc, char **argv) {
     }
     #endif
     
-    if (gpx.option.jsn) fprintf(stdout, "[\n");
+    if (gpx.option.jsn==2) fprintf(stdout, "[\n");
 
     if (!rawhex) {
         if (!option_softin) {
@@ -1409,7 +1413,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (gpx.option.jsn) fprintf(stdout, "\n]\n");
+    if (gpx.option.jsn==2) fprintf(stdout, "\n]\n");
     fclose(fp);
 
     return 0;

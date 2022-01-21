@@ -1837,7 +1837,10 @@ static int print_position(gpx_t *gpx, int ec) {
                     if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                         // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
                         char *ver_jsn = NULL;
-                        if (!first) fprintf(stdout, ",\n");
+                        if (!first) {
+                            if (gpx->option.jsn==2) { fprintf(stdout, ","); }
+                            fprintf(stdout, "\n");
+                        }
                         first=0;
                         fprintf(stdout, "{ \"type\": \"%s\"", "RS41");
                         fprintf(stdout, ", \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"bt\": %d, \"batt\": %.2f",gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV, gpx->conf_cd, gpx->batt );
@@ -2233,8 +2236,9 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--min") == 0) {
             option_min = 1;
         }
-        else if   (strcmp(*argv, "--json") == 0) {
+        else if   ((strcmp(*argv, "--json") == 0) || (strcmp(*argv, "--json2") == 0)) {
             gpx.option.jsn = 1;
+            if (strcmp(*argv, "--json2") == 0) { gpx.option.jsn = 2; }
             if (gpx.option.ecc < 3) gpx.option.ecc = 2;
             gpx.option.crc = 1;
         }
@@ -2302,7 +2306,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "reading float32 soft symbols\n");
     }
     #endif
-    if (gpx.option.jsn) fprintf(stdout, "[\n");
+    if (gpx.option.jsn==2) fprintf(stdout, "[\n");
 
     if (!rawhex) {
 
@@ -2524,7 +2528,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (gpx.option.jsn) fprintf(stdout, "\n]\n");
+    if (gpx.option.jsn==2) fprintf(stdout, "\n]\n");
     fclose(fp);
 
     return 0;
