@@ -1561,29 +1561,6 @@ static int prn_ptu(gpx_t *gpx) {
     return 0;
 }
 
-int prn_aux(gpx_t *gpx){
-    char *data, *str, *tofree;    
-    char* instrument;
-    
-    float press=-1;
-    if (gpx->P > 0.0) { press=gpx->P; }
-    else { press=alt2press(gpx->alt); }
-    
-    tofree = str = strdup(gpx->xdata);  // We own str's memory now.
-    while ((data = strsep(&str, "#"))) {
-        instrument=parseType(data);
-        if(strcmp(instrument,"OIF411") == 0){          
-            output_oif411 output={0};
-            parseOIF411(&output,data,press);
-             
-            if(strcmp(output.data_type,"Measurement Data") == 0){ 
-                fprintf(stdout," O3_P=%.2fmPa ",output.O3_partial_pressure);
-            }
-        }
-    }
-    free(tofree); 
-}
-
 static int prn_gpstime(gpx_t *gpx) {
     //Gps2Date(gpx);
     fprintf(stdout, "%s ", weekday[gpx->wday]);
@@ -1814,8 +1791,13 @@ static int print_position(gpx_t *gpx, int ec) {
                 if (pos_aux) gpx->aux = get_Aux(gpx, 0, pos_aux);
                 if (gpx->option.ptu && !sat && !encrypted && pck_ptu > 0) {
                     err0 = get_PTU(gpx, ofs_ptu, pck_ptu, !err3);
-                    if (!err0 && out) prn_ptu(gpx);
-                    if (gpx->option.aux && out) { prn_aux(gpx); }
+                    if (!err0 && out)   prn_ptu(gpx);
+                    if (gpx->option.aux && out) { 
+                        float press=-1;
+                        if (gpx->P > 0.0) { press=gpx->P; }
+                        else { press=alt2press(gpx->alt); }                                  
+                        prn_aux(gpx->xdata,press,gpx->T);
+                    }
                 }
                 pck_ptu = 0;
 
@@ -1837,10 +1819,7 @@ static int print_position(gpx_t *gpx, int ec) {
                     if ((!err && !err1 && !err3) || (!err && encrypted)) { // frame-nb/id && gps-time && gps-position  (crc-)ok; 3 CRCs, RS not needed
                         // eigentlich GPS, d.h. UTC = GPS - 18sec (ab 1.1.2017)
                         char *ver_jsn = NULL;
-                        if (!first) {
-                            if (gpx->option.jsn==2) { fprintf(stdout, ","); }
-                            fprintf(stdout, "\n");
-                        }
+                        if ((!first) && (gpx->option.jsn==2)) {fprintf(stdout, ",\n"); }
                         first=0;
                         fprintf(stdout, "{ \"type\": \"%s\"", "RS41");
                         fprintf(stdout, ", \"frame\": %d, \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d, \"bt\": %d, \"batt\": %.2f",gpx->frnr, gpx->id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV, gpx->conf_cd, gpx->batt );
@@ -1872,34 +1851,8 @@ static int print_position(gpx_t *gpx, int ec) {
                                 float press=-1;
                                 if (gpx->P > 0.0) { press=gpx->P; }
                                 else { press=alt2press(gpx->alt); }
-                                
-                                char *data, *str, *tofree;    
-                                char* instrument;
-                                int i=1;
-                                tofree = str = strdup(gpx->xdata);  // We own str's memory now.
-                                while ((data = strsep(&str, "#"))) {
-                                    instrument=parseType(data);
-                                    fprintf(stdout, ", \"aux_inst_%d\": \"%s\"",i,instrument); 
-                                    if(strcmp(instrument,"OIF411") == 0){          
-                                        output_oif411 output={0};
-                                        parseOIF411(&output,data,press);                                        
-                                        
-                                        if(strcmp(output.data_type,"ID Data") == 0){   
-                                            fprintf(stdout,", \"O3_serial\": \"%s\"",output.serial);
-                                            fprintf(stdout,", \"O3_diagnostics\": \"%s\"",output.diagnostics);
-                                            fprintf(stdout,", \"O3_version\": %d",output.version);
-                                        } 
-                                        else {
-                                            fprintf(stdout,", \"O3_pump_temp\": %.2f",output.ozone_pump_temp);
-                                            fprintf(stdout,", \"O3_current\": %.3f",output.ozone_current_uA);
-                                            fprintf(stdout,", \"O3_battery_volt\": %.1f",output.ozone_battery_v);
-                                            fprintf(stdout,", \"O3_pump_current\": %.1f",output.ozone_pump_curr_mA);
-                                            fprintf(stdout,", \"O3_external_volt\": %.2f",output.ext_voltage);
-                                            fprintf(stdout,", \"O3_pressure\": %.3f",output.O3_partial_pressure);
-                                        }
-                                    }
-                                }
-                                free(tofree);  
+                                fprintf(stdout, ", ");                                  
+                                prn_jsn(gpx->xdata,press,gpx->T); 
                             }
                         }
                         if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
@@ -1929,7 +1882,7 @@ static int print_position(gpx_t *gpx, int ec) {
                         #endif
                         if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
                         fprintf(stdout, " }");
-                        //fprintf(stdout, "\n");
+                        if (gpx->option.jsn==1) {fprintf(stdout, "\n");}
                     }
                 }
             }
@@ -2238,7 +2191,10 @@ int main(int argc, char *argv[]) {
         }
         else if   ((strcmp(*argv, "--json") == 0) || (strcmp(*argv, "--json2") == 0)) {
             gpx.option.jsn = 1;
-            if (strcmp(*argv, "--json2") == 0) { gpx.option.jsn = 2; }
+            if (strcmp(*argv, "--json2") == 0) { 
+                gpx.option.jsn = 2; 
+                gpx.option.slt = 1;
+            }
             if (gpx.option.ecc < 3) gpx.option.ecc = 2;
             gpx.option.crc = 1;
         }

@@ -8,100 +8,8 @@
 // 
 
 #include "xdata.h"
- 
-void main(int argc, char *argv[]){
-  
-  float press=-1;
-  float temperature=0;
-  
-  if (strcmp(argv[1],"--file") == 0){
-      FILE *f;
-      f = fopen(argv[2], "rb");
-      char buf[500];
-      char xdata[500]; 
-      fgets(buf, sizeof buf, f);
-      int n=sscanf(buf,"%s %g %g", xdata,&press, &temperature);   //number of cols
-      fclose(f);
-      
-      //printf("%d\n",n);
-      int first=1;  //first frame or not 1/0
-      printf("[\n");
-      
-      f = fopen(argv[2], "rb");
-      int r;
-      if (n==3) {r=fscanf(f,"%s %g %g\n", xdata, &press, &temperature);}
-      else if (n== 2) {r=fscanf(f,"%s %g\n", xdata, &press);}
-      else if (n== 1) {r=fscanf(f,"%s\n", xdata);}
-      while (r!= EOF) {
-          if (n== 3) {
-            if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure 
-          }
-          else if (n== 2) {
-            if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure 
-            temperature=0;
-          }
-          else if (n== 1) {
-            press=-1;
-            temperature=0;
-          }
-          else { break; }
-          
-          if (!first) fprintf(stdout, ",\n");
-          first=0;
-          printf("{");
-          
-          char *data, *str, *tofree;    
-          char* instrument;
-          int i=0;
-          char *linst="";
-          tofree = str = strdup(xdata);  // We own str's memory now.
-          while ((data = strsep(&str, "#"))) {
-              instrument=parseType(data);
-              if (strcmp(instrument,linst)!=0) {                  
-                  if (i>0) {printf(", ");}
-                  i++;
-                  printf("\"aux_inst_%d\": \"%s\"",i,instrument);
-                  asprintf(&linst,"%s",instrument);
-              }
-              if(strcmp(instrument,"OIF411") == 0){          
-                  output_oif411 output={0};
-                  parseOIF411(&output,data,press);                                        
-                  
-                  if(strcmp(output.data_type,"ID Data") == 0){   
-                      printf(", \"O3_serial\": \"%s\"",output.serial);
-                      printf(", \"O3_diagnostics\": \"%s\"",output.diagnostics);
-                      printf(", \"O3_version\": %d",output.version);
-                  } 
-                  else {
-                      printf(", \"O3_pump_temp\": %.2f",output.ozone_pump_temp);
-                      printf(", \"O3_current\": %.3f",output.ozone_current_uA);
-                      printf(", \"O3_battery_volt\": %.1f",output.ozone_battery_v);
-                      printf(", \"O3_pump_current\": %.1f",output.ozone_pump_curr_mA);
-                      printf(", \"O3_external_volt\": %.2f",output.ext_voltage);
-                      printf(", \"O3_pressure\": %.3f",output.O3_partial_pressure);
-                  }
-              }
-          }
-          free(tofree);  
-          printf("}");
-          if (n== 3) {r=fscanf(f,"%s %g %g\n", xdata, &press, &temperature);}
-          else if (n== 2) {r=fscanf(f,"%s %g\n", xdata, &press);}
-          else if (n== 1) {r=fscanf(f,"%s\n", xdata);}
-      }
-      fclose(f);
-      printf("\n]\n");
-  }
-  else {  
-    char* xdata;
-    xdata=argv[1];
-    
-    if (argc>2) {press=(float)strtof(argv[2], NULL);}
-    if (argc>3) {temperature=(float)strtof(argv[3], NULL);}
-    
-    if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure
 
-    //printf("%g\n",press);
-    
+void prn_test(char *xdata,float press, float temperature){
     printf("input_data: %s\n\n",xdata);
 
     char* instrument; 
@@ -238,7 +146,112 @@ void main(int argc, char *argv[]){
         } 
         printf("-----------------\n");    
     } 
-    free(tofree); 
+    free(tofree);
+} 
+
+ 
+void main(int argc, char *argv[]){ 
+  char *fpname = NULL; 
+  float out_type=0;  //0-basic, 1-full (-v), 2-json, 3-test
+  int fileloaded = 0;
+  char *input;
+    
+  float press=-1;
+  float temperature=0;
+  
+  fpname = argv[0];
+  ++argv;
+  
+  if (argc==1) {
+    fprintf(stderr, "%s [options] xdata (pressure/-altitude) temperature\n", fpname);
+    fprintf(stderr, "    or    \n");
+    fprintf(stderr, "%s [options] --file filename // with xdata (pressure/-altitude) temperature\n\n", fpname);
+    fprintf(stderr, "  options:\n");
+    fprintf(stderr, "       -v, --verbose  (info)\n");
+    fprintf(stderr, "       --json\n");
+    fprintf(stderr, "       --test (output with desc.)\n");
+    return;
+  }
+  
+  while (*argv) {
+    if ( (strcmp(*argv, "-h") == 0) || (strcmp(*argv, "--help") == 0) ) {
+        fprintf(stderr, "%s [options] xdata (pressure/-altitude) temperature\n", fpname);
+        fprintf(stderr, "    or    \n");
+        fprintf(stderr, "%s [options] --file filename // with xdata (pressure/-altitude) temperature\n\n", fpname);
+        fprintf(stderr, "  options:\n");
+        fprintf(stderr, "       -v, --verbose  (info)\n");
+        fprintf(stderr, "or     --json\n");
+        fprintf(stderr, "or     --test (output with desc.)\n");
+        return;
+    }
+    else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {out_type = 1; }
+    else if (strcmp(*argv, "--json") == 0) {out_type = 2; }
+    else if (strcmp(*argv, "--test") == 0) {out_type = 3; }
+    else if (strcmp(*argv, "--file") == 0) {fileloaded = 1; }
+    else{
+        asprintf(&input,"%s",*argv);
+        ++argv;
+        if ((!fileloaded) && (*argv)) { 
+            press=(float)strtof(*argv, NULL); 
+            ++argv;
+            if (*argv) {temperature=(float)strtof(*argv, NULL); }  
+        }
+        break;
+    }     
+    ++argv;
+  }
+  
+  if (fileloaded){
+      FILE *f;
+      f = fopen(input, "rb");
+      char buf[500];
+      char xdata[500]; 
+      fgets(buf, sizeof buf, f);
+      int n=sscanf(buf,"%s %g %g", xdata,&press, &temperature);   //number of cols
+      fclose(f);
+      
+      int first=1;  //first frame or not 1/0
+      if (out_type==2) { fprintf(stdout, "[\n"); }
+      
+      f = fopen(input, "rb");
+      int r;
+      if (n==3) {r=fscanf(f,"%s %g %g\n", xdata, &press, &temperature);}
+      else if (n== 2) {r=fscanf(f,"%s %g\n", xdata, &press);}
+      else if (n== 1) {r=fscanf(f,"%s\n", xdata);}
+      while (r!= EOF) {
+          if (n== 2) {
+            temperature=0;
+          }
+          else if (n== 1) {
+            press=-1;
+            temperature=0;
+          }
+          else { break; }
+          
+          if (out_type==2) { if (!first) fprintf(stdout, ",\n"); }
+          first=0;
+          
+          if (out_type==0) { prn_aux(xdata,press,temperature); fprintf(stdout, "\n"); }
+          else if (out_type==1) { prn_full(xdata,press,temperature); fprintf(stdout, "\n");}
+          else if (out_type==2) { fprintf(stdout, "{"); prn_jsn(xdata,press,temperature); fprintf(stdout, "}"); }
+          else if (out_type==3) { prn_test(xdata,press,temperature); fprintf(stdout, "\n"); }   
+          
+          if (n== 3) {r=fscanf(f,"%s %g %g\n", xdata, &press, &temperature);}
+          else if (n== 2) {r=fscanf(f,"%s %g\n", xdata, &press);}
+          else if (n== 1) {r=fscanf(f,"%s\n", xdata);}
+      }
+      fclose(f);
+      if (out_type==2) { fprintf(stdout, "\n]\n"); }
+  }
+  else {  
+    char* xdata;
+    xdata=input;
+    
+    if (out_type==0) { prn_aux(xdata,press,temperature); fprintf(stdout, "\n"); }
+    else if (out_type==1) { prn_full(xdata,press,temperature); fprintf(stdout, "\n");}
+    else if (out_type==2) { fprintf(stdout, "{"); prn_jsn(xdata,press,temperature); fprintf(stdout, "}"); }
+    else if (out_type==3) { prn_test(xdata,press,temperature); fprintf(stdout, "\n"); } 
+     
   }
 }
 
