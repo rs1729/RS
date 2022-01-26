@@ -10,155 +10,235 @@
 #include "xdata.h"
  
 void main(int argc, char *argv[]){
-  char* xdata;
+  
   float press=-1;
   float temperature=0;
   
-  xdata=argv[1];
-  
-  if (argc>2) {press=(float)strtof(argv[2], NULL);}
-  if (argc>3) {temperature=(float)strtof(argv[3], NULL);}
-  
-  if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure
-
-  //printf("%g\n",press);
-  
-  printf("input_data: %s\n\n",xdata);
-
-  char* instrument; 
-  char *data, *str, *tofree;    
-
-  tofree = str = strdup(xdata);  // We own str's memory now.
-  while ((data = strsep(&str, "#"))) {
-      instrument=parseType(data);
-      printf("data: %s\n",data);
-      printf("\n%s\n\n",instrument);
+  if (strcmp(argv[1],"--file") == 0){
+      FILE *f;
+      f = fopen(argv[2], "rb");
+      char buf[500];
+      char xdata[500]; 
+      fgets(buf, sizeof buf, f);
+      int n=sscanf(buf,"%s %g %g", xdata,&press, &temperature);   //number of cols
+      fclose(f);
       
-      if(strcmp(instrument,"OIF411") == 0){          
-        output_oif411 output={0};
-        parseOIF411(&output,data,press);
-         
-        printf("diagnostics: %s\n",output.data_type);
-        if(strcmp(output.data_type,"ID Data") == 0){   
-            printf("serial: %s\n",output.serial);
-            printf("diagnostics: %s\n",output.diagnostics);
-            printf("version: %d\n",output.version);
-        } 
-        else { 
-            printf("number: %d\n",output.instrument_number);
-            printf("pump_temp: %g\n",output.ozone_pump_temp);
-            printf("current: %g\n",output.ozone_current_uA);
-            printf("battery: %g\n",output.ozone_battery_v);
-            printf("pump_current: %g\n",output.ozone_pump_curr_mA);
-            printf("voltage: %g\n",output.ext_voltage);
-            printf("O3_pressure: %g\n",output.O3_partial_pressure);
-        }
+      //printf("%d\n",n);
+      int first=1;  //first frame or not 1/0
+      printf("[\n");
+      
+      f = fopen(argv[2], "rb");
+      int r;
+      if (n==3) {r=fscanf(f,"%s %g %g\n", xdata, &press, &temperature);}
+      else if (n== 2) {r=fscanf(f,"%s %g\n", xdata, &press);}
+      else if (n== 1) {r=fscanf(f,"%s\n", xdata);}
+      while (r!= EOF) {
+          if (n== 3) {
+            if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure 
+          }
+          else if (n== 2) {
+            if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure 
+            temperature=0;
+          }
+          else if (n== 1) {
+            press=-1;
+            temperature=0;
+          }
+          else { break; }
+          
+          if (!first) fprintf(stdout, ",\n");
+          first=0;
+          printf("{");
+          
+          char *data, *str, *tofree;    
+          char* instrument;
+          int i=0;
+          char *linst="";
+          tofree = str = strdup(xdata);  // We own str's memory now.
+          while ((data = strsep(&str, "#"))) {
+              instrument=parseType(data);
+              if (strcmp(instrument,linst)!=0) {                  
+                  if (i>0) {printf(", ");}
+                  i++;
+                  printf("\"aux_inst_%d\": \"%s\"",i,instrument);
+                  asprintf(&linst,"%s",instrument);
+              }
+              if(strcmp(instrument,"OIF411") == 0){          
+                  output_oif411 output={0};
+                  parseOIF411(&output,data,press);                                        
+                  
+                  if(strcmp(output.data_type,"ID Data") == 0){   
+                      printf(", \"O3_serial\": \"%s\"",output.serial);
+                      printf(", \"O3_diagnostics\": \"%s\"",output.diagnostics);
+                      printf(", \"O3_version\": %d",output.version);
+                  } 
+                  else {
+                      printf(", \"O3_pump_temp\": %.2f",output.ozone_pump_temp);
+                      printf(", \"O3_current\": %.3f",output.ozone_current_uA);
+                      printf(", \"O3_battery_volt\": %.1f",output.ozone_battery_v);
+                      printf(", \"O3_pump_current\": %.1f",output.ozone_pump_curr_mA);
+                      printf(", \"O3_external_volt\": %.2f",output.ext_voltage);
+                      printf(", \"O3_pressure\": %.3f",output.O3_partial_pressure);
+                  }
+              }
+          }
+          free(tofree);  
+          printf("}");
+          if (n== 3) {r=fscanf(f,"%s %g %g\n", xdata, &press, &temperature);}
+          else if (n== 2) {r=fscanf(f,"%s %g\n", xdata, &press);}
+          else if (n== 1) {r=fscanf(f,"%s\n", xdata);}
       }
-      else if(strcmp(instrument,"CFH") == 0){ 
-        output_cfh output={0};
-        parseCFH(&output,data); 
-        printf("number: %d\n",output.instrument_number);
-      } 
-      else if(strcmp(instrument,"COBALD") == 0){ 
-        output_cobald output={0};
-        parseCOBALD(&output,data); 
-        printf("number: %d\n",output.instrument_number);
-        printf("sonde: %d\n",output.sonde_number);
-        printf("temp: %d\n",output.internal_temperature);
-        printf("blue_scatt: %d\n",output.blue_backscatter);
-        printf("red_scatt: %d\n",output.red_backscatter);
-        printf("blue_monitor: %d\n",output.blue_monitor);
-        printf("red_monitor: %d\n",output.red_monitor);
-      }
-      else if(strcmp(instrument,"PCFH") == 0){ 
-        output_pcfh output={0};
-        parsePCFH(&output,data); 
-        printf("number: %d\n",output.instrument_number);
-        printf("packetID: %s\n",output.packetID);
-        if (strcmp(output.packetID,"00") == 0) {
-            printf("serial: %d\n",output.serial_number);
-            printf("temp_pcb: %s\n",output.temperature_pcb_date);
-            printf("main_pcb: %s\n",output.main_pcb_date);
-            printf("controller: %s\n",output.controller_fw_date);
-            printf("fpga: %s\n",output.fpga_fw_date);
-        }
-        else if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
-            printf("frost_point_mirror_temperature: %g\n",output.frost_point_mirror_temperature);
-            printf("peltier_hot_side_temperature: %g\n",output.peltier_hot_side_temperature);
-            printf("air_temperature: %g\n",output.air_temperature);
-            printf("anticipated_frost_point_mirror_temperature: %g\n",output.anticipated_frost_point_mirror_temperature);
-            printf("frost_point_mirror_reflectance: %g\n",output.frost_point_mirror_reflectance);
-            printf("reference_surface_reflectance: %g\n",output.reference_surface_reflectance);
-            printf("reference_surface_heating_current: %g\n",output.reference_surface_heating_current);
-            printf("peltier_current: %g\n",output.peltier_current);
-        }
-        else if (strcmp(output.packetID,"03") == 0) {
-            printf("heat_sink_temperature_01: %g\n",output.heat_sink_temperature_01);
-            printf("reference_surface_temperature_01: %g\n",output.reference_surface_temperature_01);
-            printf("heat_sink_temperature_02: %g\n",output.heat_sink_temperature_02);
-            printf("reference_surface_temperature_02: %g\n",output.reference_surface_temperature_02);
-            printf("thermocouple_reference_temperature: %g\n",output.thermocouple_reference_temperature);
-            printf("reserved_temperature: %g\n",output.reserved_temperature);
-        }
-        else if (strcmp(output.packetID,"04") == 0) {
-            printf("clean_frost_point_mirror_reflectance_01: %g\n",output.clean_frost_point_mirror_reflectance_01);
-            printf("clean_reference_surface_reflectance_01: %g\n",output.clean_reference_surface_reflectance_01);
-            printf("clean_frost_point_mirror_reflectance_02: %g\n",output.clean_frost_point_mirror_reflectance_02);
-            printf("clean_reference_surface_reflectance_02: %g\n",output.clean_reference_surface_reflectance_02);
-            printf("6v_analog_supply_battery_voltage: %g\n",output.v6_analog_supply_battery_voltage);
-            printf("4.5v_logic_supply_battery_voltage: %g\n",output.v45_logic_supply_battery_voltage);
-            printf("4.5v_peltier_and_heater_supply_battery_voltage: %g\n",output.v45_peltier_and_heater_supply_battery_voltage);
-        }
-      } 
-      else if(strcmp(instrument,"SKYDEW") == 0){ 
-        output_skydew output={0};
-        parseSKYDEW(&output,data); 
-        printf("number: %d\n",output.instrument_number);
-        printf("mirror_temperature: %d\n",output.mirror_temperature);
-        printf("scattered_light: %g\n",output.scattered_light);
-        printf("peltier_current: %g\n",output.peltier_current);
-        printf("heatsink_temperature: %g\n",output.heatsink_temperature);
-        printf("board_temperature: %g\n",output.circuit_board_temperature);
-        printf("battery: %d\n",output.battery);
-        printf("pid: %d\n",output.pid);
+      fclose(f);
+      printf("\n]\n");
+  }
+  else {  
+    char* xdata;
+    xdata=argv[1];
     
-        switch (output.parameterType){
-            case 0: 
-                printf("serial_number: %d\n",output.serial_number);
-                break;
-            case 1: 
-                printf("coefficient_b: %d\n",output.coefficient_b);
-                break;
-            case 2: 
-                printf("coefficient_c: %d\n",output.coefficient_c);
-                break;
-            case 3: 
-                printf("coefficient_d: %d\n",output.coefficient_d);
-                break;
-            case 4: 
-                printf("coefficient_e: %d\n",output.coefficient_e);
-                break;
-            case 5: 
-                printf("firmware_version: %d\n",output.firmware_version);
-                break;
+    if (argc>2) {press=(float)strtof(argv[2], NULL);}
+    if (argc>3) {temperature=(float)strtof(argv[3], NULL);}
+    
+    if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure
+
+    //printf("%g\n",press);
+    
+    printf("input_data: %s\n\n",xdata);
+
+    char* instrument; 
+    char *data, *str, *tofree;    
+
+    tofree = str = strdup(xdata);  // We own str's memory now.
+    while ((data = strsep(&str, "#"))) {
+        instrument=parseType(data);
+        printf("data: %s\n",data);
+        printf("\n%s\n\n",instrument);
+        
+        if(strcmp(instrument,"OIF411") == 0){          
+            output_oif411 output={0};
+            parseOIF411(&output,data,press);
+            
+            printf("diagnostics: %s\n",output.data_type);
+            if(strcmp(output.data_type,"ID Data") == 0){   
+                printf("serial: %s\n",output.serial);
+                printf("diagnostics: %s\n",output.diagnostics);
+                printf("version: %d\n",output.version);
+            } 
+            else { 
+                printf("number: %d\n",output.instrument_number);
+                printf("pump_temp: %g\n",output.ozone_pump_temp);
+                printf("current: %g\n",output.ozone_current_uA);
+                printf("battery: %g\n",output.ozone_battery_v);
+                printf("pump_current: %g\n",output.ozone_pump_curr_mA);
+                printf("voltage: %g\n",output.ext_voltage);
+                printf("O3_pressure: %g\n",output.O3_partial_pressure);
+            }
         }
-      } 
-      else if(strcmp(instrument,"FLASH-B") == 0){ 
-        output_flashb output={0};
-        parseFLASHB(&output,data,press,temperature); 
-        printf("number: %d\n",output.instrument_number);
-        printf("background_counts: %d\n",output.photomultiplier_background_counts);
-        printf("counts: %d\n",output.photomultiplier_counts);
-        printf("temperature: %g\n",output.photomultiplier_temperature);
-        printf("battery_voltage: %g\n",output.battery_voltage);
-        printf("yuv_current: %g\n",output.yuv_current);
-        printf("pmt_voltage: %g\n",output.pmt_voltage);
-        printf("firmware_version: %g\n",output.firmware_version);
-        printf("production_year: %d\n",output.production_year);
-        printf("hardware_version: %d\n",output.hardware_version);
-      } 
-      printf("-----------------\n");    
-  } 
-  free(tofree); 
+        else if(strcmp(instrument,"CFH") == 0){ 
+            output_cfh output={0};
+            parseCFH(&output,data); 
+            printf("number: %d\n",output.instrument_number);
+        } 
+        else if(strcmp(instrument,"COBALD") == 0){ 
+            output_cobald output={0};
+            parseCOBALD(&output,data); 
+            printf("number: %d\n",output.instrument_number);
+            printf("sonde: %d\n",output.sonde_number);
+            printf("temp: %d\n",output.internal_temperature);
+            printf("blue_scatt: %d\n",output.blue_backscatter);
+            printf("red_scatt: %d\n",output.red_backscatter);
+            printf("blue_monitor: %d\n",output.blue_monitor);
+            printf("red_monitor: %d\n",output.red_monitor);
+        }
+        else if(strcmp(instrument,"PCFH") == 0){ 
+            output_pcfh output={0};
+            parsePCFH(&output,data); 
+            printf("number: %d\n",output.instrument_number);
+            printf("packetID: %s\n",output.packetID);
+            if (strcmp(output.packetID,"00") == 0) {
+                printf("serial: %d\n",output.serial_number);
+                printf("temp_pcb: %s\n",output.temperature_pcb_date);
+                printf("main_pcb: %s\n",output.main_pcb_date);
+                printf("controller: %s\n",output.controller_fw_date);
+                printf("fpga: %s\n",output.fpga_fw_date);
+            }
+            else if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
+                printf("frost_point_mirror_temperature: %g\n",output.frost_point_mirror_temperature);
+                printf("peltier_hot_side_temperature: %g\n",output.peltier_hot_side_temperature);
+                printf("air_temperature: %g\n",output.air_temperature);
+                printf("anticipated_frost_point_mirror_temperature: %g\n",output.anticipated_frost_point_mirror_temperature);
+                printf("frost_point_mirror_reflectance: %g\n",output.frost_point_mirror_reflectance);
+                printf("reference_surface_reflectance: %g\n",output.reference_surface_reflectance);
+                printf("reference_surface_heating_current: %g\n",output.reference_surface_heating_current);
+                printf("peltier_current: %g\n",output.peltier_current);
+            }
+            else if (strcmp(output.packetID,"03") == 0) {
+                printf("heat_sink_temperature_01: %g\n",output.heat_sink_temperature_01);
+                printf("reference_surface_temperature_01: %g\n",output.reference_surface_temperature_01);
+                printf("heat_sink_temperature_02: %g\n",output.heat_sink_temperature_02);
+                printf("reference_surface_temperature_02: %g\n",output.reference_surface_temperature_02);
+                printf("thermocouple_reference_temperature: %g\n",output.thermocouple_reference_temperature);
+                printf("reserved_temperature: %g\n",output.reserved_temperature);
+            }
+            else if (strcmp(output.packetID,"04") == 0) {
+                printf("clean_frost_point_mirror_reflectance_01: %g\n",output.clean_frost_point_mirror_reflectance_01);
+                printf("clean_reference_surface_reflectance_01: %g\n",output.clean_reference_surface_reflectance_01);
+                printf("clean_frost_point_mirror_reflectance_02: %g\n",output.clean_frost_point_mirror_reflectance_02);
+                printf("clean_reference_surface_reflectance_02: %g\n",output.clean_reference_surface_reflectance_02);
+                printf("6v_analog_supply_battery_voltage: %g\n",output.v6_analog_supply_battery_voltage);
+                printf("4.5v_logic_supply_battery_voltage: %g\n",output.v45_logic_supply_battery_voltage);
+                printf("4.5v_peltier_and_heater_supply_battery_voltage: %g\n",output.v45_peltier_and_heater_supply_battery_voltage);
+            }
+        } 
+        else if(strcmp(instrument,"SKYDEW") == 0){ 
+            output_skydew output={0};
+            parseSKYDEW(&output,data); 
+            printf("number: %d\n",output.instrument_number);
+            printf("mirror_temperature: %d\n",output.mirror_temperature);
+            printf("scattered_light: %g\n",output.scattered_light);
+            printf("peltier_current: %g\n",output.peltier_current);
+            printf("heatsink_temperature: %g\n",output.heatsink_temperature);
+            printf("board_temperature: %g\n",output.circuit_board_temperature);
+            printf("battery: %d\n",output.battery);
+            printf("pid: %d\n",output.pid);
+        
+            switch (output.parameterType){
+                case 0: 
+                    printf("serial_number: %d\n",output.serial_number);
+                    break;
+                case 1: 
+                    printf("coefficient_b: %d\n",output.coefficient_b);
+                    break;
+                case 2: 
+                    printf("coefficient_c: %d\n",output.coefficient_c);
+                    break;
+                case 3: 
+                    printf("coefficient_d: %d\n",output.coefficient_d);
+                    break;
+                case 4: 
+                    printf("coefficient_e: %d\n",output.coefficient_e);
+                    break;
+                case 5: 
+                    printf("firmware_version: %d\n",output.firmware_version);
+                    break;
+            }
+        } 
+        else if(strcmp(instrument,"FLASH-B") == 0){ 
+            output_flashb output={0};
+            parseFLASHB(&output,data,press,temperature); 
+            printf("number: %d\n",output.instrument_number);
+            printf("background_counts: %d\n",output.photomultiplier_background_counts);
+            printf("counts: %d\n",output.photomultiplier_counts);
+            printf("temperature: %g\n",output.photomultiplier_temperature);
+            printf("battery_voltage: %g\n",output.battery_voltage);
+            printf("yuv_current: %g\n",output.yuv_current);
+            printf("pmt_voltage: %g\n",output.pmt_voltage);
+            printf("firmware_version: %g\n",output.firmware_version);
+            printf("production_year: %d\n",output.production_year);
+            printf("hardware_version: %d\n",output.hardware_version);
+        } 
+        printf("-----------------\n");    
+    } 
+    free(tofree); 
+  }
 }
 
