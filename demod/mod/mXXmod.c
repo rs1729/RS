@@ -852,10 +852,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 strncpy(sn_id+4, gpx->SN, 12+4);
                 sn_id[15+4] = '\0';
 
-                if (!first) {
-                    if (gpx->option.jsn==2) { fprintf(stdout, ","); }
-                    fprintf(stdout, "\n");
-                }
+                if ((!first) && (gpx->option.jsn==2)) {fprintf(stdout, ",\n"); }
                 first=0;
                 fprintf(stdout, "{ \"type\": \"%s\"", "M20");
                 fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
@@ -885,7 +882,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 #endif
                 if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
                 fprintf(stdout, " }");
-                //fprintf(stdout, "\n");
+                if (gpx->option.jsn==1) {fprintf(stdout, "\n");}
             }
         }
 
