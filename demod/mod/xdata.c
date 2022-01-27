@@ -168,8 +168,8 @@ void main(int argc, char *argv[]){
     fprintf(stderr, "%s [options] --file filename // with xdata (pressure/-altitude) temperature\n\n", fpname);
     fprintf(stderr, "  options:\n");
     fprintf(stderr, "       -v, --verbose  (info)\n");
-    fprintf(stderr, "       --json\n");
-    fprintf(stderr, "       --test (output with desc.)\n");
+    fprintf(stderr, "or     --json\n");
+    fprintf(stderr, "or     --test (output with desc.)\n");
     return;
   }
   
