@@ -39,7 +39,7 @@ typedef struct {
 typedef struct {
     int instrument_number;
     int sonde_number;
-    int internal_temperature;
+    float internal_temperature;
     int blue_backscatter;
     int red_backscatter;
     int blue_monitor;
@@ -913,31 +913,31 @@ void prn_full(char *xdata,float press, float temperature){
                 fprintf(stdout," fpga=%s",output.fpga_fw_date);
             }
             else if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
-                fprintf(stdout," frost_point_mirror_temperature_%s=%.2Cf",output.packetID,output.frost_point_mirror_temperature);
-                fprintf(stdout," peltier_hot_side_temperature_%s=%.2Cf",output.packetID,output.peltier_hot_side_temperature);
-                fprintf(stdout," air_temperature_%s=%.2Cf",output.packetID,output.air_temperature);
-                fprintf(stdout," anticipated_frost_point_mirror_temperature_%s=%.2Cf",output.packetID,output.anticipated_frost_point_mirror_temperature);
+                fprintf(stdout," frost_point_mirror_temperature_%s=%.2fC",output.packetID,output.frost_point_mirror_temperature);
+                fprintf(stdout," peltier_hot_side_temperature_%s=%.2fC",output.packetID,output.peltier_hot_side_temperature);
+                fprintf(stdout," air_temperature_%s=%.2fC",output.packetID,output.air_temperature);
+                fprintf(stdout," anticipated_frost_point_mirror_temperature_%s=%.2fC",output.packetID,output.anticipated_frost_point_mirror_temperature);
                 fprintf(stdout," frost_point_mirror_reflectance_%s=%.3f",output.packetID,output.frost_point_mirror_reflectance);
                 fprintf(stdout," reference_surface_reflectance_%s=%.3f",output.packetID,output.reference_surface_reflectance);
-                fprintf(stdout," reference_surface_heating_current_%s=%.2uAf",output.packetID,output.reference_surface_heating_current);
-                fprintf(stdout," peltier_current_%s=%.3uAf",output.packetID,output.peltier_current);
+                fprintf(stdout," reference_surface_heating_current_%s=%.2fuA",output.packetID,output.reference_surface_heating_current);
+                fprintf(stdout," peltier_current_%s=%.3fuA",output.packetID,output.peltier_current);
             }
             else if (strcmp(output.packetID,"03") == 0) {
-                fprintf(stdout," heat_sink_temperature_01=%.2Cf",output.heat_sink_temperature_01);
-                fprintf(stdout," reference_surface_temperature_01=%.2Cf",output.reference_surface_temperature_01);
-                fprintf(stdout," heat_sink_temperature_02=%.2Cf",output.heat_sink_temperature_02);
-                fprintf(stdout," reference_surface_temperature_02=%.2Cf",output.reference_surface_temperature_02);
-                fprintf(stdout," thermocouple_reference_temperature=%.2Cf",output.thermocouple_reference_temperature);
-                fprintf(stdout," reserved_temperature=%.2Cf",output.reserved_temperature);
+                fprintf(stdout," heat_sink_temperature_01=%.2fC",output.heat_sink_temperature_01);
+                fprintf(stdout," reference_surface_temperature_01=%.2fC",output.reference_surface_temperature_01);
+                fprintf(stdout," heat_sink_temperature_02=%.2fC",output.heat_sink_temperature_02);
+                fprintf(stdout," reference_surface_temperature_02=%.2fC",output.reference_surface_temperature_02);
+                fprintf(stdout," thermocouple_reference_temperature=%.2fC",output.thermocouple_reference_temperature);
+                fprintf(stdout," reserved_temperature=%.2fC",output.reserved_temperature);
             }
             else if (strcmp(output.packetID,"04") == 0) {
                 fprintf(stdout," clean_frost_point_mirror_reflectance_01=%.3f",output.clean_frost_point_mirror_reflectance_01);
                 fprintf(stdout," clean_reference_surface_reflectance_01=%.3f",output.clean_reference_surface_reflectance_01);
                 fprintf(stdout," clean_frost_point_mirror_reflectance_02=%.3f",output.clean_frost_point_mirror_reflectance_02);
                 fprintf(stdout," clean_reference_surface_reflectance_02=%.3f",output.clean_reference_surface_reflectance_02);
-                fprintf(stdout," 6v_analog_supply_battery_voltage=%.2Vf",output.v6_analog_supply_battery_voltage);
-                fprintf(stdout," 4.5v_logic_supply_battery_voltage=%.2Vf",output.v45_logic_supply_battery_voltage);
-                fprintf(stdout," 4.5v_peltier_and_heater_supply_battery_voltage=%.2Vf",output.v45_peltier_and_heater_supply_battery_voltage);
+                fprintf(stdout," 6v_analog_supply_battery_voltage=%.2fV",output.v6_analog_supply_battery_voltage);
+                fprintf(stdout," 4.5v_logic_supply_battery_voltage=%.2fV",output.v45_logic_supply_battery_voltage);
+                fprintf(stdout," 4.5v_peltier_and_heater_supply_battery_voltage=%.2fV",output.v45_peltier_and_heater_supply_battery_voltage);
             }
         } 
         else if(strcmp(instrument,"SKYDEW") == 0){ 

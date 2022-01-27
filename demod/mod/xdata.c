@@ -51,7 +51,7 @@ void prn_test(char *xdata,float press, float temperature){
             parseCOBALD(&output,data); 
             printf("number: %d\n",output.instrument_number);
             printf("sonde: %d\n",output.sonde_number);
-            printf("temp: %d\n",output.internal_temperature);
+            printf("temp: %f\n",output.internal_temperature);
             printf("blue_scatt: %d\n",output.blue_backscatter);
             printf("red_scatt: %d\n",output.red_backscatter);
             printf("blue_monitor: %d\n",output.blue_monitor);
@@ -206,7 +206,7 @@ void main(int argc, char *argv[]){
       f = fopen(input, "rb");
       char buf[500];
       char xdata[500]; 
-      fgets(buf, sizeof buf, f);
+      char* x=fgets(buf, sizeof buf, f);
       int n=sscanf(buf,"%s %g %g", xdata,&press, &temperature);   //number of cols
       fclose(f);
       
