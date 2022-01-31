@@ -48,7 +48,6 @@ typedef struct {
     i8_t ecc;  // M10/M20: no ECC
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature
-    i8_t dwp;  // PTU derived: dew point
     i8_t inv;
     i8_t aut;
     i8_t col;  // colors
@@ -116,7 +115,6 @@ typedef struct {
     ui8_t type;
 } gpx_t;
 
-int first=1;  //first frame or not 1/0
 
 /* -------------------------------------------------------------------------- */
 #define SECONDS_IN_WEEK  (604800.0)  // 7*86400
@@ -776,17 +774,6 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
                         else                 fprintf(stdout, " P=%.1fhPa ", gpx->P);
                     }
-                    // dew point
-                    if (gpx->option.dwp)
-                    {
-                        float rh = gpx->RH;
-                        float Td = -273.15f; // dew point Td
-                        if (rh > 0.0f && gpx->T > -273.0f) {
-                            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
-                            Td = 243.04f * gamma / (17.625f - gamma);
-                            fprintf(stdout, " Td=%.1fC ", Td);
-                        }
-                    }
                 }
                 fprintf(stdout, ANSI_COLOR_RESET"");
             }
@@ -825,17 +812,6 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
                         else                 fprintf(stdout, " P=%.1fhPa ", gpx->P);
                     }
-                    // dew point
-                    if (gpx->option.dwp)
-                    {
-                        float rh = gpx->RH;
-                        float Td = -273.15f; // dew point Td
-                        if (rh > 0.0f && gpx->T > -273.0f) {
-                            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
-                            Td = 243.04f * gamma / (17.625f - gamma);
-                            fprintf(stdout, " Td=%.1fC ", Td);
-                        }
-                    }
                 }
             }
             fprintf(stdout, "\n");
@@ -852,8 +828,6 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 strncpy(sn_id+4, gpx->SN, 12+4);
                 sn_id[15+4] = '\0';
 
-                if ((!first) && (gpx->option.jsn==2)) {fprintf(stdout, ",\n"); }
-                first=0;
                 fprintf(stdout, "{ \"type\": \"%s\"", "M20");
                 fprintf(stdout, ", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
                 fprintf(stdout, "\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
@@ -862,15 +836,6 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     if (gpx->T > -273.0f) fprintf(stdout, ", \"temp\": %.1f", gpx->T );
                     if (gpx->RH > -0.5f)  fprintf(stdout, ", \"humidity\": %.1f", gpx->RH );
                     if (gpx->P > 0.0f)    fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
-                    if (gpx->option.dwp) {
-                        float rh = gpx->RH;
-                        float Td = -273.15f; // dew point Td
-                        if (rh > 0.0f && gpx->T > -273.0f) {
-                            float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
-                            Td = 243.04f * gamma / (17.625f - gamma);
-                            fprintf(stdout, ", \"dew\": %.1f", Td);
-                        }  
-                    } 
                 }
                 fprintf(stdout, ", \"rawid\": \"M20_%02X%02X%02X\"", gpx->frame_bytes[pos_SN], gpx->frame_bytes[pos_SN+1], gpx->frame_bytes[pos_SN+2]); // gpx->type
                 fprintf(stdout, ", \"subtype\": \"0x%02X\"", gpx->type);
@@ -881,8 +846,8 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     ver_jsn = VER_JSN_STR;
                 #endif
                 if (ver_jsn && *ver_jsn != '\0') fprintf(stdout, ", \"version\": \"%s\"", ver_jsn);
-                fprintf(stdout, " }");
-                if (gpx->option.jsn==1) {fprintf(stdout, "\n");}
+                fprintf(stdout, " }\n");
+                fprintf(stdout, "\n");
             }
         }
 
@@ -1088,7 +1053,6 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
             gpx.option.ptu = 1;
         }
-        else if   (strcmp(*argv, "--dewp") == 0) { gpx.option.dwp = 1; }
         else if ( (strcmp(*argv, "--spike") == 0) ) {
             spike = 1;
         }
@@ -1141,7 +1105,6 @@ int main(int argc, char **argv) {
             option_min = 1;
         }
         else if   (strcmp(*argv, "--json") == 0) { gpx.option.jsn = 1; }
-        else if   (strcmp(*argv, "--json2") == 0) { gpx.option.jsn = 2; }
         else if   (strcmp(*argv, "--jsn_cfq") == 0) {
             int frq = -1;  // center frequency / Hz
             ++argv;
@@ -1197,8 +1160,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "reading float32 soft symbols\n");
     }
     #endif
-    
-    if (gpx.option.jsn==2) fprintf(stdout, "[\n");
 
     if (!rawhex) {
         if (!option_softin) {
@@ -1410,7 +1371,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (gpx.option.jsn==2) fprintf(stdout, "\n]\n");
     fclose(fp);
 
     return 0;

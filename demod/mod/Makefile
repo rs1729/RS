@@ -1,20 +1,7 @@
-ifeq ($(OS),Windows_NT) 
-	detected_OS := Windows
-else
-	detected_OS := $(shell sh -c 'uname 2>/dev/null || echo Unknown')
-endif
 
-$(info $(detected_OS))
-$(shell rm -f demod_mod.o bch_ecc_mod.o)
-
-	
 CC = gcc
 COPTS = -O3
-	
-ifeq ($(detected_OS),Windows)
-	COPTS += -DCYGWIN
-endif
-	
+
 .PHONY: all
 all: rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod
 
@@ -29,7 +16,7 @@ m10mod: m10mod.c demod_mod.o
 
 mXXmod: mXXmod.c demod_mod.o
 	$(CC) $(COPTS) -o mXXmod mXXmod.c demod_mod.o -lm
-    
+
 imet54mod: imet54mod.c demod_mod.o
 	$(CC) $(COPTS) -o imet54mod imet54mod.c demod_mod.o -lm
 
@@ -58,6 +45,6 @@ xdata: xdata.c
 .PHONY: clean
 clean:
 	rm -f rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod xdata
-	#rm -f demod_mod.o
-	#rm -f bch_ecc_mod.o
+	rm -f demod_mod.o
+	rm -f bch_ecc_mod.o
 

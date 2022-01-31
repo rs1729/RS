@@ -18,29 +18,6 @@ alternative decoders using cross-correlation for better header-synchronization
   `gcc imet54mod.c demod_mod.o -lm -o imet54mod` <br />
   `gcc lms6Xmod.c demod_mod.o bch_ecc_mod.o -lm -o lms6Xmod` <br />
   `gcc meisei100mod.c demod_mod.o bch_ecc_mod.o -lm -o meisei100mod` <br />
-  `gcc rs92mod.c demod_mod.o bch_ecc_mod.o -lm -o rs92mod` (needs `RS/rs92/nav_gps_vel.c`)
-  
-  gcc mXXmod.c demod_mod.o -lm -o mXXmod
-  
-  
-  # LIVE INPUT !
-  gcc -Ofast -c demod_mod.c
-  gcc -DCYGWIN -c bch_ecc_mod.c
-
-  For RS-41:
-  gcc -DCYGWIN rs41mod.c demod_mod.o bch_ecc_mod.o -lm -o rs41mod
-
-  DFM:
-  gcc -DCYGWIN dfm09mod.c demod_mod.o -lm -o dfm09mod
-  
-  LINUX
-  
-  gcc -Ofast -c demod_mod.c
-  gcc -c bch_ecc_mod.c
-
-  gcc rs41mod.c demod_mod.o bch_ecc_mod.o -lm -o rs41mod
-  gcc dfm09mod.c demod_mod.o -lm -o dfm09mod
-  
   `gcc rs92mod.c demod_mod.o bch_ecc_mod.o -lm -o rs92mod` (needs `RS/rs92/nav_gps_vel.c`) <br />
   `gcc mp3h1mod.c demod_mod.o -lm -o mp3h1mod`
 

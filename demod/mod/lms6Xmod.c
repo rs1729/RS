@@ -1146,7 +1146,7 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--json") == 0) {
             gpx->option.jsn = 1;
-            if (gpx->option.ecc==0) {gpx->option.ecc = 1;}
+            gpx->option.ecc = 1;
             gpx->option.vit = 1;
         }
         else if   (strcmp(*argv, "--jsn_cfq") == 0) {

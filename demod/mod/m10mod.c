@@ -38,7 +38,7 @@ typedef struct {
     i8_t vbs;  // verbose output
     i8_t raw;  // raw frames
     i8_t crc;  // CRC check output
-    i8_t ecc;  // Reed-Solomon ECC
+    i8_t ecc;  // M10/M20: no ECC
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature
     i8_t inv;
@@ -883,82 +883,82 @@ static int print_pos(gpx_t *gpx, int csOK) {
 
         if ( !gpx->option.slt )
         {
-        if (gpx->option.col) {
-            fprintf(stdout, col_TXT);
-            if (gpx->type == t_M10)
-            {
-                if (gpx->option.vbs >= 3) fprintf(stdout, " (W "col_GPSweek"%d"col_TXT") ", gpx->week);
-                fprintf(stdout, col_GPSTOW"%s"col_TXT" ", weekday[gpx->wday]);
+            if (gpx->option.col) {
+                fprintf(stdout, col_TXT);
+                if (gpx->type == t_M10)
+                {
+                    if (gpx->option.vbs >= 3) fprintf(stdout, " (W "col_GPSweek"%d"col_TXT") ", gpx->week);
+                    fprintf(stdout, col_GPSTOW"%s"col_TXT" ", weekday[gpx->wday]);
+                }
+                fprintf(stdout, col_GPSdate"%04d-%02d-%02d"col_TXT" "col_GPSTOW"%02d:%02d:%06.3f"col_TXT" ",
+                        gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
+                fprintf(stdout, " lat: "col_GPSlat"%.5f"col_TXT" ", gpx->lat);
+                fprintf(stdout, " lon: "col_GPSlon"%.5f"col_TXT" ", gpx->lon);
+                fprintf(stdout, " alt: "col_GPSalt"%.2f"col_TXT" ", gpx->alt);
+                if (!err2) {
+                    //if (gpx->option.vbs == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", gpx->vx, gpx->vy, gpx->vD2);
+                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
+                }
+                if (gpx->option.vbs >= 2) {
+                    fprintf(stdout, "  SN: "col_SN"%s"col_TXT, gpx->SN);
+                }
+                if (gpx->option.vbs >= 2) {
+                    fprintf(stdout, "  # ");
+                    if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
+                    else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
+                }
+                if (gpx->option.ptu && csOK) {
+                    if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC", gpx->T);
+                    if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, " _RH=%.0f%%", gpx->_RH); }
+                    if (gpx->option.vbs >= 3) {
+                        float t2 = get_Tntc2(gpx);
+                        float fq555 = get_TLC555freq(gpx);
+                        fprintf(stdout, "  (Ti:%.1fC)", gpx->Ti);
+                        if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz)", t2, fq555/1e3);
+                    }
+                }
+                if (gpx->option.vbs >= 3 && csOK) {
+                    fprintf(stdout, " (bat:%.2fV)", gpx->batV);
+                }
+                fprintf(stdout, ANSI_COLOR_RESET"");
             }
-            fprintf(stdout, col_GPSdate"%04d-%02d-%02d"col_TXT" "col_GPSTOW"%02d:%02d:%06.3f"col_TXT" ",
-                    gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
-            fprintf(stdout, " lat: "col_GPSlat"%.5f"col_TXT" ", gpx->lat);
-            fprintf(stdout, " lon: "col_GPSlon"%.5f"col_TXT" ", gpx->lon);
-            fprintf(stdout, " alt: "col_GPSalt"%.2f"col_TXT" ", gpx->alt);
-            if (!err2) {
-                //if (gpx->option.vbs == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", gpx->vx, gpx->vy, gpx->vD2);
-                fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
-            }
-            if (gpx->option.vbs >= 2) {
-                fprintf(stdout, "  SN: "col_SN"%s"col_TXT, gpx->SN);
-            }
-            if (gpx->option.vbs >= 2) {
-                fprintf(stdout, "  # ");
-                if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
-                else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
-            }
-            if (gpx->option.ptu && csOK) {
-                if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC", gpx->T);
-                if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, " _RH=%.0f%%", gpx->_RH); }
-                if (gpx->option.vbs >= 3) {
-                    float t2 = get_Tntc2(gpx);
-                    float fq555 = get_TLC555freq(gpx);
-                    fprintf(stdout, "  (Ti:%.1fC)", gpx->Ti);
-                    if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz)", t2, fq555/1e3);
+            else {
+                if (gpx->type == t_M10)
+                {
+                    if (gpx->option.vbs >= 3) fprintf(stdout, " (W %d) ", gpx->week);
+                    fprintf(stdout, "%s ", weekday[gpx->wday]);
+                }
+                fprintf(stdout, "%04d-%02d-%02d %02d:%02d:%06.3f ",
+                        gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
+                fprintf(stdout, " lat: %.5f ", gpx->lat);
+                fprintf(stdout, " lon: %.5f ", gpx->lon);
+                fprintf(stdout, " alt: %.2f ", gpx->alt);
+                if (!err2) {
+                    //if (gpx->option.vbs == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f) ", gpx->vx, gpx->vy, gpx->vD2);
+                    fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
+                }
+                if (gpx->option.vbs >= 2) {
+                    fprintf(stdout, "  SN: %s", gpx->SN);
+                }
+                if (gpx->option.vbs >= 2) {
+                    fprintf(stdout, "  # ");
+                    if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
+                }
+                if (gpx->option.ptu && csOK) {
+                    if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC", gpx->T);
+                    if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, " _RH=%.0f%%", gpx->_RH); }
+                    if (gpx->option.vbs >= 3) {
+                        float t2 = get_Tntc2(gpx);
+                        float fq555 = get_TLC555freq(gpx);
+                        fprintf(stdout, "  (Ti:%.1fC)", gpx->Ti);
+                        if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz)", t2, fq555/1e3);
+                    }
+                }
+                if (gpx->option.vbs >= 3 && csOK) {
+                    fprintf(stdout, " (bat:%.2fV)", gpx->batV);
                 }
             }
-            if (gpx->option.vbs >= 3 && csOK) {
-                fprintf(stdout, " (bat:%.2fV)", gpx->batV);
-            }
-            fprintf(stdout, ANSI_COLOR_RESET"");
-        }
-        else {
-            if (gpx->type == t_M10)
-            {
-                if (gpx->option.vbs >= 3) fprintf(stdout, " (W %d) ", gpx->week);
-                fprintf(stdout, "%s ", weekday[gpx->wday]);
-            }
-            fprintf(stdout, "%04d-%02d-%02d %02d:%02d:%06.3f ",
-                    gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek);
-            fprintf(stdout, " lat: %.5f ", gpx->lat);
-            fprintf(stdout, " lon: %.5f ", gpx->lon);
-            fprintf(stdout, " alt: %.2f ", gpx->alt);
-            if (!err2) {
-                //if (gpx->option.vbs == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f) ", gpx->vx, gpx->vy, gpx->vD2);
-                fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
-            }
-            if (gpx->option.vbs >= 2) {
-                fprintf(stdout, "  SN: %s", gpx->SN);
-            }
-            if (gpx->option.vbs >= 2) {
-                fprintf(stdout, "  # ");
-                if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
-            }
-            if (gpx->option.ptu && csOK) {
-                if (gpx->T > -270.0) fprintf(stdout, "  T=%.1fC", gpx->T);
-                if (gpx->option.vbs >= 2) { if (gpx->_RH > -0.5) fprintf(stdout, " _RH=%.0f%%", gpx->_RH); }
-                if (gpx->option.vbs >= 3) {
-                    float t2 = get_Tntc2(gpx);
-                    float fq555 = get_TLC555freq(gpx);
-                    fprintf(stdout, "  (Ti:%.1fC)", gpx->Ti);
-                    if (t2 > -270.0) fprintf(stdout, " (T2:%.1fC) (%.3fkHz)", t2, fq555/1e3);
-                }
-            }
-            if (gpx->option.vbs >= 3 && csOK) {
-                fprintf(stdout, " (bat:%.2fV)", gpx->batV);
-            }
-        }
-        fprintf(stdout, "\n");
+            fprintf(stdout, "\n");
         }
 
 
@@ -1317,7 +1317,6 @@ int main(int argc, char **argv) {
     if (option_noLUT && option_iq == 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
 
 
-    // init gpx
     if (gpx.option.raw && gpx.option.jsn) gpx.option.slt = 1;
 
     if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
@@ -1494,7 +1493,7 @@ int main(int argc, char **argv) {
                         else {
                             bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos, -1, 0); // symlen=2
                         }
-                        if ( bitQ == EOF) break;
+                        if (bitQ == EOF) break;
                         bitpos++;
                     }
                 }

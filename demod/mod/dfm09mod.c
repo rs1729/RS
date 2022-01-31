@@ -1041,14 +1041,8 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--auto") == 0) { option_auto = 1; }
         else if   (strcmp(*argv, "--bin") == 0) { option_bin = 1; }  // bit/byte binary input
         else if   (strcmp(*argv, "--softin") == 0) { option_softin = 1; }  // float32 soft input
-        else if   (strcmp(*argv, "--dist") == 0) { 
-            option_dist = 1; 
-            if (option_ecc==0) {option_ecc = 1;} 
-            }
-        else if   (strcmp(*argv, "--json") == 0) { 
-            option_json = 1; 
-            if (option_ecc==0) {option_ecc = 1;} 
-            }
+        else if   (strcmp(*argv, "--dist") == 0) { option_dist = 1; option_ecc = 1; }
+        else if   (strcmp(*argv, "--json") == 0) { option_json = 1; option_ecc = 1; }
         else if   (strcmp(*argv, "--jsn_cfq") == 0) {
             int frq = -1;  // center frequency / Hz
             ++argv;

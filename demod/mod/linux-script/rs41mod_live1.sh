@@ -1,1 +1,0 @@
-rtl_fm  -M raw -s 48k -f 400.6M -g 32 -E dc | tee >(./rs41mod --ecc4 -r --IQ 0.0 --lpIQ - 48000 16 >> rs41_`date +%Y%m%d-%H%M%S`.txt)  >(./rs41mod --ecc4 --ptu2 --dewp -vx --IQ 0.0 --lpIQ - 48000 16 | tee -a rs41_`date +%Y%m%d-%H%M%S`.txt ) >/dev/null
