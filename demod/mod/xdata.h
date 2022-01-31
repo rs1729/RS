@@ -805,35 +805,148 @@ int prn_jsn(char *xdata,float press, float temperature){
     
     if ((press<0) && (press!=-1)) { press=alt2press(-press); }  //altitude given -> convert to pressure
     
+    fprintf(stdout, "\"aux_inst\": { ");
     tofree = str = strdup(xdata);  // We own str's memory now.
     while ((data = strsep(&str, "#"))) {
       instrument=parseType(data);
-      if (strcmp(instrument,linst)!=0) {                  
-          if (i>0) {fprintf(stdout, ", ");}
-          i++;
-          fprintf(stdout, "\"aux_inst_%d\": \"%s\"",i,instrument);
-          asprintf(&linst,"%s",instrument);
+      if (strcmp(instrument,linst)!=0) {  
+          if (i>0) {fprintf(stdout, "}, ");}
+          i++;                      
+          //fprintf(stdout, "\"aux_inst_%d\": \"%s\"",i,instrument);
+          fprintf(stdout, "\"%s\": {",instrument); 
       }
-      if(strcmp(instrument,"OIF411") == 0){          
+      if(strcmp(instrument,"OIF411") == 0){                     
           output_oif411 output={0};
-          parseOIF411(&output,data,press);                                        
-          
+          parseOIF411(&output,data,press);  
+                 
+          if (strcmp(instrument,linst)==0) { fprintf(stdout, ", ");}
+                                                       
           if(strcmp(output.data_type,"ID Data") == 0){   
-              fprintf(stdout, ", \"O3_serial\": \"%s\"",output.serial);
-              fprintf(stdout, ", \"O3_diagnostics\": \"%s\"",output.diagnostics);
-              fprintf(stdout, ", \"O3_version\": %d",output.version);
+              fprintf(stdout, "\"serial\": \"%s\"",output.serial);
+              fprintf(stdout, ", \"diagnostics\": \"%s\"",output.diagnostics);
+              fprintf(stdout, ", \"version\": %d",output.version);
           } 
           else {
-              fprintf(stdout, ", \"O3_pump_temp\": %.2f",output.ozone_pump_temp);
-              fprintf(stdout, ", \"O3_current\": %.3f",output.ozone_current_uA);
-              fprintf(stdout, ", \"O3_battery_volt\": %.1f",output.ozone_battery_v);
-              fprintf(stdout, ", \"O3_pump_current\": %.1f",output.ozone_pump_curr_mA);
-              fprintf(stdout, ", \"O3_external_volt\": %.2f",output.ext_voltage);
+              fprintf(stdout, "\"pump_temp\": %.2f",output.ozone_pump_temp);
+              fprintf(stdout, ", \"current\": %.3f",output.ozone_current_uA);
+              fprintf(stdout, ", \"battery_volt\": %.1f",output.ozone_battery_v);
+              fprintf(stdout, ", \"pump_current\": %.1f",output.ozone_pump_curr_mA);
+              fprintf(stdout, ", \"external_volt\": %.2f",output.ext_voltage);
               fprintf(stdout, ", \"O3_pressure\": %.3f",output.O3_partial_pressure);
-          }
+          } 
       }
+      else if(strcmp(instrument,"CFH") == 0){ 
+            output_cfh output={0};
+            parseCFH(&output,data); 
+      } 
+      else if(strcmp(instrument,"COBALD") == 0){          
+          output_cobald output={0};
+          parseCOBALD(&output,data);
+          
+          fprintf(stdout, "\"sonde\": %d",output.sonde_number);
+          fprintf(stdout, ", \"temp\": %.2f",output.internal_temperature);
+          fprintf(stdout, ", \"blue_scatt\": %d",output.blue_backscatter);
+          fprintf(stdout, ", \"red_scatt\": %d",output.red_backscatter);
+          fprintf(stdout, ", \"blue_monitor\": %d",output.blue_monitor);
+          fprintf(stdout, ", \"red_monitor\": %d",output.red_monitor);                                     
+      }
+      else if(strcmp(instrument,"PCFH") == 0){ 
+            output_pcfh output={0};
+            parsePCFH(&output,data); 
+            
+            if (strcmp(instrument,linst)==0) { fprintf(stdout, ", ");}
+            
+            if (strcmp(output.packetID,"00") == 0) {
+                fprintf(stdout,"\"serial\": %d",output.serial_number);
+                fprintf(stdout,", \"temp_pcb\": \"%s\"",output.temperature_pcb_date);
+                fprintf(stdout,", \"main_pcb\": \"%s\"",output.main_pcb_date);
+                fprintf(stdout,", \"controller\": \"%s\"",output.controller_fw_date);
+                fprintf(stdout,", \"fpga\": \"%s\"",output.fpga_fw_date);
+            }
+            else if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
+                fprintf(stdout,"\"frost_point_mirror_temperature_%s\": %.2f",output.packetID,output.frost_point_mirror_temperature);
+                fprintf(stdout,", \"peltier_hot_side_temperature_%s\": %.2f",output.packetID,output.peltier_hot_side_temperature);
+                fprintf(stdout,", \"air_temperature_%s\": %.2f",output.packetID,output.air_temperature);
+                fprintf(stdout,", \"anticipated_frost_point_mirror_temperature_%s\": %.2f",output.packetID,output.anticipated_frost_point_mirror_temperature);
+                fprintf(stdout,", \"frost_point_mirror_reflectance_%s\": %.3f",output.packetID,output.frost_point_mirror_reflectance);
+                fprintf(stdout,", \"reference_surface_reflectance_%s\": %.3f",output.packetID,output.reference_surface_reflectance);
+                fprintf(stdout,", \"reference_surface_heating_current_%s\": %.2f",output.packetID,output.reference_surface_heating_current);
+                fprintf(stdout,", \"peltier_current_%s\": %.3f",output.packetID,output.peltier_current);
+            }
+            else if (strcmp(output.packetID,"03") == 0) {
+                fprintf(stdout,"\"heat_sink_temperature_01\": %.2f",output.heat_sink_temperature_01);
+                fprintf(stdout,", \"reference_surface_temperature_01\": %.2f",output.reference_surface_temperature_01);
+                fprintf(stdout,", \"heat_sink_temperature_02\": %.2f",output.heat_sink_temperature_02);
+                fprintf(stdout,", \"reference_surface_temperature_02\": %.2f",output.reference_surface_temperature_02);
+                fprintf(stdout,", \"thermocouple_reference_temperature\": %.2f",output.thermocouple_reference_temperature);
+                fprintf(stdout,", \"reserved_temperature\": %.2f",output.reserved_temperature);
+            }
+            else if (strcmp(output.packetID,"04") == 0) {
+                fprintf(stdout,"\"clean_frost_point_mirror_reflectance_01\": %.3f",output.clean_frost_point_mirror_reflectance_01);
+                fprintf(stdout,", \"clean_reference_surface_reflectance_01\": %.3f",output.clean_reference_surface_reflectance_01);
+                fprintf(stdout,", \"clean_frost_point_mirror_reflectance_02\": %.3f",output.clean_frost_point_mirror_reflectance_02);
+                fprintf(stdout,", \"clean_reference_surface_reflectance_02\": %.3f",output.clean_reference_surface_reflectance_02);
+                fprintf(stdout,", \"6v_analog_supply_battery_voltage\": %.2f",output.v6_analog_supply_battery_voltage);
+                fprintf(stdout,", \"4.5v_logic_supply_battery_voltage\": %.2f",output.v45_logic_supply_battery_voltage);
+                fprintf(stdout,", \"4.5v_peltier_and_heater_supply_battery_voltage\": %.2f",output.v45_peltier_and_heater_supply_battery_voltage);
+            }
+        } 
+        else if(strcmp(instrument,"SKYDEW") == 0){ 
+            output_skydew output={0};
+            parseSKYDEW(&output,data); 
+            
+            if (strcmp(instrument,linst)==0) { fprintf(stdout, ", ");}
+            
+            fprintf(stdout,"\"mirror_temperature\": %d",output.mirror_temperature);
+            fprintf(stdout,", \"scattered_light\": %.4f",output.scattered_light);
+            fprintf(stdout,", \"peltier_current\": %.4f",output.peltier_current);
+            fprintf(stdout,", \"heatsink_temperature\": %.2f",output.heatsink_temperature);
+            fprintf(stdout,", \"board_temperature\": %.2f",output.circuit_board_temperature);
+            fprintf(stdout,", \"battery\": %d",output.battery);
+            fprintf(stdout,", \"pid\": %d",output.pid);
+        
+            switch (output.parameterType){
+                case 0:
+                    fprintf(stdout,", \"serial_number\": %d",output.serial_number);
+                    break;
+                case 1:
+                    fprintf(stdout,", \"coefficient_b\": %d",output.coefficient_b);
+                    break;
+                case 2:
+                    fprintf(stdout,", \"coefficient_c\": %d",output.coefficient_c);
+                    break;
+                case 3:
+                    fprintf(stdout,", \"coefficient_d\": %d",output.coefficient_d);
+                    break;
+                case 4:
+                    fprintf(stdout,", \"coefficient_e\": %d",output.coefficient_e);
+                    break;
+                case 5:
+                    fprintf(stdout,", \"firmware_version\": %d",output.firmware_version);
+                    break;
+            }
+        } 
+        else if(strcmp(instrument,"FLASH-B") == 0){ 
+            output_flashb output={0};
+            parseFLASHB(&output,data,press,temperature); 
+            fprintf(stdout,"\"background_counts\": %d",output.photomultiplier_background_counts);
+            fprintf(stdout,", \"counts\": %d",output.photomultiplier_counts);
+            fprintf(stdout,", \"temperature\": %.2f",output.photomultiplier_temperature);
+            fprintf(stdout,", \"battery_voltage\": %.2f",output.battery_voltage);
+            fprintf(stdout,", \"yuv_current\": %.2f",output.yuv_current);
+            fprintf(stdout,", \"pmt_voltage\": %.1f",output.pmt_voltage);
+            fprintf(stdout,", \"firmware_version\": %.1f",output.firmware_version);
+            fprintf(stdout,", \"production_year\": %d",output.production_year);
+            fprintf(stdout,", \"hardware_version\": %d",output.hardware_version);
+        }
+      
+      
+      
+      asprintf(&linst,"%s",instrument);
     }
     free(tofree);
+    fprintf(stdout, "}");
+    fprintf(stdout, "}"); 
     return 0;
 }
 
@@ -853,6 +966,36 @@ int prn_aux(char *xdata,float press, float temperature){
             if(strcmp(output.data_type,"Measurement Data") == 0){ 
                 fprintf(stdout," O3_P=%.3fmPa ",output.O3_partial_pressure);
             }
+        }
+        else if(strcmp(instrument,"CFH") == 0){ 
+            output_cfh output={0};
+            parseCFH(&output,data); 
+        } 
+        else if(strcmp(instrument,"COBALD") == 0){ 
+            output_cobald output={0};
+            parseCOBALD(&output,data); 
+            fprintf(stdout," blue_scatt=%d ",output.blue_backscatter);
+            fprintf(stdout," red_scatt=%d ",output.red_backscatter);
+        }
+        else if(strcmp(instrument,"PCFH") == 0){ 
+            output_pcfh output={0};
+            parsePCFH(&output,data); 
+            if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
+                fprintf(stdout," frost_point_mirror_temperature_%s=%.2fC ",output.packetID,output.frost_point_mirror_temperature);
+                fprintf(stdout," air_temperature_%s=%.2fC ",output.packetID,output.air_temperature);
+                fprintf(stdout," frost_point_mirror_reflectance_%s=%.3f ",output.packetID,output.frost_point_mirror_reflectance);
+            }
+        } 
+        else if(strcmp(instrument,"SKYDEW") == 0){ 
+            output_skydew output={0};
+            parseSKYDEW(&output,data); 
+            fprintf(stdout," mirror_temperature=%d ",output.mirror_temperature);
+            fprintf(stdout," scattered_light=%.4f ",output.scattered_light);                 
+        } 
+        else if(strcmp(instrument,"FLASH-B") == 0){ 
+            output_flashb output={0};
+            parseFLASHB(&output,data,press,temperature); 
+            fprintf(stdout," counts=%d ",output.photomultiplier_counts);
         }
     }
     free(tofree); 
@@ -885,7 +1028,7 @@ void prn_full(char *xdata,float press, float temperature){
                 fprintf(stdout," battery_volt=%.1fV",output.ozone_battery_v);
                 fprintf(stdout," pump_current=%.1fmA",output.ozone_pump_curr_mA);
                 fprintf(stdout," external_volt=%.1fV",output.ext_voltage);
-                fprintf(stdout," pressure=%.3fmPa",output.O3_partial_pressure);
+                fprintf(stdout," O3_pressure=%.3fmPa",output.O3_partial_pressure);
             }
         }
         else if(strcmp(instrument,"CFH") == 0){ 
