@@ -13,7 +13,7 @@
 #include <math.h>
 #include <ctype.h>
 
-#include "asprintf.h"
+#include "strtools.h"
 
 float OIF411_Cef_Pressure[] =    {    0,     2,     3,      5,    10,    20,    30,    50,   100,   200,   300,   500, 1000, 1100};
 float OIF411_Cef[] = { 1.171, 1.171, 1.131, 1.092, 1.055, 1.032, 1.022, 1.015, 1.011, 1.008, 1.006, 1.004,    1,    1};
@@ -168,81 +168,64 @@ void parseOIF411(output_oif411 *output, char *xdata, float pressure){
         // Invalid OIF411 dataset
         return;
     }
-
-    char tmp[30];
-    memcpy(tmp,&xdata[0],2);
-    tmp[2]='\0';
-    //printf("-%s-\n",tmp);
-    if (strcmp(tmp,"05") != 0){
+    
+    if (strncmp(xdata,"05",2) != 0){
         // Not an OIF411 (shouldn't get here)
         return;
     }
 
     // Instrument number is common to all XDATA types.
-    memcpy(tmp,&xdata[2],2);
-    tmp[2]='\0';
-    output->instrument_number = (int)strtol(tmp, NULL, 16);
+    output->instrument_number = (int)strntol(xdata+2,2,NULL, 16);
 
     if(length == 21){
         // ID Data (Table 19)
         output->data_type = "ID Data";
         // Serial number
-        memcpy(tmp,&xdata[4],8);
-        tmp[8]='\0';
-        asprintf(&output->serial,"%s",tmp);
+        char ser[8];
+        memcpy(ser,xdata+4,8);
+        ser[8]='\0';
+        asprintf(&output->serial,"%s",ser);
 
         // Diagnostics word. 
         char diagnostics_word[4];
-        memcpy(diagnostics_word,&xdata[12],4);
+        memcpy(diagnostics_word,xdata+12,4);
         diagnostics_word[4]='\0';
-        if(strcmp(diagnostics_word,"0000") == 0){
+        if(strncmp(diagnostics_word,"0000",4) == 0){
             output->diagnostics = "All OK";
-        }else if(strcmp(diagnostics_word,"0004") == 0){
+        }else if(strncmp(diagnostics_word,"0004",4) == 0){
             output->diagnostics = "Ozone pump temperature below -5 C.";
-        }else if(strcmp(diagnostics_word,"0400") == 0){
+        }else if(strncmp(diagnostics_word,"0400",4) == 0){
             output->diagnostics = "Ozone pump battery voltage (+VBatt) is not connected to OIF411";
-        }else if (strcmp(diagnostics_word,"0404") == 0){
+        }else if (strncmp(diagnostics_word,"0404",4) == 0){
             output->diagnostics = "Ozone pump temp low, and +VBatt not connected.";
         }else {
             asprintf(&output->diagnostics,"Unknown State: %s",diagnostics_word);
         }
 
         // Version number  
-        memcpy(tmp,&xdata[16],4);
-        tmp[4]='\0';
-        output->version = (int)strtol(tmp, NULL, 16);
+        output->version = (int)strntol(xdata+16,4, NULL, 16);
     } 
     else if (length == 20){
         // Measurement Data (Table 18)
         output->data_type = "Measurement Data";
         // Ozone pump temperature - signed int16  
-        memcpy(tmp,&xdata[4],4);
-        tmp[4]='\0';
-        int ozone_pump_temp = (int)strtol(tmp, NULL, 16);
+        int ozone_pump_temp = (int)strntol(xdata+4,4, NULL, 16);
         if ((ozone_pump_temp & 0x8000) > 0) {
             ozone_pump_temp = ozone_pump_temp - 0x10000;
         }
         output->ozone_pump_temp = (float)ozone_pump_temp*0.01; // Degrees C (5 - 35)
         
         // Ozone Current
-        memcpy(tmp,&xdata[8],5);
-        tmp[5]='\0';
-        output->ozone_current_uA = ((int)strtol(tmp, NULL, 16))*0.0001; // micro-Amps (0.05 - 30)
+        output->ozone_current_uA = ((int)strntol(xdata+8,5, NULL, 16))*0.0001; // micro-Amps (0.05 - 30)
         
         // Battery Voltage
-        memcpy(tmp,&xdata[13],2);
-        tmp[2]='\0';
-        output->ozone_battery_v = ((int)strtol(tmp, NULL, 16))*0.1; // Volts (14 - 19)
+        output->ozone_battery_v = ((int)strntol(xdata+13,2, NULL, 16))*0.1; // Volts (14 - 19)
         
         // Ozone Pump Current
-        memcpy(tmp,&xdata[15],3);
-        tmp[3]='\0';
-        output->ozone_pump_curr_mA = (float)((int)strtol(tmp, NULL, 16)); // mA (30 - 110)
+        output->ozone_pump_curr_mA = (float)((int)strntol(xdata+15,3, NULL, 16)); // mA (30 - 110)
 
         // External Voltage
-        memcpy(tmp,&xdata[18],2);
-        tmp[2]='\0';
-        output->ext_voltage = ((int)strtol(tmp, NULL, 16))*0.1; // Volts
+        output->ext_voltage = ((int)strntol(xdata+18,2, NULL, 16))*0.1; // Volts
 
         //Now attempt to calculate the O3 partial pressure
 
@@ -271,19 +254,13 @@ void parseCFH(output_cfh *output, char* xdata){
         return;
     }
 
-    char tmp[30];
-    memcpy(tmp,&xdata[0],2);
-    tmp[2]='\0';
-    //printf("-%s-\n",tmp);
-    if (strcmp(tmp,"08") != 0){
+    if (strncmp(xdata,"08",2) != 0){
         // Not an CFH (shouldn't get here)
         return;
     }
 
     // Instrument number is common to all XDATA types.
-    memcpy(tmp,&xdata[2],2);
-    tmp[2]='\0';
-    output->instrument_number = (int)strtol(tmp, NULL, 16);
+    output->instrument_number = (int)strntol(xdata+2,2, NULL, 16);
 }
 
 void parseCOBALD(output_cobald *output,char* xdata) {
@@ -302,66 +279,47 @@ void parseCOBALD(output_cobald *output,char* xdata) {
         return;
     }
 
-    char tmp[30];
-    memcpy(tmp,&xdata[0],2);
-    tmp[2]='\0';
-    //printf("-%s-\n",tmp);
-    if (strcmp(tmp,"19") != 0){
+    if (strncmp(xdata,"19",2) != 0){
         // Not a COBALD (shouldn't get here)
         return;
     }
 
-
     // Instrument number is common to all XDATA types.
-    memcpy(tmp,&xdata[2],2);
-    tmp[2]='\0';
-    output->instrument_number = (int)strtol(tmp, NULL, 16);
+    output->instrument_number = (int)strntol(xdata+2,2, NULL, 16);
 
     // Sonde number
-    memcpy(tmp,&xdata[4],3);
-    tmp[3]='\0';
-    output->sonde_number = (int)strtol(tmp, NULL, 16);
+    output->sonde_number = (int)strntol(xdata+4,3, NULL, 16);
 
     // Internal temperature
-    memcpy(tmp,&xdata[7],3);
-    tmp[3]='\0';
-    int internal_temperature = (int)strtol(tmp, NULL, 16);
+    int internal_temperature = (int)strntol(xdata+7,3, NULL, 16);
     if ((internal_temperature  & 0x800) > 0) {
         internal_temperature  = internal_temperature  - 0x1000;
     }
     output->internal_temperature = internal_temperature/8; // Degrees C (-40 - 50)
 
     // Blue backscatter
-    memcpy(tmp,&xdata[10],6);
-    tmp[6]='\0';
-    int blue_backscatter = (int)strtol(tmp, NULL, 16);
+    int blue_backscatter = (int)strntol(xdata+10,6, NULL, 16);
     if ((blue_backscatter  & 0x800000) > 0) {
         blue_backscatter  = blue_backscatter  - 0x1000000;
     }
     output->blue_backscatter = blue_backscatter; // (0 - 1000000)
     
     // Red backckatter
-    memcpy(tmp,&xdata[16],6);
-    tmp[6]='\0';
-    int red_backscatter = (int)strtol(tmp, NULL, 16);
+    int red_backscatter = (int)strntol(xdata+16,6, NULL, 16);
     if ((red_backscatter  & 0x800000) > 0) {
         red_backscatter  = red_backscatter  - 0x1000000;
     }
     output->red_backscatter = red_backscatter; // (0 - 1000000)
 
     // Blue monitor
-    memcpy(tmp,&xdata[22],4);
-    tmp[4]='\0';
-    int blue_monitor = (int)strtol(tmp, NULL, 16);
+    int blue_monitor = (int)strntol(xdata+22,4, NULL, 16);
     if ((blue_monitor  & 0x8000) > 0) {
         blue_monitor  = blue_monitor  - 0x10000;
     }
     output->blue_monitor = blue_monitor; // (-32768 - 32767)
     
     // Red monitor
-    memcpy(tmp,&xdata[26],4);
-    tmp[4]='\0';
-    int red_monitor = (int)strtol(tmp, NULL, 16);
+    int red_monitor = (int)strntol(xdata+26,4, NULL, 16);
     if ((red_monitor  & 0x8000) > 0) {
         red_monitor  = red_monitor  - 0x10000;
     }
@@ -385,78 +343,50 @@ void parseSKYDEW(output_skydew *output,char* xdata) {
         return;
     }
 
-    char tmp[40];
-    memcpy(tmp,&xdata[0],2);
-    tmp[2]='\0';
-    //printf("-%s-\n",tmp);
-    if (strcmp(tmp,"3F") != 0){
+    if (strncmp(xdata,"3F",2) != 0){
         // Not a SKYDEW (shouldn't get here)
         return;
     }
 
     // Instrument number is common to all XDATA types.
-    memcpy(tmp,&xdata[2],2);
-    tmp[2]='\0';
-    output->instrument_number = (int)strtol(tmp, NULL, 16);
+    output->instrument_number = (int)strntol(xdata+2,2, NULL, 16);
 
     
     // Mirror temperature value
     // This requires the four coefficients to actually get a value
-    memcpy(tmp,&xdata[4],4);
-    tmp[4]='\0';
-    output->mirror_temperature = (int)strtol(tmp, NULL, 16);
+    output->mirror_temperature = (int)strntol(xdata+4,4, NULL, 16);
 
     // Scattered light level
-    memcpy(tmp,&xdata[8],4);
-    tmp[4]='\0';
-    output->scattered_light = (int)strtol(tmp, NULL, 16)*0.0000625; // V
+    output->scattered_light = (int)strntol(xdata+8,4, NULL, 16)*0.0000625; // V
 
     // Reference resistance
     // Used to calculate mirror temperature
-    memcpy(tmp,&xdata[12],4);
-    tmp[4]='\0';
-    int reference_resistance = (int)strtol(tmp, NULL, 16);
+    int reference_resistance = (int)strntol(xdata+12,4, NULL, 16);
 
     // Offset value
     // Used to calculate mirror temperature
-    memcpy(tmp,&xdata[16],4);
-    tmp[4]='\0';
-    int offset_value = (int)strtol(tmp, NULL, 16);
+    int offset_value = (int)strntol(xdata+16,4, NULL, 16);
 
     // Peltier current
-    memcpy(tmp,&xdata[20],4);
-    tmp[4]='\0';
-    output->peltier_current = ((int)strtol(tmp, NULL, 16)*0.00040649414 - 1.5)*2; // A
+    output->peltier_current = ((int)strntol(xdata+20,4, NULL, 16)*0.00040649414 - 1.5)*2; // A
 
     // Heatsink temperature
-    memcpy(tmp,&xdata[24],2);
-    tmp[2]='\0';
-    output->heatsink_temperature = 1./((((log((((int)strtol(tmp, NULL, 16)/8192.)*141.9)/(3.3-((int)strtol(tmp, NULL, 16)/8192.)*3.3)/6))/3390)+1)/273.16)-276.16; // Degrees C
+    output->heatsink_temperature = 1./((((log((((int)strntol(xdata+24,2, NULL, 16)/8192.)*141.9)/(3.3-((int)strntol(xdata+24,2, NULL, 16)/8192.)*3.3)/6))/3390)+1)/273.16)-276.16; // Degrees C
 
     // Circuit board temperature
-    memcpy(tmp,&xdata[26],2);
-    tmp[2]='\0';
-    output->circuit_board_temperature = 1./((((log((((int)strtol(tmp, NULL, 16)/8192.)*39.6)/(3.3-((int)strtol(tmp, NULL, 16)/8192.)*3.3)/6))/3390)+1)/273.16)-276.16; // Degrees C
+    output->circuit_board_temperature = 1./((((log((((int)strntol(xdata+26,2, NULL, 16)/8192.)*39.6)/(3.3-((int)strntol(xdata+26,2, NULL, 16)/8192.)*3.3)/6))/3390)+1)/273.16)-276.16; // Degrees C
 
     // Battery
-    memcpy(tmp,&xdata[28],2);
-    tmp[2]='\0';
-    output->battery = (int)strtol(tmp, NULL, 16);
+    output->battery = (int)strntol(xdata+28,2, NULL, 16);
 
     // PID
-    memcpy(tmp,&xdata[30],2);
-    tmp[2]='\0';
-    output->pid = (int)strtol(tmp, NULL, 16);
+    output->pid = (int)strntol(xdata+30,2, NULL, 16);
 
     // Parameter
-    memcpy(tmp,&xdata[32],4);
-    tmp[4]='\0';
-    int parameter = (int)strtol(tmp, NULL, 16);
+    int parameter = (int)strntol(xdata+32,4, NULL, 16);
 
     // Coefficent type
-    memcpy(tmp,&xdata[36],2);
-    tmp[2]='\0';
-    output->parameterType = (int)strtol(tmp, NULL, 16);
+    output->parameterType = (int)strntol(xdata+36,2, NULL, 16);
 
     // Parameter Type
     switch(output->parameterType) {
@@ -486,17 +416,11 @@ char* getPCFHdate(char *code) {
     char* PCFHmonths[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
     // Get year from first character
-    char tmp[2];
-    
-    memcpy(tmp,&code[0],1);
-    tmp[1]='\0';
-    int year = (int)strtol(tmp, NULL, 16);
+    int year = (int)strntol(code,1, NULL, 16);
     year = year + 2016;
 
     // Get month from second character
-    memcpy(tmp,&code[1],1);
-    tmp[1]='\0';
-    int month = (int)strtol(tmp, NULL, 16);
+    int month = (int)strntol(code+1,1, NULL, 16);
 
     // Generate string
     char* part_date;
@@ -522,162 +446,114 @@ void parsePCFH(output_pcfh *output, char *xdata) {
         // Invalid PCFH dataset
         return;
     }
-
-    char tmp[40];
-    memcpy(tmp,&xdata[0],2);
-    tmp[2]='\0';
-    //printf("-%s-\n",tmp);
-    if (strcmp(tmp,"3C") != 0){
+    
+    if (strncmp(xdata,"3C",2) != 0){
         // Not a PCFH (shouldn't get here)
         return;
     }
 
     // Instrument number is common to all XDATA types.
-    memcpy(tmp,&xdata[2],2);
-    tmp[2]='\0';
-    output->instrument_number = (int)strtol(tmp, NULL, 16);
+    output->instrument_number = (int)strntol(xdata+2,2, NULL, 16);
 
     // Packet ID
     char id[3];
-    memcpy(id,&xdata[4],2);
+    memcpy(id,xdata+4,2);
     id[2]='\0';
     asprintf(&output->packetID,"%s",id);
     
     // Packet type
-    if (strcmp(id,"00") == 0) { // Individual instrument identification (10 s)
+    if (strncmp(id,"00",2) == 0) { // Individual instrument identification (10 s)
         // Serial number
-        memcpy(tmp,&xdata[6],4);
-        tmp[4]='\0';
-        output->serial_number = (int)strtol(tmp, NULL, 16);
+        output->serial_number = (int)strntol(xdata+6,4, NULL, 16);
 
         // Temperature PCB date
-        memcpy(tmp,&xdata[10],2);
+        char tmp[2];
+        
+        memcpy(tmp,xdata+10,2);
         tmp[2]='\0';
         asprintf(&output->temperature_pcb_date,"%s",getPCFHdate(tmp));
 
         // Main PCB date
-        memcpy(tmp,&xdata[12],2);
+        memcpy(tmp,xdata+12,2);
         tmp[2]='\0';
         asprintf(&output->main_pcb_date,"%s",getPCFHdate(tmp));
 
         // Controller FW date
-        memcpy(tmp,&xdata[14],2);
+        memcpy(tmp,xdata+14,2);
         tmp[2]='\0';
         asprintf(&output->controller_fw_date,"%s",getPCFHdate(tmp));
 
         // FPGA FW date
-        memcpy(tmp,&xdata[16],2);
+        memcpy(tmp,xdata+16,2);
         tmp[2]='\0';
         asprintf(&output->fpga_fw_date,"%s",getPCFHdate(tmp));
-    } else if ((strcmp(id,"01") == 0) || (strcmp(id,"02") == 0)) { // Regular one second data, sub-sensor 1/2
+    } else if ((strncmp(id,"01",2) == 0) || (strncmp(id,"02",2) == 0)) { // Regular one second data, sub-sensor 1/2
         // Frost point mirror temperature
-        memcpy(tmp,&xdata[8],3);
-        tmp[3]='\0';
-        output->frost_point_mirror_temperature = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->frost_point_mirror_temperature = ((int)strntol(xdata+8,3, NULL, 16)*0.05) - 125;
         
         // Peltier hot side temperature
-        memcpy(tmp,&xdata[11],3);
-        tmp[3]='\0';
-        output->peltier_hot_side_temperature = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->peltier_hot_side_temperature = ((int)strntol(xdata+11,3, NULL, 16)*0.05) - 125;
 
         // Air temperature
-        memcpy(tmp,&xdata[14],3);
-        tmp[3]='\0';
-        output->air_temperature = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->air_temperature = ((int)strntol(xdata+14,3, NULL, 16)*0.05) - 125;
         
         // Anticipated frost point mirror temperature
-        memcpy(tmp,&xdata[17],3);
-        tmp[3]='\0';
-        output->anticipated_frost_point_mirror_temperature = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->anticipated_frost_point_mirror_temperature = ((int)strntol(xdata+17,3, NULL, 16)*0.05) - 125;
  
         // Frost point mirror reflectance
-        memcpy(tmp,&xdata[20],4);
-        tmp[4]='\0';
-        output->frost_point_mirror_reflectance = (int)strtol(tmp, NULL, 16)/32768.;
+        output->frost_point_mirror_reflectance = (int)strntol(xdata+20,4, NULL, 16)/32768.;
 
         // Reference surface reflectance
-        memcpy(tmp,&xdata[24],4);
-        tmp[4]='\0';
-        output->reference_surface_reflectance = (int)strtol(tmp, NULL, 16)/32768.;
+        output->reference_surface_reflectance = (int)strntol(xdata+24,4, NULL, 16)/32768.;
 
         // Reference surface heating current
-        memcpy(tmp,&xdata[28],2);
-        tmp[2]='\0';
-        output->reference_surface_heating_current = (int)strtol(tmp, NULL, 16)/2.56;
+        output->reference_surface_heating_current = (int)strntol(xdata+28,2, NULL, 16)/2.56;
 
         // Peltier current
-        memcpy(tmp,&xdata[30],2);
-        tmp[2]='\0';
-        int pelt = (int)strtol(tmp, NULL, 16);
+        int pelt = (int)strntol(xdata+30,2, NULL, 16);
         if ((pelt  & 0x80) > 0) {
             pelt  = pelt  - 0x100;
         }
         output->peltier_current = pelt/64.;
-    } else if (strcmp(id,"03") == 0) { // Regular five second data
+    } else if (strncmp(id,"03",2) == 0) { // Regular five second data
         // Heat sink temperature 1
-        memcpy(tmp,&xdata[8],3);
-        tmp[3]='\0';
-        output->heat_sink_temperature_01 = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->heat_sink_temperature_01 = ((int)strntol(xdata+8,3, NULL, 16)*0.05) - 125;
 
         // Reference surface temperature 1
-        memcpy(tmp,&xdata[11],3);
-        tmp[3]='\0';
-        output->reference_surface_temperature_01 = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->reference_surface_temperature_01 = ((int)strntol(xdata+11,3, NULL, 16)*0.05) - 125;
 
         // Heat sink temperature 2
-        memcpy(tmp,&xdata[14],3);
-        tmp[3]='\0';
-        output->heat_sink_temperature_02 = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->heat_sink_temperature_02 = ((int)strntol(xdata+14,3, NULL, 16)*0.05) - 125;
 
         // Reference surface temperature 2
-        memcpy(tmp,&xdata[17],3);
-        tmp[3]='\0';
-        output->reference_surface_temperature_02 = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->reference_surface_temperature_02 = ((int)strntol(xdata+17,3, NULL, 16)*0.05) - 125;
 
         // Thermocouple reference temperature
-        memcpy(tmp,&xdata[20],3);
-        tmp[3]='\0';
-        output->thermocouple_reference_temperature = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
+        output->thermocouple_reference_temperature = ((int)strntol(xdata+20,3, NULL, 16)*0.05) - 125;
 
         // Reserved temperature
-        memcpy(tmp,&xdata[23],3);
-        tmp[3]='\0';
-        output->reserved_temperature = ((int)strtol(tmp, NULL, 16)*0.05) - 125;
-    } else if (strcmp(id,"04") == 0) { // Instrument status (10 s)
+        output->reserved_temperature = ((int)strntol(xdata+23,3, NULL, 16)*0.05) - 125;
+    } else if (strncmp(id,"04",2) == 0) { // Instrument status (10 s)
         // Clean frost point mirror reflectance 1
-        memcpy(tmp,&xdata[8],4);
-        tmp[4]='\0';
-        output->clean_frost_point_mirror_reflectance_01 = (int)strtol(tmp, NULL, 16)*0.001;
+        output->clean_frost_point_mirror_reflectance_01 = (int)strntol(xdata+8,4, NULL, 16)*0.001;
 
         // Clean reference surface reflectance 1
-        memcpy(tmp,&xdata[12],4);
-        tmp[4]='\0';
-        output->clean_reference_surface_reflectance_01 = (int)strtol(tmp, NULL, 16)*0.001;
+        output->clean_reference_surface_reflectance_01 = (int)strntol(xdata+12,4, NULL, 16)*0.001;
 
         // Clean frost point mirror reflectance 2
-        memcpy(tmp,&xdata[16],4);
-        tmp[4]='\0';
-        output->clean_frost_point_mirror_reflectance_02 = (int)strtol(tmp, NULL, 16)*0.001;
+        output->clean_frost_point_mirror_reflectance_02 = (int)strntol(xdata+16,4, NULL, 16)*0.001;
 
         // Clean reference surface reflectance 2
-        memcpy(tmp,&xdata[20],4);
-        tmp[4]='\0';
-        output->clean_reference_surface_reflectance_02 = (int)strtol(tmp, NULL, 16)*0.001;
+        output->clean_reference_surface_reflectance_02 = (int)strntol(xdata+20,4, NULL, 16)*0.001;
 
         // 6V Analog supply battery voltage
-        memcpy(tmp,&xdata[24],2);
-        tmp[2]='\0';
-        output->v6_analog_supply_battery_voltage = ((int)strtol(tmp, NULL, 16)*0.02) + 2.5;
+        output->v6_analog_supply_battery_voltage = ((int)strntol(xdata+24,2, NULL, 16)*0.02) + 2.5;
 
         // 4.5V Logic supply battery voltage
-        memcpy(tmp,&xdata[26],2);
-        tmp[2]='\0';
-        output->v45_logic_supply_battery_voltage = ((int)strtol(tmp, NULL, 16)*0.02) + 2.5;
+        output->v45_logic_supply_battery_voltage = ((int)strntol(xdata+26,2, NULL, 16)*0.02) + 2.5;
 
         // 4.5V Peltier and heater supply battery voltage
-        memcpy(tmp,&xdata[28],2);
-        tmp[2]='\0';
-        output->v45_peltier_and_heater_supply_battery_voltage = ((int)strtol(tmp, NULL, 16)*0.02) + 2.5;
+        output->v45_peltier_and_heater_supply_battery_voltage = ((int)strntol(xdata+28,2, NULL, 16)*0.02) + 2.5;
     }     
 }
 
@@ -712,58 +588,34 @@ void parseFLASHB(output_flashb *output, char *xdata, float pressure, float tempe
         // Invalid FLASH-B dataset
         return;
     }
-
-    char tmp[40];
-    memcpy(tmp,&xdata[0],2);
-    tmp[2]='\0';
-    //printf("-%s-\n",tmp);
-    if (strcmp(tmp,"3D") != 0){
+    
+    if (strncmp(xdata,"3D",2) != 0){
         // Not a FLASH-B (shouldn't get here)
         return;
     }
 
     // Instrument number is common to all XDATA types.
-    memcpy(tmp,&xdata[2],2);
-    tmp[2]='\0';
-    output->instrument_number = (int)strtol(tmp, NULL, 16);
+    output->instrument_number = (int)strntol(xdata+2,2, NULL, 16);
 
-    memcpy(tmp,&xdata[5],4);
-    tmp[4]='\0';
-    int photomultiplier_counts = (int)strtol(tmp, NULL, 16);
+    int photomultiplier_counts = (int)strntol(xdata+5,4, NULL, 16);
 
-    memcpy(tmp,&xdata[9],4);
-    tmp[4]='\0';
-    output->photomultiplier_background_counts = (int)strtol(tmp, NULL, 16);
+    output->photomultiplier_background_counts = (int)strntol(xdata+9,4, NULL, 16);
 
     output->photomultiplier_counts = calculateFLASHBWaterVapour(photomultiplier_counts, output->photomultiplier_background_counts, pressure, temperature);
 
-    memcpy(tmp,&xdata[13],4);
-    tmp[4]='\0';
-    output->photomultiplier_temperature = (-21.103*log(((int)strtol(tmp, NULL, 16)*0.0183)/(2.49856 - ((int)strtol(tmp, NULL, 16)*0.00061)))) + 97.106;
+    output->photomultiplier_temperature = (-21.103*log(((int)strntol(xdata+13,4, NULL, 16)*0.0183)/(2.49856 - ((int)strntol(xdata+13,4, NULL, 16)*0.00061)))) + 97.106;
 
-    memcpy(tmp,&xdata[17],4);
-    tmp[4]='\0';
-    output->battery_voltage = (int)strtol(tmp, NULL, 16)*0.005185;
+    output->battery_voltage = (int)strntol(xdata+17,4, NULL, 16)*0.005185;
 
-    memcpy(tmp,&xdata[21],4);
-    tmp[4]='\0';
-    output->yuv_current = (int)strtol(tmp, NULL, 16)*0.0101688;
+    output->yuv_current = (int)strntol(xdata+21,4, NULL, 16)*0.0101688;
 
-    memcpy(tmp,&xdata[25],4);
-    tmp[4]='\0';
-    output->pmt_voltage = (int)strtol(tmp, NULL, 16)*0.36966;
+    output->pmt_voltage = (int)strntol(xdata+25,4, NULL, 16)*0.36966;
 
-    memcpy(tmp,&xdata[25],4);
-    tmp[4]='\0';
-    output->firmware_version = (int)strtol(tmp, NULL, 16)*0.1;
+    output->firmware_version = (int)strntol(xdata+29,2, NULL, 16)*0.1;
 
-    memcpy(tmp,&xdata[31],2);
-    tmp[2]='\0';
-    output->production_year = (int)strtol(tmp, NULL, 16);
+    output->production_year = (int)strntol(xdata+31,2, NULL, 16);
     
-    memcpy(tmp,&xdata[33],2);
-    tmp[2]='\0';
-    output->hardware_version = (int)strtol(tmp, NULL, 16);
+    output->hardware_version = (int)strntol(xdata+33,2, NULL, 16);
 }
 
 
@@ -774,26 +626,23 @@ char* parseType(char *data){
       data[i]=toupper(data[i]);
       i++;
     } 
-
-    char instrument[3];    
-    memcpy(instrument,&data[0],2);
-    instrument[2]='\0';
     
-    if (strcmp(instrument,"01") == 0) { return "V7"; } 
-    else if (strcmp(instrument,"05") == 0) { return "OIF411"; }
-    else if (strcmp(instrument,"08") == 0) { return "CFH"; }  
-    else if (strcmp(instrument,"10") == 0) { return "FPH"; } 
-    else if (strcmp(instrument,"19") == 0) { return "COBALD"; } 
-    else if (strcmp(instrument,"28") == 0) { return "SLW"; } 
-    else if (strcmp(instrument,"38") == 0) { return "POPS"; } 
-    else if (strcmp(instrument,"39") == 0) { return "OPC"; } 
-    else if (strcmp(instrument,"3C") == 0) { return "PCFH"; } 
-    else if (strcmp(instrument,"3D") == 0) { return "FLASH-B"; } 
-    else if (strcmp(instrument,"3E") == 0) { return "TRAPS"; } 
-    else if (strcmp(instrument,"3F") == 0) { return "SKYDEW"; } 
-    else if (strcmp(instrument,"41") == 0) { return "CICANUM"; } 
-    else if (strcmp(instrument,"45") == 0) { return "POPS"; } 
-    else if (strcmp(instrument,"80") == 0) { return "Unknown"; }
+    if (strncmp(data,"01",2) == 0) { return "V7"; } 
+    else if (strncmp(data,"05",2) == 0) { return "OIF411"; }
+    else if (strncmp(data,"08",2) == 0) { return "CFH"; }  
+    else if (strncmp(data,"10",2) == 0) { return "FPH"; } 
+    else if (strncmp(data,"19",2) == 0) { return "COBALD"; } 
+    else if (strncmp(data,"28",2) == 0) { return "SLW"; } 
+    else if (strncmp(data,"38",2) == 0) { return "POPS"; } 
+    else if (strncmp(data,"39",2) == 0) { return "OPC"; } 
+    else if (strncmp(data,"3A",2) == 0) { return "WVS"; } 
+    else if (strncmp(data,"3C",2) == 0) { return "PCFH"; } 
+    else if (strncmp(data,"3D",2) == 0) { return "FLASH-B"; } 
+    else if (strncmp(data,"3E",2) == 0) { return "TRAPS"; } 
+    else if (strncmp(data,"3F",2) == 0) { return "SKYDEW"; } 
+    else if (strncmp(data,"41",2) == 0) { return "CICANUM"; } 
+    else if (strncmp(data,"45",2) == 0) { return "POPS"; } 
+    else if (strncmp(data,"80",2) == 0) { return "Unknown"; }
     else { return "Unknown"; }
 }  
 
@@ -856,14 +705,14 @@ int prn_jsn(char *xdata,float press, float temperature){
             
             if (strcmp(instrument,linst)==0) { fprintf(stdout, ", ");}
             
-            if (strcmp(output.packetID,"00") == 0) {
+            if (strncmp(output.packetID,"00",2) == 0) {
                 fprintf(stdout,"\"serial\": %d",output.serial_number);
                 fprintf(stdout,", \"temp_pcb\": \"%s\"",output.temperature_pcb_date);
                 fprintf(stdout,", \"main_pcb\": \"%s\"",output.main_pcb_date);
                 fprintf(stdout,", \"controller\": \"%s\"",output.controller_fw_date);
                 fprintf(stdout,", \"fpga\": \"%s\"",output.fpga_fw_date);
             }
-            else if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
+            else if ((strncmp(output.packetID,"01",2) == 0) || (strncmp(output.packetID,"02",2) == 0)) {
                 fprintf(stdout,"\"frost_point_mirror_temperature_%s\": %.2f",output.packetID,output.frost_point_mirror_temperature);
                 fprintf(stdout,", \"peltier_hot_side_temperature_%s\": %.2f",output.packetID,output.peltier_hot_side_temperature);
                 fprintf(stdout,", \"air_temperature_%s\": %.2f",output.packetID,output.air_temperature);
@@ -873,7 +722,7 @@ int prn_jsn(char *xdata,float press, float temperature){
                 fprintf(stdout,", \"reference_surface_heating_current_%s\": %.2f",output.packetID,output.reference_surface_heating_current);
                 fprintf(stdout,", \"peltier_current_%s\": %.3f",output.packetID,output.peltier_current);
             }
-            else if (strcmp(output.packetID,"03") == 0) {
+            else if (strncmp(output.packetID,"03",2) == 0) {
                 fprintf(stdout,"\"heat_sink_temperature_01\": %.2f",output.heat_sink_temperature_01);
                 fprintf(stdout,", \"reference_surface_temperature_01\": %.2f",output.reference_surface_temperature_01);
                 fprintf(stdout,", \"heat_sink_temperature_02\": %.2f",output.heat_sink_temperature_02);
@@ -881,7 +730,7 @@ int prn_jsn(char *xdata,float press, float temperature){
                 fprintf(stdout,", \"thermocouple_reference_temperature\": %.2f",output.thermocouple_reference_temperature);
                 fprintf(stdout,", \"reserved_temperature\": %.2f",output.reserved_temperature);
             }
-            else if (strcmp(output.packetID,"04") == 0) {
+            else if (strncmp(output.packetID,"04",2) == 0) {
                 fprintf(stdout,"\"clean_frost_point_mirror_reflectance_01\": %.3f",output.clean_frost_point_mirror_reflectance_01);
                 fprintf(stdout,", \"clean_reference_surface_reflectance_01\": %.3f",output.clean_reference_surface_reflectance_01);
                 fprintf(stdout,", \"clean_frost_point_mirror_reflectance_02\": %.3f",output.clean_frost_point_mirror_reflectance_02);
@@ -980,7 +829,7 @@ int prn_aux(char *xdata,float press, float temperature){
         else if(strcmp(instrument,"PCFH") == 0){ 
             output_pcfh output={0};
             parsePCFH(&output,data); 
-            if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
+            if ((strncmp(output.packetID,"01",2) == 0) || (strcmp(output.packetID,"02") == 0)) {
                 fprintf(stdout," frost_point_mirror_temperature_%s=%.2fC ",output.packetID,output.frost_point_mirror_temperature);
                 fprintf(stdout," air_temperature_%s=%.2fC ",output.packetID,output.air_temperature);
                 fprintf(stdout," frost_point_mirror_reflectance_%s=%.3f ",output.packetID,output.frost_point_mirror_reflectance);
@@ -1018,8 +867,8 @@ void prn_full(char *xdata,float press, float temperature){
             parseOIF411(&output,data,press);
             
             if(strcmp(output.data_type,"ID Data") == 0){   
-                fprintf(stdout," serial=%s",output.serial);
-                fprintf(stdout," diagnostics=%s",output.diagnostics);
+                if (output.serial!=NULL) fprintf(stdout," serial=%s",output.serial);
+                if (output.diagnostics!=NULL) fprintf(stdout," diagnostics=%s",output.diagnostics);
                 fprintf(stdout," version=%d",output.version);
             } 
             else { 
@@ -1048,14 +897,14 @@ void prn_full(char *xdata,float press, float temperature){
         else if(strcmp(instrument,"PCFH") == 0){ 
             output_pcfh output={0};
             parsePCFH(&output,data); 
-            if (strcmp(output.packetID,"00") == 0) {
+            if (strncmp(output.packetID,"00",2) == 0) {
                 fprintf(stdout," serial=%d",output.serial_number);
-                fprintf(stdout," temp_pcb=%s",output.temperature_pcb_date);
-                fprintf(stdout," main_pcb=%s",output.main_pcb_date);
-                fprintf(stdout," controller=%s",output.controller_fw_date);
-                fprintf(stdout," fpga=%s",output.fpga_fw_date);
+                if (output.temperature_pcb_date!=NULL) fprintf(stdout," temp_pcb=%s",output.temperature_pcb_date);
+                if (output.main_pcb_date!=NULL) fprintf(stdout," main_pcb=%s",output.main_pcb_date);
+                if (output.controller_fw_date!=NULL) fprintf(stdout," controller=%s",output.controller_fw_date);
+                if (output.fpga_fw_date!=NULL) fprintf(stdout," fpga=%s",output.fpga_fw_date);
             }
-            else if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
+            else if ((strncmp(output.packetID,"01",2) == 0) || (strncmp(output.packetID,"02",2) == 0)) {
                 fprintf(stdout," frost_point_mirror_temperature_%s=%.2fC",output.packetID,output.frost_point_mirror_temperature);
                 fprintf(stdout," peltier_hot_side_temperature_%s=%.2fC",output.packetID,output.peltier_hot_side_temperature);
                 fprintf(stdout," air_temperature_%s=%.2fC",output.packetID,output.air_temperature);
@@ -1065,7 +914,7 @@ void prn_full(char *xdata,float press, float temperature){
                 fprintf(stdout," reference_surface_heating_current_%s=%.2fuA",output.packetID,output.reference_surface_heating_current);
                 fprintf(stdout," peltier_current_%s=%.3fuA",output.packetID,output.peltier_current);
             }
-            else if (strcmp(output.packetID,"03") == 0) {
+            else if (strncmp(output.packetID,"03",2) == 0) {
                 fprintf(stdout," heat_sink_temperature_01=%.2fC",output.heat_sink_temperature_01);
                 fprintf(stdout," reference_surface_temperature_01=%.2fC",output.reference_surface_temperature_01);
                 fprintf(stdout," heat_sink_temperature_02=%.2fC",output.heat_sink_temperature_02);
@@ -1073,7 +922,7 @@ void prn_full(char *xdata,float press, float temperature){
                 fprintf(stdout," thermocouple_reference_temperature=%.2fC",output.thermocouple_reference_temperature);
                 fprintf(stdout," reserved_temperature=%.2fC",output.reserved_temperature);
             }
-            else if (strcmp(output.packetID,"04") == 0) {
+            else if (strncmp(output.packetID,"04",2) == 0) {
                 fprintf(stdout," clean_frost_point_mirror_reflectance_01=%.3f",output.clean_frost_point_mirror_reflectance_01);
                 fprintf(stdout," clean_reference_surface_reflectance_01=%.3f",output.clean_reference_surface_reflectance_01);
                 fprintf(stdout," clean_frost_point_mirror_reflectance_02=%.3f",output.clean_frost_point_mirror_reflectance_02);
