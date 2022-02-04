@@ -1,6 +1,7 @@
 #include <stdio.h> /* needed for vsnprintf */
 #include <stdlib.h> /* needed for malloc-free */
 #include <stdarg.h> /* needed for va_list */
+#include <limits.h>
 
 #ifndef _vscprintf
 /* For some reason, MSVC fails to honour this #ifndef. */
@@ -45,5 +46,35 @@ char *strsep(char **stringp, const char *delim) {
     (*stringp)++;
   }
   return token_start;
+}
+#endif
+
+#ifndef strntol
+long strntol(const char *str, size_t sz, char **end, int base)
+{
+	/* Expect that digit representation of LONG_MAX/MIN
+	 * not greater than this buffer */
+	char buf[24];
+	long ret;
+	const char *beg = str;
+
+	/* Catch up leading spaces */
+	for (; beg && sz && *beg == ' '; beg++, sz--)
+		;
+
+	if (!sz || sz >= sizeof(buf)) {
+		if (end)
+			*end = (char *)str;
+		return 0;
+	}
+
+	memcpy(buf, beg, sz);
+	buf[sz] = '\0';
+	ret = strtol(buf, end, base);
+	if (ret == LONG_MIN || ret == LONG_MAX)
+		return ret;
+	if (end)
+		*end = (char *)beg + (*end - buf);
+	return ret;
 }
 #endif

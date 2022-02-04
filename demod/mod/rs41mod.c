@@ -1551,7 +1551,7 @@ static int prn_ptu(gpx_t *gpx) {
     {
         float rh = gpx->RH;
         float Td = -273.15f; // dew point Td
-        if (gpx->option.ptu == 2 && gpx->RH2 > 0) rh = gpx->RH2;
+        if (gpx->option.ptu == 2 && gpx->RH2 > -0.5) rh = gpx->RH2;
         if (rh > 0.0f && gpx->T > -273.0f) {
             float gamma = logf(rh / 100.0f) + (17.625f * gpx->T / (243.04f + gpx->T));
             Td = 243.04f * gamma / (17.625f - gamma);
@@ -1827,7 +1827,7 @@ static int print_position(gpx_t *gpx, int ec) {
 
                     if (gpx->option.ptu && !err0) {
                             float rh = gpx->RH;
-                            if (gpx->option.ptu == 2  && gpx->RH2 > 0) {
+                            if (gpx->option.ptu == 2  && gpx->RH2 > -0.5) {
                                 rh = gpx->RH2;
                             }
                             if (gpx->T > -273.0) {

@@ -62,14 +62,14 @@ void prn_test(char *xdata,float press, float temperature){
             parsePCFH(&output,data); 
             printf("number: %d\n",output.instrument_number);
             printf("packetID: %s\n",output.packetID);
-            if (strcmp(output.packetID,"00") == 0) {
+            if (strncmp(output.packetID,"00",2) == 0) {
                 printf("serial: %d\n",output.serial_number);
                 printf("temp_pcb: %s\n",output.temperature_pcb_date);
                 printf("main_pcb: %s\n",output.main_pcb_date);
                 printf("controller: %s\n",output.controller_fw_date);
                 printf("fpga: %s\n",output.fpga_fw_date);
             }
-            else if ((strcmp(output.packetID,"01") == 0) || (strcmp(output.packetID,"02") == 0)) {
+            else if ((strncmp(output.packetID,"01",2) == 0) || (strncmp(output.packetID,"02",2) == 0)) {
                 printf("frost_point_mirror_temperature: %g\n",output.frost_point_mirror_temperature);
                 printf("peltier_hot_side_temperature: %g\n",output.peltier_hot_side_temperature);
                 printf("air_temperature: %g\n",output.air_temperature);
@@ -79,7 +79,7 @@ void prn_test(char *xdata,float press, float temperature){
                 printf("reference_surface_heating_current: %g\n",output.reference_surface_heating_current);
                 printf("peltier_current: %g\n",output.peltier_current);
             }
-            else if (strcmp(output.packetID,"03") == 0) {
+            else if (strncmp(output.packetID,"03",2) == 0) {
                 printf("heat_sink_temperature_01: %g\n",output.heat_sink_temperature_01);
                 printf("reference_surface_temperature_01: %g\n",output.reference_surface_temperature_01);
                 printf("heat_sink_temperature_02: %g\n",output.heat_sink_temperature_02);
@@ -87,7 +87,7 @@ void prn_test(char *xdata,float press, float temperature){
                 printf("thermocouple_reference_temperature: %g\n",output.thermocouple_reference_temperature);
                 printf("reserved_temperature: %g\n",output.reserved_temperature);
             }
-            else if (strcmp(output.packetID,"04") == 0) {
+            else if (strncmp(output.packetID,"04",2) == 0) {
                 printf("clean_frost_point_mirror_reflectance_01: %g\n",output.clean_frost_point_mirror_reflectance_01);
                 printf("clean_reference_surface_reflectance_01: %g\n",output.clean_reference_surface_reflectance_01);
                 printf("clean_frost_point_mirror_reflectance_02: %g\n",output.clean_frost_point_mirror_reflectance_02);
