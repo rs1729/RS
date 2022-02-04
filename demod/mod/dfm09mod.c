@@ -34,6 +34,26 @@
 #include "demod_mod.h"
 
 
+enum dfmtyp_keys_t {
+    UNDEF,
+    DFM06,
+    PS15,
+    DFM09,
+    DFM09P,
+    DFM17,
+    DFM17P
+};
+
+static char *DFM_types[] = {
+    [UNDEF]  = "",
+    [DFM06]  = "DFM06",
+    [PS15]   = "PS15",
+    [DFM09]  = "DFM09",
+    [DFM09P] = "DFM09P",
+    [DFM17]  = "DFM17",
+    [DFM17P] = "DFM17P"
+};
+
 typedef struct {
     i8_t vbs;  // verbose output
     i8_t raw;  // raw frames
@@ -96,6 +116,7 @@ typedef struct {
     option_t option;
     int ptu_out;
     char sensortyp0xC;
+    char *dfmtyp;
     int jsn_freq;   // freq/kHz (SDR)
     gpsdat_t gps;
 } gpx_t;
@@ -611,7 +632,7 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
             if (SN6 == gpx->SN6  &&  SN6 != 0) {  // nur Nibble-Werte 0..9
                 gpx->sonde_typ = SNbit | 6;
                 gpx->ptu_out = 6; // <-> DFM-06
-                sprintf(gpx->sonde_id, "ID06:%6X", gpx->SN6);
+                sprintf(gpx->sonde_id, "IDx%1X:%6X", gpx->sonde_typ & 0xF, gpx->SN6);
             }
             else { // reset
                 gpx->sonde_typ = 0;
@@ -650,11 +671,8 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
                         if (sn_ch == 0xD) gpx->ptu_out = sn_ch; // <-> DFM-17P(?)
                         // PS-15 ? (sn2_ch & 0xF) == 0x0 :  gpx->ptu_out = 0 // <-> PS-15
 
-                        if ( (gpx->sonde_typ & 0xF) == 0xA) {
-                            sprintf(gpx->sonde_id, "ID09:%6u", gpx->SN);
-                        }
-                        else {
-                            sprintf(gpx->sonde_id, "ID-%1X:%6u", gpx->sonde_typ & 0xF, gpx->SN);
+                        if ( (gpx->sonde_typ & 0xF) > 6) {
+                            sprintf(gpx->sonde_id, "IDx%1X:%6u", gpx->sonde_typ & 0xF, gpx->SN);
                         }
                     }
                     else { // reset
@@ -717,6 +735,33 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
         }
     }
 
+    /*  guess DFM type
+                            V/Ti    Tf012           Rf
+        0xA     DFM-09      5/6     0,3,4   'T+'    220k
+        0xC     DFM-09P     7/8     1,5,6   'P+'    220k
+        0xB     DFM-17      5/6     0,3,4   'T-'    332k
+        0xC     DFM-17TU    5/6     0,3,4   'T-'    332k
+        0xD     DFM-17P     7/8     1,5,6   'P-'    332k
+    */
+    gpx->dfmtyp = DFM_types[UNDEF];
+    switch (gpx->sonde_typ & 0xF) {
+        case 0x6: gpx->dfmtyp = DFM_types[DFM06];
+                  break;
+        case 0x7:
+        case 0x8: gpx->dfmtyp = DFM_types[PS15];
+                  break;
+        case 0xA: gpx->dfmtyp = DFM_types[DFM09];
+                  break;
+        case 0xB: gpx->dfmtyp = DFM_types[DFM17];
+                  break;
+        case 0xC: if (gpx->sensortyp0xC == 'P')  gpx->dfmtyp = DFM_types[DFM09P];
+                  else                   /*'T'*/ gpx->dfmtyp = DFM_types[DFM17];
+                  break;
+        case 0xD: gpx->dfmtyp = DFM_types[DFM17P];
+                  break;
+        default:  gpx->dfmtyp = DFM_types[UNDEF];
+                  break;
+    }
 
     return ret;
 }
@@ -784,7 +829,7 @@ static void print_gpx(gpx_t *gpx) {
                     float t = get_Temp(gpx);
                     if (t > -270.0) {
                         printf("  T=%.1fC ", t);     // 0xC:P+ DFM-09P , 0xC:T- DFM-17TU , 0xD:P- DFM-17P ?
-                        printf(" (0x%X:%c%c) ", gpx->sonde_typ & 0xF, gpx->sensortyp0xC, gpx->option.inv?'-':'+');
+                        if (gpx->option.vbs == 3) printf(" (0x%X:%c%c) ", gpx->sonde_typ & 0xF, gpx->sensortyp0xC, gpx->option.inv?'-':'+');
                     }
                     if (gpx->option.dbg) {
                         float t2 = get_Temp2(gpx);
@@ -813,7 +858,9 @@ static void print_gpx(gpx_t *gpx) {
             if (gpx->option.vbs)
             {
                 if (gpx->sonde_typ & SNbit) {
-                    printf(" (%s) ", gpx->sonde_id);
+                    printf(" (%s", gpx->sonde_id);
+                    if (gpx->option.vbs > 1 && *gpx->dfmtyp) printf(":%s", gpx->dfmtyp);
+                    printf(") ");
                     gpx->sonde_typ ^= SNbit;
                 }
             }
@@ -837,8 +884,8 @@ static void print_gpx(gpx_t *gpx) {
             int week = 0;
             int tow = 0;
             char json_sonde_id[] = "DFM-xxxxxxxx\0\0";
-            ui8_t dfm_typ = (gpx->sonde_typ & 0xF);
-            switch ( dfm_typ ) {
+            ui8_t dfmXtyp = (gpx->sonde_typ & 0xF);
+            switch ( dfmXtyp ) {
                 case   0: sprintf(json_sonde_id, "DFM-xxxxxxxx"); break; //json_sonde_id[0] = '\0';
                 case   6: sprintf(json_sonde_id, "DFM-%6X", gpx->SN6); break; // DFM-06
                 case 0xA: sprintf(json_sonde_id, "DFM-%6u", gpx->SN); break;  // DFM-09
@@ -862,7 +909,12 @@ static void print_gpx(gpx_t *gpx) {
                 float t = get_Temp(gpx); // ecc-valid temperature?
                 if (t > -270.0) printf(", \"temp\": %.1f", t);
             }
-            if (dfm_typ > 0) printf(", \"subtype\": \"0x%1X\"", dfm_typ);
+            //if (dfmXtyp > 0) printf(", \"subtype\": \"0x%1X\"", dfmXtyp);
+            if (dfmXtyp > 0) {
+                printf(", \"subtype\": \"0x%1X", dfmXtyp);
+                if (*gpx->dfmtyp) printf(":%s", gpx->dfmtyp);
+                printf("\"");
+            }
             if (gpx->jsn_freq > 0) {
                 printf(", \"freq\": %d", gpx->jsn_freq);
             }
