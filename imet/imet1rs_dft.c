@@ -453,7 +453,7 @@ offset bytes description
  1     1     PKT_ID = 0x03
  2     2     N = number of data bytes to follow
  3+N   2     CRC (16-bit)
-N=8, ID=0x01: Ozonesonde (MSB)
+N=8, ID=0x01: ECC Ozonesonde (MSB)
  3     1     Instrument_type = 0x01 (ID)
  4     1     Instrument_number
  5     2     Icell, uA (I = n/1000)
@@ -469,7 +469,6 @@ ID=0x19: COBALD (Compact Optical Backscatter Aerosol Detector)
 */
 
 int print_xdata(int pos, ui8_t N) {
-    int P, U;
     ui8_t InstrumentNum;
     short Tpump;
     unsigned short Icell, Ipump, Vbat;

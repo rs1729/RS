@@ -1072,7 +1072,7 @@ static int hex2uint(char *str, int nibs) {
 
     if (nibs > 7) return -2;
 
-    for (i = 0; i < nibs; i++) {
+    for (i = 0; i < nibs; i++) { // MSB i.e. most significant nibble first
         if      (str[i] >= '0' && str[i] <= '9') h = str[i]-'0';
         else if (str[i] >= 'a' && str[i] <= 'f') h = str[i]-'a'+0xA;
         else if (str[i] >= 'A' && str[i] <= 'F') h = str[i]-'A'+0xA;
@@ -1083,9 +1083,11 @@ static int hex2uint(char *str, int nibs) {
 }
 
 static int prn_aux_IDx01(char *xdata) {
+// V7 ECC (Electrochemical Concentration Cell) Ozonesonde
 // https://gml.noaa.gov/aftp/user/jordan/iMet%20Radiosonde%20Protocol.pdf
-// ID=0x01: Ozonesonde (MSB)
-// N=2*8  nibs (1byte = 2nibs)
+// https://harbor.weber.edu/Hardware/Ozonesonde/ECC_Ozonesonde-1.pdf
+// ID=0x01: ECC Ozonesonde
+// N=2*8  nibs (1byte = 2nibs) (MSB)
 //  0     2  u8   Instrument_type = 0x01 (ID)
 //  2     2  u8   Instrument_number
 //  4     4  u16  Icell, uA (I = n/1000)
@@ -1109,7 +1111,7 @@ static int prn_aux_IDx01(char *xdata) {
         }
         if (strlen(px) < N) return -1;
 
-        fprintf(stdout, " ID=0x01 V7 ");
+        fprintf(stdout, " ID=0x01 ECC ");
         val = hex2uint(px+ 2, 2);  if (val < 0) return -1;
         InstrNum = val & 0xFF;
         val = hex2uint(px+ 4, 4);  if (val < 0) return -1;
@@ -1137,8 +1139,8 @@ static int prn_aux_IDx05(char *xdata) {
 // OIF411
 // "Ozone Sounding with Vaisala Radiosonde RS41" user's guide M211486EN
 //
-// ID=0x05: OIF411 (MSB)
-// pos    nibs
+// ID=0x05: OIF411
+// pos    nibs (MSB)
 //  0     2  u8   Instrument_type = 0x05 (ID)
 //  2     2  u8   Instrument_number
 // Measurement Data, N=2*10
