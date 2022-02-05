@@ -1211,7 +1211,7 @@ static int prn_aux_IDx05(char *xdata) {
             val = hex2uint(px+15, 3);  if (val < 0) return -1;
             Ipump = val & 0xFFF;   // u12
             val = hex2uint(px+18, 2);  if (val < 0) return -1;
-            Vext = val & 0xFF;     // u8
+            Vext  = val & 0xFF;    // u8
             fprintf(stdout, " Tpump:%.2fC ", Tpump/100.0);
             fprintf(stdout, " Icell:%.4fuA ", Icell/10000.0);
             fprintf(stdout, " Vbat:%.1fV ", Vbat/10.0);
@@ -1229,10 +1229,13 @@ static int prn_aux_IDx05(char *xdata) {
 static int prn_aux_IDx08(char *xdata) {
 // CFH Cryogenic Frost Point Hygrometer
 // ID=0x08: CFH
-// pos    nibs
+// N=2*12 nibs
 //  0     2  u8   Instrument_type = 0x08 (ID)
 //  2     2  u8   Instrument_number
-// ..
+//  4     6       Tmir, Mirror Temperature
+// 10     6       Vopt, Optics Voltage
+// 16     4       Topt, Optics Temperature
+// 20     4       Vbat, CFH Battery
 //
     char *px = xdata;
     int N = 2*12;
@@ -1246,13 +1249,16 @@ static int prn_aux_IDx08(char *xdata) {
             if (px == NULL) return -1;
             else px += 1;
         }
-        //if (strlen(px) < N) return -1;
-        if (strlen(px) < 4) return -1;
+        if (strlen(px) < N) return -1;
 
         fprintf(stdout, " ID=0x08 CFH ");
         val = hex2uint(px+ 2, 2);  if (val < 0) return -1;
         InstrNum = val & 0xFF;
         fprintf(stdout, " No.%d ", InstrNum);
+        fprintf(stdout, " Tmir:0x%.6s ", px+4);
+        fprintf(stdout, " Vopt:0x%.6s ", px+10);
+        fprintf(stdout, " Topt:0x%.4s ", px+16);
+        fprintf(stdout, " Vbat:0x%.4s ", px+20);
 
     }
     else {
