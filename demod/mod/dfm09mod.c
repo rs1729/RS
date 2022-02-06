@@ -36,6 +36,7 @@
 
 enum dfmtyp_keys_t {
     UNDEF,
+    UNKNW,
     DFM06,
     PS15,
     DFM09,
@@ -46,6 +47,7 @@ enum dfmtyp_keys_t {
 
 static char *DFM_types[] = {
     [UNDEF]  = "",
+    [UNKNW]  = "DFMxX",
     [DFM06]  = "DFM06",
     [PS15]   = "PS15",
     [DFM09]  = "DFM09",
@@ -95,7 +97,7 @@ typedef struct {
     int sonde_typ;
     ui32_t SN6;
     ui32_t SN;
-    int week; int gpssec;
+    int week; int tow; ui32_t sec_gps;
     int jahr; int monat; int tag;
     int std; int min; float sek;
     double lat; double lon; double alt;
@@ -119,6 +121,7 @@ typedef struct {
     char *dfmtyp;
     int jsn_freq;   // freq/kHz (SDR)
     gpsdat_t gps;
+    int prev_cntsec_diff;
 } gpx_t;
 
 
@@ -583,6 +586,7 @@ static int reset_cfgchk(gpx_t *gpx) {
     int j;
     for (j = 0; j < 9; j++) gpx->cfgchk24[j] = 0;
     gpx->cfgchk = 0;
+    gpx->ptu_out = 0;
     return 0;
 }
 
@@ -759,7 +763,7 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
                   break;
         case 0xD: gpx->dfmtyp = DFM_types[DFM17P];
                   break;
-        default:  gpx->dfmtyp = DFM_types[UNDEF];
+        default:  gpx->dfmtyp = DFM_types[UNKNW];
                   break;
     }
 
@@ -795,6 +799,27 @@ static void print_gpx(gpx_t *gpx) {
     }
     if (gpx->option.jsn && !contgps) {
         jsonout = 0;
+    }
+
+    if (!gpx->option.raw || gpx->option.jsn) {
+
+        // seconds since GPS (ignoring leap seconds, DFM=UTC)
+        datetime2GPSweek(gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, (int)(gpx->sek+0.5), &(gpx->week), &(gpx->tow));
+        gpx->sec_gps = gpx->week*604800 + gpx->tow; // SECONDS_IN_WEEK=7*86400=604800
+
+        if (contgps) {
+            ui8_t secmod256 = (ui8_t)gpx->sec_gps; // % 256
+            int cntsec_diff = secmod256 - gpx->frnr;
+            if (cntsec_diff < 0) cntsec_diff += 256;
+            // DFM06: cntsec_diff might drift slowly (30sec sync), but recovers faster
+            // DFM09: delta(diff)=1 could indicate decoding error
+            if (gpx->option.jsn && cntsec_diff != gpx->prev_cntsec_diff) { // only ecc-valid/json diffs ?
+                jsonout = 0;
+                gpx->sonde_typ = 0;
+                reset_cfgchk(gpx);
+            }
+            gpx->prev_cntsec_diff = cntsec_diff;
+        }
     }
 
     if (output & 0xF000) {
@@ -880,9 +905,6 @@ static void print_gpx(gpx_t *gpx) {
         if (gpx->option.jsn && jsonout && gpx->sek < 60.0)
         {
             char *ver_jsn = NULL;
-            unsigned long sec_gps = 0;
-            int week = 0;
-            int tow = 0;
             char json_sonde_id[] = "DFM-xxxxxxxx\0\0";
             ui8_t dfmXtyp = (gpx->sonde_typ & 0xF);
             switch ( dfmXtyp ) {
@@ -893,13 +915,11 @@ static void print_gpx(gpx_t *gpx) {
                 default : sprintf(json_sonde_id, "DFM-%6u", gpx->SN);
             }
 
-            // JSON frame counter: seconds since GPS (ignoring leap seconds, DFM=UTC)
-            datetime2GPSweek(gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, (int)(gpx->sek+0.5), &week, &tow);
-            sec_gps = week*604800 + tow; // SECONDS_IN_WEEK=7*86400=604800
+            // JSON frame counter: gpx->sec_gps , seconds since GPS (ignoring leap seconds, DFM=UTC)
 
             // Print JSON blob     // valid sonde_ID?
             printf("{ \"type\": \"%s\"", "DFM");
-            printf(", \"frame\": %lu, ", sec_gps); // gpx->frnr
+            printf(", \"frame\": %u, ", gpx->sec_gps); // gpx->frnr
             printf("\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
                    json_sonde_id, gpx->jahr, gpx->monat, gpx->tag, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->horiV, gpx->dir, gpx->vertV, gpx->gps.nSV);
             if (gpx->ptu_out >= 0xA && gpx->status[0] > 0) { // DFM>=09(P): Battery (STM32)
