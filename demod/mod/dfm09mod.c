@@ -122,6 +122,7 @@ typedef struct {
     int jsn_freq;   // freq/kHz (SDR)
     gpsdat_t gps;
     int prev_cntsec_diff;
+    int prev_manpol;
 } gpx_t;
 
 
@@ -813,12 +814,14 @@ static void print_gpx(gpx_t *gpx) {
             if (cntsec_diff < 0) cntsec_diff += 256;
             // DFM06: cntsec_diff might drift slowly (30sec sync), but recovers faster
             // DFM09: delta(diff)=1 could indicate decoding error
-            if (gpx->option.jsn && cntsec_diff != gpx->prev_cntsec_diff) { // only ecc-valid/json diffs ?
+            if (gpx->option.jsn && (cntsec_diff != gpx->prev_cntsec_diff || gpx->option.inv != gpx->prev_manpol)) {
+                // initial state not relevant
                 jsonout = 0;
                 gpx->sonde_typ = 0;
                 reset_cfgchk(gpx);
             }
             gpx->prev_cntsec_diff = cntsec_diff;
+            gpx->prev_manpol = gpx->option.inv;
         }
     }
 
