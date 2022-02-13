@@ -657,7 +657,7 @@ static float get_Temp(gpx_t *gpx) {
 // [  30.0 , 4.448 ]
 // [  35.0 , 3.704 ]
 // [  40.0 , 3.100 ]
-// -> Steinhart–Hart coefficients (polyfit):
+// -> Steinhart-Hart coefficients (polyfit):
     float p0 = 1.07303516e-03,
           p1 = 2.41296733e-04,
           p2 = 2.26744154e-06,
@@ -753,7 +753,7 @@ static float get_Tntc2(gpx_t *gpx) {
 //  float R25 = 2.2e3;
 //  float b = 3650.0;           // B/Kelvin
 //  float T25 = 25.0 + 273.15;  // T0=25C, R0=R25=5k
-// -> Steinhart–Hart coefficients (polyfit):
+// -> Steinhart-Hart coefficients (polyfit):
     float p0 =  4.42606809e-03,
           p1 = -6.58184309e-04,
           p2 =  8.95735557e-05,
@@ -1026,6 +1026,12 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 if (gpx->jsn_freq > 0) {
                     fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
                 }
+
+                // Reference time/position       (M10 time ref UTC only for json)
+                fprintf(stdout, ", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                fprintf(stdout, ", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+                fprintf(stdout, ", \"gpsutc_leapsec\": %d", gpx->utc_ofs); // GPS-UTC offset, utc_s = gpx->gpssec - gpx->utc_ofs;
+
                 #ifdef VER_JSN_STR
                     ver_jsn = VER_JSN_STR;
                 #endif

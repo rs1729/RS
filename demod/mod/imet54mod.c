@@ -552,8 +552,13 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_gps) {
         }
         fprintf(stdout, ", \"subtype\": \"%s\"", subtype);  // "IMET54"/"IMET50"
         if (gpx->jsn_freq > 0) {
-            fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
+            fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq );
         }
+
+        // Reference time/position
+        fprintf(stdout, ", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+        fprintf(stdout, ", \"ref_position\": \"%s\"", "MSL" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+
         #ifdef VER_JSN_STR
             ver_jsn = VER_JSN_STR;
         #endif

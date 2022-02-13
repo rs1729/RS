@@ -778,6 +778,11 @@ static void print_frame(gpx_t *gpx, int crc_err, int len) {
                     if (gpx->jsn_freq > 0) {
                         printf(", \"freq\": %d", gpx->jsn_freq);
                     }
+
+                    // Reference time/position
+                    printf(", \"ref_datetime\": \"%s\"", "GPS" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                    printf(", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+
                     #ifdef VER_JSN_STR
                         ver_jsn = VER_JSN_STR;
                     #endif

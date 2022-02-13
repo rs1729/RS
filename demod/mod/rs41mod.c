@@ -2088,6 +2088,10 @@ static int print_position(gpx_t *gpx, int ec) {
                             fprintf(stdout, ", \"tx_frequency\": %d", gpx->freq );
                         }
 
+                        // Reference time/position
+                        fprintf(stdout, ", \"ref_datetime\": \"%s\"", "GPS" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                        fprintf(stdout, ", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+
                         #ifdef VER_JSN_STR
                             ver_jsn = VER_JSN_STR;
                         #endif

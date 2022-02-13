@@ -557,7 +557,7 @@ static float get_Temp4(gpx_t *gpx) { // meas[0..4]
 // [  30.0 ,   0.82845 ,   3.7 ]
 // [  35.0 ,   0.68991 ,   3.6 ]
 // [  40.0 ,   0.57742 ,   3.5 ]
-// -> Steinhart–Hart coefficients (polyfit):
+// -> Steinhart-Hart coefficients (polyfit):
     float p0 = 1.09698417e-03,
           p1 = 2.39564629e-04,
           p2 = 2.48821437e-06,
@@ -941,6 +941,12 @@ static void print_gpx(gpx_t *gpx) {
             if (gpx->jsn_freq > 0) {
                 printf(", \"freq\": %d", gpx->jsn_freq);
             }
+
+            // Reference time/position
+            printf(", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+            printf(", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+            printf(", \"diff_GPS_MSL\": %+.2f", -gpx->gps.dMSL ); // MSL = GPS + gps.dMSL
+
             #ifdef VER_JSN_STR
                 ver_jsn = VER_JSN_STR;
             #endif
