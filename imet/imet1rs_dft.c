@@ -619,8 +619,13 @@ int print_frame(int len) {
                         fprintf(stdout, ", \"aux\": \"%s\"", gpx.xdata );
                     }
                     if (gpx.jsn_freq > 0) {
-                        fprintf(stdout, ", \"freq\": %d", gpx.jsn_freq);
+                        fprintf(stdout, ", \"freq\": %d", gpx.jsn_freq );
                     }
+
+                    // Reference time/position
+                    fprintf(stdout, ", \"ref_datetime\": \"%s\"", "GPS" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                    fprintf(stdout, ", \"ref_position\": \"%s\"", "MSL" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+
                     #ifdef VER_JSN_STR
                         ver_jsn = VER_JSN_STR;
                     #endif

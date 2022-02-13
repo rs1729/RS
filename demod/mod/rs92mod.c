@@ -1516,13 +1516,17 @@ static int print_position(gpx_t *gpx, int ec) {  // GPS-Hoehe ueber Ellipsoid
                 if (gpx->jsn_freq > 0) {  // rs92-frequency: gpx->freq
                     int fq_kHz = gpx->jsn_freq;
                     //if (gpx->freq > 0) fq_kHz = gpx->freq; // L-band: option.ngp ?
-                    fprintf(stdout, ", \"freq\": %d", fq_kHz);
+                    fprintf(stdout, ", \"freq\": %d", fq_kHz );
                 }
 
                 // Include frequency derived from subframe information if available.
                 if (gpx->freq > 0) {
-                    fprintf(stdout, ", \"tx_frequency\": %d", gpx->freq);
+                    fprintf(stdout, ", \"tx_frequency\": %d", gpx->freq );
                 }
+
+                // Reference time/position
+                fprintf(stdout, ", \"ref_datetime\": \"%s\"", "GPS" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                fprintf(stdout, ", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
 
                 #ifdef VER_JSN_STR
                     ver_jsn = VER_JSN_STR;

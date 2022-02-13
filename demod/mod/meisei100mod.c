@@ -736,6 +736,11 @@ int main(int argc, char **argv) {
                                         if (gpx.fq > 0) { // include frequency derived from subframe information if available
                                             fprintf(stdout, ", \"tx_frequency\": %.0f", gpx.fq );
                                         }
+
+                                        // Reference time/position
+                                        printf(", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                                        printf(", \"ref_position\": \"%s\"", "MSL" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+
                                         #ifdef VER_JSN_STR
                                             ver_jsn = VER_JSN_STR;
                                         #endif
@@ -965,6 +970,11 @@ int main(int argc, char **argv) {
                                     if (gpx.fq > 0) { // include frequency derived from subframe information if available
                                         fprintf(stdout, ", \"tx_frequency\": %.0f", gpx.fq );
                                     }
+
+                                    // Reference time/position
+                                    printf(", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                                    printf(", \"ref_position\": \"%s\"", "MSL" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+
                                     #ifdef VER_JSN_STR
                                         ver_jsn = VER_JSN_STR;
                                     #endif

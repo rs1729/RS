@@ -1026,6 +1026,12 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 if (gpx->jsn_freq > 0) {
                     fprintf(stdout, ", \"freq\": %d", gpx->jsn_freq);
                 }
+
+                // Reference time/position       (M10 time ref UTC only for json)
+                fprintf(stdout, ", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                fprintf(stdout, ", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+                fprintf(stdout, ", \"gpsutc_leapsec\": %d", gpx->utc_ofs); // GPS-UTC offset, utc_s = gpx->gpssec - gpx->utc_ofs;
+
                 #ifdef VER_JSN_STR
                     ver_jsn = VER_JSN_STR;
                 #endif
