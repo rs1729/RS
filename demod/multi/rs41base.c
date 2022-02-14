@@ -45,7 +45,7 @@ typedef struct {
     i8_t inv;
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
-    i8_t slt;  // silent
+    i8_t slt;  // silent (only raw/json)
 } option_t;
 
 typedef struct {
@@ -537,7 +537,7 @@ static float get_T(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float *ptu_co, fl
 // (data:) ftp://ftp-cdc.dwd.de/climate_environment/CDC/observations_germany/radiosondes/
 // (diffAlt: Ellipsoid-Geoid)
 // (note: humidity sensor has significant time-lag at low temperatures)
-static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
+static float get_RHemp(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     float a0 = 7.5;                    // empirical
     float a1 = 350.0/gpx->ptu_calH[0]; // empirical
     float fh = (f-f1)/(float)(f2-f1);
@@ -758,7 +758,7 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck, int valid_alt) {
         gpx->TH = TH;
 
         if (bH && Tc > -273.0) {
-            RH = get_RH(gpx, meas[3], meas[4], meas[5], Tc); // TH, TH-Tc (sensorT - T)
+            RH = get_RHemp(gpx, meas[3], meas[4], meas[5], Tc); // TH, TH-Tc (sensorT - T)
         }
         gpx->RH = RH;
 
@@ -1021,7 +1021,7 @@ static int get_GPS3(gpx_t *gpx, int ofs) {
 
 static int get_Aux(gpx_t *gpx, int out, int pos) {
 //
-// "Ozone Sounding with Vaisala Radiosonde RS41" user's guide
+// "Ozone Sounding with Vaisala Radiosonde RS41" user's guide M211486EN
 //
     int auxlen, auxcrc, count7E, pos7E;
     int i, n;
@@ -1589,6 +1589,16 @@ static int print_position(gpx_t *gpx, int ec) {
                             if (gpx->freq > 0) fq_kHz = gpx->freq;
                             fprintf(stdout, ", \"freq\": %d", fq_kHz);
                         }
+
+                        // Include frequency derived from subframe information if available.
+                        if (gpx->freq > 0) {
+                            fprintf(stdout, ", \"tx_frequency\": %d", gpx->freq );
+                        }
+
+                        // Reference time/position
+                        fprintf(stdout, ", \"ref_datetime\": \"%s\"", "GPS" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                        fprintf(stdout, ", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+
                         fprintf(stdout, " }\n");
                         fprintf(stdout, "\n");
                     }
