@@ -106,7 +106,7 @@ typedef struct {
     float Rf;
     float _frmcnt;
     float meas24[9];
-    float status[2];
+    float status[3];
     ui32_t val24[9];
     ui8_t cfgchk24[9];
     int cfgchk;
@@ -725,6 +725,7 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
             ui8_t ofs = 0;
             if (gpx->sensortyp0xC == 'P') ofs = 2;
             //
+            //  c0xxxx0 inner 16 bit
             if (conf_id == 0x5+ofs) { // voltage
                 val = bits2val(conf_bits+8, 4*4);
                 gpx->status[0] = val/1000.0;
@@ -733,10 +734,15 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
                 val = bits2val(conf_bits+8, 4*4);
                 gpx->status[1] = val/100.0;
             }
+            if (conf_id == 0x7+ofs && gpx->Rf > 300e3) { // DFM17 counter
+                val = bits2val(conf_bits+8, 4*4);
+                gpx->status[2] = val/1.0; // sec counter
+            }
         }
         else {
             gpx->status[0] = 0;
             gpx->status[1] = 0;
+            gpx->status[2] = 0;
         }
     }
 
@@ -869,6 +875,7 @@ static void print_gpx(gpx_t *gpx) {
                 if (gpx->option.vbs == 3  &&  gpx->ptu_out >= 0xA) {
                     if (gpx->status[0]> 0.0) printf("  U: %.2fV ", gpx->status[0]);
                     if (gpx->status[1]> 0.0) printf("  Ti: %.1fK ", gpx->status[1]);
+                    if (gpx->status[2]> 0.0) printf("  sec: %.0f ", gpx->status[2]);
                 }
             }
             if (gpx->option.dbg) {
