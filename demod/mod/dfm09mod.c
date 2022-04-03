@@ -91,6 +91,7 @@ typedef struct {
 } gpsdat_t;
 
 #define BITFRAME_LEN  280
+#define XDATA_LEN  26  // (2+4*6)
 
 typedef struct {
     int frnr;
@@ -102,6 +103,8 @@ typedef struct {
     int std; int min; float sek;
     double lat; double lon; double alt;
     double dir; double horiV; double vertV;
+    double lat2; double lon2; double alt2;
+    double dir2; double horiV2; double vertV2;
     //float T;
     float Rf;
     float _frmcnt;
@@ -109,6 +112,8 @@ typedef struct {
     float status[3];
     ui32_t val24[9];
     ui8_t cfgchk24[9];
+    i8_t  posmode;
+    ui8_t xdata[XDATA_LEN]; // 2+4*6
     int cfgchk;
     char sonde_id[16]; // "ID__:xxxxxxxx\0\0"
     hsbit_t frame[BITFRAME_LEN+4];  // char frame_bits[BITFRAME_LEN+4];
@@ -341,6 +346,7 @@ static int dat_out(gpx_t *gpx, ui8_t *dat_bits, int ec) {
     int frnr = 0;
     int msek = 0;
     int lat = 0, lon = 0, alt = 0;
+    int mode = 2;
     int nib;
     int dvv;  // signed/unsigned 16bit
 
@@ -369,47 +375,135 @@ static int dat_out(gpx_t *gpx, ui8_t *dat_bits, int ec) {
 
     if (fr_id == 0) {
         //start = 0x1000;
+        mode = bits2val(dat_bits+16, 8);
+        if (mode > 1 && mode < 5) gpx->posmode = mode;
+        else gpx->posmode = -1;//2
         frnr = bits2val(dat_bits+24, 8);
         gpx->frnr = frnr;
     }
 
-    if (fr_id == 1) {
-        // 00..31: GPS-Sats in solution (bitmap)
-        gpx->gps.prn = bits2val(dat_bits, 32); // SV/PRN used
-        msek = bits2val(dat_bits+32, 16);  // UTC (= GPS - 18sec  ab 1.1.2017)
-        gpx->sek = msek/1000.0;
-    }
+    if (gpx->posmode <= 2)
+    {
+        if (fr_id == 0) {
+        }
+        if (fr_id == 1) {
+            // 00..31: GPS-Sats in solution (bitmap)
+            gpx->gps.prn = bits2val(dat_bits, 32); // SV/PRN used
+            msek = bits2val(dat_bits+32, 16);  // UTC (= GPS - 18sec  ab 1.1.2017)
+            gpx->sek = msek/1000.0;
+        }
 
-    if (fr_id == 2) {
-        lat = bits2val(dat_bits, 32);
-        gpx->lat = lat/1e7;
-        dvv = (short)bits2val(dat_bits+32, 16);  // (short)? zusammen mit dir sollte unsigned sein
-        gpx->horiV = dvv/1e2;
-    }
+        if (fr_id == 2) {
+            lat = bits2val(dat_bits, 32);
+            gpx->lat = lat/1e7;
+            dvv = (short)bits2val(dat_bits+32, 16);  // (short)? zusammen mit dir sollte unsigned sein
+            gpx->horiV = dvv/1e2;
+        }
 
-    if (fr_id == 3) {
-        lon = bits2val(dat_bits, 32);
-        gpx->lon = lon/1e7;
-        dvv = bits2val(dat_bits+32, 16) & 0xFFFF;  // unsigned
-        gpx->dir = dvv/1e2;
-    }
+        if (fr_id == 3) {
+            lon = bits2val(dat_bits, 32);
+            gpx->lon = lon/1e7;
+            dvv = bits2val(dat_bits+32, 16) & 0xFFFF;  // unsigned
+            gpx->dir = dvv/1e2;
+        }
 
-    if (fr_id == 4) {
-        alt = bits2val(dat_bits, 32);
-        gpx->alt = alt/1e2;
-        dvv = (short)bits2val(dat_bits+32, 16);  // signed
-        gpx->vertV = dvv/1e2;
-    }
+        if (fr_id == 4) {
+            alt = bits2val(dat_bits, 32);
+            gpx->alt = alt/1e2; // GPS/Ellipsoid
+            dvv = (short)bits2val(dat_bits+32, 16);  // signed
+            gpx->vertV = dvv/1e2;
+        }
 
-    if (fr_id == 5) {
-        short dMSL = bits2val(dat_bits, 16);
-        gpx->gps.dMSL = dMSL/1e2;
-    }
+        if (fr_id == 5) {
+            short dMSL = bits2val(dat_bits, 16);
+            gpx->gps.dMSL = dMSL/1e2;
+        }
 
-    if (fr_id == 6) { // sat data
-    }
+        if (fr_id == 6) { // sat data
+        }
 
-    if (fr_id == 7) { // sat data
+        if (fr_id == 7) { // sat data
+        }
+    }
+    else if (gpx->posmode == 3)  // cf. dfm-ts20170801.c
+    {
+        if (fr_id == 0) {
+            msek = bits2val(dat_bits, 16);
+            gpx->sek = msek/1000.0;
+            dvv = (short)bits2val(dat_bits+32, 16);
+            gpx->horiV = dvv/1e2;
+        }
+        if (fr_id == 1) {
+            lat = bits2val(dat_bits, 32);
+            gpx->lat = lat/1e7;
+            dvv = bits2val(dat_bits+32, 16) & 0xFFFF;  // unsigned
+            gpx->dir = dvv/1e2;
+        }
+
+        if (fr_id == 2) {
+            lon = bits2val(dat_bits, 32);
+            gpx->lon = lon/1e7;
+            dvv = (short)bits2val(dat_bits+32, 16);  // signed
+            gpx->vertV = dvv/1e2;
+        }
+
+        if (fr_id == 3) {
+            alt = bits2val(dat_bits, 32);
+            gpx->alt = alt/1e2; // mode>2: alt/MSL
+        }
+
+        if (fr_id == 5) {
+            lat = bits2val(dat_bits, 32);
+            gpx->lat2 = lat/1e7;
+            dvv = (short)bits2val(dat_bits+32, 16);  // (short)? zusammen mit dir sollte unsigned sein
+            gpx->horiV2 = dvv/1e2;
+        }
+
+        if (fr_id == 6) {
+            lon = bits2val(dat_bits, 32);
+            gpx->lon2 = lon/1e7;
+            dvv = bits2val(dat_bits+32, 16) & 0xFFFF;  // unsigned
+            gpx->dir2 = dvv/1e2;
+        }
+
+        if (fr_id == 7) {
+            alt = bits2val(dat_bits, 32);
+            gpx->alt2 = alt/1e2;
+            dvv = (short)bits2val(dat_bits+32, 16);  // signed
+            gpx->vertV2 = dvv/1e2;
+        }
+    }
+    else if (gpx->posmode == 4)  // XDATA: cf. DF9DQ https://github.com/einergehtnochrein/ra-firmware/tree/master/src/dfm
+    {
+        if (fr_id == 0) {
+            msek = bits2val(dat_bits, 16);
+            gpx->sek = msek/1000.0;
+            dvv = (short)bits2val(dat_bits+32, 16);
+            gpx->horiV = dvv/1e2;
+        }
+        if (fr_id == 1) {
+            lat = bits2val(dat_bits, 32);
+            gpx->lat = lat/1e7;
+            dvv = bits2val(dat_bits+32, 16) & 0xFFFF;  // unsigned
+            gpx->dir = dvv/1e2;
+        }
+
+        if (fr_id == 2) {
+            lon = bits2val(dat_bits, 32);
+            gpx->lon = lon/1e7;
+            dvv = (short)bits2val(dat_bits+32, 16);  // signed
+            gpx->vertV = dvv/1e2;
+        }
+
+        if (fr_id == 3) {
+            alt = bits2val(dat_bits, 32);
+            gpx->alt = alt/1e2; // mode>2: alt/MSL
+            for (int j = 0; j < 2; j++) gpx->xdata[j] = bits2val(dat_bits+32+8*j, 8);
+        }
+        if (fr_id > 3 && fr_id < 8) {
+            int ofs = fr_id - 4;
+            for (int j = 0; j < 6; j++) gpx->xdata[2+6*ofs+j] = bits2val(dat_bits+8*j, 8);
+        }
     }
 
     if (fr_id == 8) {
@@ -588,6 +682,7 @@ static int reset_cfgchk(gpx_t *gpx) {
     for (j = 0; j < 9; j++) gpx->cfgchk24[j] = 0;
     gpx->cfgchk = 0;
     gpx->ptu_out = 0;
+    //gpx->gps.dMSL = 0;
     return 0;
 }
 
@@ -780,9 +875,11 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
 static void print_gpx(gpx_t *gpx) {
     int i, j;
     int contgps = 0;
+    int contaux = 0;
     int output = 0;
     int jsonout = 0;
     int start = 0;
+    int repeat_gps = 0;
 
     if (gpx->frnr > 0) start = 0x1000;
 
@@ -799,7 +896,10 @@ static void print_gpx(gpx_t *gpx) {
 
     jsonout = output;
 
-    contgps = ((output & 0x11F) == 0x11F); // 0,1,2,3,8
+    contgps = ((output & 0x11F) == 0x11F); // 0,1,2,3,4,8  (incl. xdata ID=0x01)
+    if (gpx->posmode == 4) { // xdata
+        contaux = ((output & 0xF8) == 0xF8); // 3,4,5,6,7
+    }
 
     if (gpx->option.dst && !contgps) {
         output = 0;
@@ -901,7 +1001,46 @@ static void print_gpx(gpx_t *gpx) {
             }
             printf("\n");
 
-            if (gpx->option.sat) {
+            if (gpx->posmode > 2) {
+                //printf("      ");
+                //printf("(mode:%d)   ", gpx->posmode);
+                if (gpx->posmode == 3 && repeat_gps) {
+                    printf("      ");
+                    printf("(mode:%d)   ", gpx->posmode);
+                    printf(" lat: %.5f ", gpx->lat2);
+                    printf(" lon: %.5f ", gpx->lon2);
+                    printf(" alt: %.1f ", gpx->alt2);
+                    printf(" vH: %5.2f ", gpx->horiV2);
+                    printf(" D: %5.1f ", gpx->dir2);
+                    printf(" vV: %5.2f ", gpx->vertV2);
+                    printf("\n");
+                }
+                if (gpx->posmode == 4 && gpx->option.vbs) {
+                    printf("      ");
+                    //printf("(mode:%d)   ", gpx->posmode);
+                    printf("XDATA:");
+                    for (j = 0; j <  2; j++) printf(" %02X", gpx->xdata[j]);
+                    for (j = 2; j < XDATA_LEN; j++) printf(" %02X", gpx->xdata[j]);
+                    printf("\n");
+                    if (gpx->xdata[0] == 0x01)
+                    {   // ECC Ozonesonde 01 .. ..  (MSB)
+                        ui8_t  InstrumentNum = gpx->xdata[1];
+                        ui16_t Icell = gpx->xdata[2+1] | (gpx->xdata[2]<<8); // MSB
+                        i16_t  Tpump = gpx->xdata[4+1] | (gpx->xdata[4]<<8); // MSB
+                        ui8_t  Ipump = gpx->xdata[6];
+                        ui8_t  Vbat  = gpx->xdata[7];
+                        printf("     ");
+                        printf(" ID=0x01 ECC ");
+                        printf(" Icell:%.3fuA ", Icell/1000.0);
+                        printf(" Tpump:%.2fC ", Tpump/100.0);
+                        printf(" Ipump:%dmA ", Ipump);
+                        printf(" Vbat:%.1fV ", Vbat/10.0);
+                        printf("\n");
+                    }
+                }
+            }
+
+            if (gpx->option.sat && gpx->posmode <= 2) {
                 printf("  ");
                 printf("  dMSL: %+.2f", gpx->gps.dMSL); // MSL = alt + gps.dMSL
                 printf("  sats: %d", gpx->gps.nSV);
@@ -939,6 +1078,14 @@ static void print_gpx(gpx_t *gpx) {
                 float t = get_Temp(gpx); // ecc-valid temperature?
                 if (t > -270.0) printf(", \"temp\": %.1f", t);
             }
+            if (gpx->posmode == 4 && contaux && gpx->xdata[0]) {
+                char xdata_str[2*XDATA_LEN+1];
+                memset(xdata_str, 0, 2*XDATA_LEN+1);
+                for (j = 0; j < XDATA_LEN; j++) {
+                    sprintf(xdata_str+2*j, "%02X", gpx->xdata[j]);
+                }
+                printf(", \"aux\": \"%s\"", xdata_str);
+            }
             //if (dfmXtyp > 0) printf(", \"subtype\": \"0x%1X\"", dfmXtyp);
             if (dfmXtyp > 0) {
                 printf(", \"subtype\": \"0x%1X", dfmXtyp);
@@ -951,8 +1098,11 @@ static void print_gpx(gpx_t *gpx) {
 
             // Reference time/position
             printf(", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
-            printf(", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
-            printf(", \"diff_GPS_MSL\": %+.2f", -gpx->gps.dMSL ); // MSL = GPS + gps.dMSL
+            if (gpx->posmode <= 2) { // mode 2
+                printf(", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+                printf(", \"diff_GPS_MSL\": %+.2f", -gpx->gps.dMSL ); // MSL = GPS + gps.dMSL
+            }
+            else printf(", \"ref_position\": \"%s\"", "MSL" ); // mode 3,4
 
             #ifdef VER_JSN_STR
                 ver_jsn = VER_JSN_STR;
@@ -1047,6 +1197,7 @@ static int print_frame(gpx_t *gpx) {
         if (gpx->option.ecc && gpx->option.vbs) {
             if (gpx->option.vbs > 1) printf(" (%1X,%1X,%1X) ", cnt_biterr(ret0), cnt_biterr(ret1), cnt_biterr(ret2));
             printf(" (%d) ", cnt_biterr(ret0)+cnt_biterr(ret1)+cnt_biterr(ret2));
+            if (gpx->option.vbs > 1) printf("  <%.1f>", gpx->_frmcnt);
         }
 
         printf("\n");
@@ -1110,6 +1261,8 @@ int main(int argc, char **argv) {
     int spike = 0;
     int rawhex = 0;
     int cfreq = -1;
+
+    float baudrate = -1;
 
     FILE *fp = NULL;
     char *fpname = NULL;
@@ -1248,6 +1401,14 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--noLUT") == 0) { option_noLUT = 1; }
         else if   (strcmp(*argv, "--min") == 0) {
             option_min = 1;
+        }
+        else if ( (strcmp(*argv, "--br") == 0) ) {
+            ++argv;
+            if (*argv) {
+                baudrate = atof(*argv);
+                if (baudrate < 2200 || baudrate > 2800) baudrate = BAUD_RATE; // default: 2500
+            }
+            else return -1;
         }
         else if   (strcmp(*argv, "--dbg") == 0) { gpx.option.dbg = 1; }
         else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
@@ -1394,6 +1555,11 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "note: sample rate low\n");
             }
 
+            if (baudrate > 0) {
+                dsp.br = (float)baudrate;
+                dsp.sps = (float)dsp.sr/dsp.br;
+                fprintf(stderr, "sps corr: %.4f\n", dsp.sps);
+            }
 
             k = init_buffers(&dsp);
             if ( k < 0 ) {
