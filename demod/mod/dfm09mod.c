@@ -63,6 +63,7 @@ typedef struct {
     i8_t ecc;  // Hamming ECC
     i8_t sat;  // GPS sat data
     i8_t ptu;  // PTU: temperature
+    i8_t aux;  // decode xdata
     i8_t inv;
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
@@ -1015,7 +1016,7 @@ static void print_gpx(gpx_t *gpx) {
                     printf(" vV: %5.2f ", gpx->vertV2);
                     printf("\n");
                 }
-                if (gpx->posmode == 4 && gpx->option.vbs) {
+                if (gpx->posmode == 4 && gpx->option.aux) {
                     printf("      ");
                     //printf("(mode:%d)   ", gpx->posmode);
                     printf("XDATA:");
@@ -1239,7 +1240,6 @@ static int print_frame(gpx_t *gpx) {
 
 int main(int argc, char **argv) {
 
-    int option_verbose = 0;  // ausfuehrliche Anzeige
     int option_raw = 0;      // rohe Frames
     int option_inv = 0;      // invertiert Signal
     int option_ecc = 0;
@@ -1319,10 +1319,11 @@ int main(int argc, char **argv) {
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
-            option_verbose = 1;
+            gpx.option.vbs = 1;
         }
-        else if ( (strcmp(*argv, "-vv" ) == 0) ) { option_verbose = 2; }
-        else if ( (strcmp(*argv, "-vvv") == 0) ) { option_verbose = 3; }
+        else if   (strcmp(*argv, "-vv" ) == 0)  { gpx.option.vbs = 2; }
+        else if   (strcmp(*argv, "-vvv") == 0)  { gpx.option.vbs = 3; }
+        else if   (strcmp(*argv, "-vx" ) == 0)  { gpx.option.aux = 1; }
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
             option_raw = 1;
         }
@@ -1477,13 +1478,14 @@ int main(int argc, char **argv) {
     for (k = 0; k < 9; k++) gpx.pck[k].ec = -1; // init ecc-status
 
     gpx.option.inv = option_inv;
-    gpx.option.vbs = option_verbose;
     gpx.option.raw = option_raw;
     gpx.option.ptu = option_ptu;
     gpx.option.ecc = option_ecc;
     gpx.option.aut = option_auto;
     gpx.option.dst = option_dist;
     gpx.option.jsn = option_json;
+
+    if (gpx.option.aux && gpx.option.vbs < 1) gpx.option.vbs = 1;
 
     if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
