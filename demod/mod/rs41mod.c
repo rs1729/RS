@@ -455,10 +455,16 @@ static int get_SondeID(gpx_t *gpx, int crc, int ofs) {
             gpx->conf_cd = -1;
             gpx->conf_kt = -1;
             // don't reset gpx->frame[] !
-            gpx->T = -273.15;
-            gpx->RH = -1.0;
-            gpx->P = -1.0;
-            gpx->RH2 = -1.0;
+            gpx->jahr = 0; gpx->monat = 0; gpx->tag = 0;
+            gpx->std = 0; gpx->min = 0; gpx->sek = 0.0;
+            gpx->week = 0;
+            gpx->lat = 0.0; gpx->lon = 0.0; gpx->alt = 0.0;
+            gpx->vH  = 0.0; gpx->vD  = 0.0; gpx->vV  = 0.0;
+            gpx->numSV = 0;
+            gpx->T = -273.15f;
+            gpx->RH = -1.0f;
+            gpx->P = -1.0f;
+            gpx->RH2 = -1.0f;
             // new ID:
             memcpy(gpx->id, sondeid_bytes, 8);
             gpx->id[8] = '\0';
