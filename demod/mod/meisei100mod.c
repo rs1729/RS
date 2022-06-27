@@ -900,35 +900,39 @@ int main(int argc, char **argv) {
                                     gpx.f_ref = bits2val(subframe_bits+HEADLEN+0*46+17, 16);
                                 }
 
-                                if (gpx.f_ref != 0) {  // must know the reference frequency
-                                    if ((gpx.cfg_valid & 0x01E01FFE1FFE0000LL) == 0x01E01FFE1FFE0000LL) { // cfg[56:53,44:33,28:17]
-                                        ui16_t t_raw = bits2val(subframe_bits+HEADLEN+2*46+17, 16);
-                                        float f = ((float)t_raw / (float)gpx.f_ref) * 4.0f;
-                                        if (f > 1.0f) {
-                                            f = 1.0f / (f - 1.0f);
-                                            f = gpx.cfg[53] + gpx.cfg[54]*f + gpx.cfg[55]*f*f + gpx.cfg[56]*f*f*f;
-                                            if (f <= gpx.cfg[33]) {
-                                                gpx.T = gpx.cfg[17];
-                                            } else if (f >= gpx.cfg[44]) {
-                                                gpx.T = gpx.cfg[28];
-                                            } else {
-                                                for (j = 0; j < 11; j++) {
-                                                    if (f < gpx.cfg[34+j]) {
-                                                        f = (logf(f) - logf(gpx.cfg[33+j])) / (logf(gpx.cfg[34+j]) - logf(gpx.cfg[33+j]));
-                                                        gpx.T = gpx.cfg[17+j] - f*(gpx.cfg[17+j] - gpx.cfg[18+j]);
-                                                        break;
+                                if (option_ptu) {
+                                    if (gpx.f_ref != 0) {  // must know the reference frequency
+                                        if ((gpx.cfg_valid & 0x01E01FFE1FFE0000LL) == 0x01E01FFE1FFE0000LL) { // cfg[56:53,44:33,28:17]
+                                            ui16_t t_raw = bits2val(subframe_bits+HEADLEN+2*46+17, 16);
+                                            float f = ((float)t_raw / (float)gpx.f_ref) * 4.0f;
+                                            if (f > 1.0f) {
+                                                f = 1.0f / (f - 1.0f);
+                                                f = gpx.cfg[53] + gpx.cfg[54]*f + gpx.cfg[55]*f*f + gpx.cfg[56]*f*f*f;
+                                                if (f <= gpx.cfg[33]) {
+                                                    gpx.T = gpx.cfg[17];
+                                                } else if (f >= gpx.cfg[44]) {
+                                                    gpx.T = gpx.cfg[28];
+                                                } else {
+                                                    for (j = 0; j < 11; j++) {
+                                                        if (f < gpx.cfg[34+j]) {
+                                                            f = (logf(f) - logf(gpx.cfg[33+j])) / (logf(gpx.cfg[34+j]) - logf(gpx.cfg[33+j]));
+                                                            gpx.T = gpx.cfg[17+j] - f*(gpx.cfg[17+j] - gpx.cfg[18+j]);
+                                                            break;
+                                                        }
                                                     }
                                                 }
                                             }
+                                            printf(" T=%.1fC", gpx.T);
                                         }
-                                    }
-                                    if ((gpx.cfg_valid & 0x001E000000000000LL) == 0x001E000000000000LL) { // cfg[52:49]
-                                        ui16_t u_raw = bits2val(subframe_bits+HEADLEN+3*46, 16);
-                                        float f = ((float)u_raw / (float)gpx.f_ref) * 4.0f;
-                                        gpx.RH = gpx.cfg[49] + gpx.cfg[50]*f + gpx.cfg[51]*f*f + gpx.cfg[52]*f*f*f;
-                                        // Limit to 0...100%
-                                        gpx.RH = fmaxf(gpx.RH, 0.0f);
-                                        gpx.RH = fminf(gpx.RH, 100.0f);
+                                        if ((gpx.cfg_valid & 0x001E000000000000LL) == 0x001E000000000000LL) { // cfg[52:49]
+                                            ui16_t u_raw = bits2val(subframe_bits+HEADLEN+3*46, 16);
+                                            float f = ((float)u_raw / (float)gpx.f_ref) * 4.0f;
+                                            gpx.RH = gpx.cfg[49] + gpx.cfg[50]*f + gpx.cfg[51]*f*f + gpx.cfg[52]*f*f*f;
+                                            // Limit to 0...100%
+                                            gpx.RH = fmaxf(gpx.RH, 0.0f);
+                                            gpx.RH = fminf(gpx.RH, 100.0f);
+                                            printf(" RH=%.0f%%", gpx.RH);
+                                        }
                                     }
                                 }
                             }
@@ -1043,6 +1047,16 @@ int main(int argc, char **argv) {
                                            gpx.frnr, id_str, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD );
                                     if (gpx.frm1_valid && (gpx.frm1_count == gpx.frm0_count + 1)) {
                                         if (gpx.vV_valid) printf(", \"vel_v\": %.5f", gpx.vV );
+                                    }
+                                    if (option_ptu) {
+                                        if (!isnan(gpx.T)) {
+                                            fprintf(stdout, ", \"temp\": %.1f",  gpx.T );
+                                            gpx.T = NAN;
+                                        }
+                                        if (!isnan(gpx.RH)) {
+                                            fprintf(stdout, ", \"humidity\": %.1f",  gpx.RH );
+                                            gpx.RH = NAN;
+                                        }
                                     }
                                     printf(", \"subtype\": \"IMS100\"");
                                     if (gpx.jsn_freq > 0) { // not gpx.fq, because gpx.sn not in every frame
