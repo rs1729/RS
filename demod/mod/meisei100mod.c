@@ -141,6 +141,7 @@ typedef struct {
     ui8_t frame_bits[BITFRAME_LEN+10];
     ui32_t ecc;
     float cfg[64];
+    ui64_t cfg_valid;
     ui32_t _sn;
     float sn; //  0 mod 16
     float fq; // 15 mod 64
@@ -867,6 +868,7 @@ int main(int argc, char **argv) {
                             if (err_frm == 0 && block_err[0] < 2 && block_err[1] < 2)
                             {
                                 gpx.cfg[counter%64] = *fcfg;
+                                gpx.cfg_valid |= 1uLL << (counter%64);
 
                                 // (main?) SN
                                 if (counter % 0x10 == 0) { sn = *fcfg; gpx.sn = sn; gpx._sn = w32; }
