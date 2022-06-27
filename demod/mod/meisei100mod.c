@@ -252,6 +252,7 @@ int main(int argc, char **argv) {
         option_inv = 0,
         option_ecc = 0,    // BCH(63,51)
         option_jsn = 0;    // JSON output (auto_rx)
+    int option_ptu;
     int option_min = 0;
     int option_iq = 0;
     int option_iqdc = 0;
@@ -354,6 +355,9 @@ int main(int argc, char **argv) {
             option1 = 1;
         }
         else if   (strcmp(*argv, "--ecc") == 0) { option_ecc = 1; }
+        else if (strcmp(*argv, "--ptu") == 0) {
+            option_ptu = 1;
+        }
         else if ( (strcmp(*argv, "-v") == 0) ) { option_verbose = 1; }
         else if ( (strcmp(*argv, "--br") == 0) ) {
             ++argv;
