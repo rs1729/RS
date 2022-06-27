@@ -145,6 +145,9 @@ typedef struct {
     float sn; //  0 mod 16
     float fq; // 15 mod 64
     int jsn_freq;   // freq/kHz (SDR)
+    int frm0_count; int frm0_valid;
+    int frm1_count; int frm1_valid;
+    int vV_valid;
     RS_t RS;
 } gpx_t;
 
@@ -851,7 +854,7 @@ int main(int argc, char **argv) {
                             val = bits2val(subframe_bits+HEADLEN, 16);
                             counter = val & 0xFFFF;
 
-                            if (counter % 2 == 0) printf("[%d] ", counter);
+                            /*if (counter % 2 == 0)*/ printf("[%d] ", counter);
 
                             w16[0] = bits2val(subframe_bits+HEADLEN+46*1   , 16);
                             w16[1] = bits2val(subframe_bits+HEADLEN+46*1+17, 16);
@@ -936,25 +939,52 @@ int main(int argc, char **argv) {
                                 printf(" (vH: %.1fm/s  D: %.2f)", gpx.vH, gpx.vD);
                                 printf("  ");
                             }
+                            if (counter % 2 == 1) {
+                                // cf. DF9DQ
+                                vU = bits2val(subframe_bits+HEADLEN+46*0+17, 16);
+                                velU = (double)vU/1.94384e1; // knots -> m/s
+                                gpx.vV = velU;
+                                gpx.vV_valid = (vU != 0);
+                                if (gpx.vV_valid) {
+                                    printf("  (vV: %.1fm/s)", gpx.vV);
+                                }
+                                else {
+                                    printf("  (vV: --- m/s)");
+                                }
+                                printf("  ");
+                            }
 
                             if (counter % 2 == 0) {
+                                gpx.frm0_count = counter;
                                 if (option_ecc) {
                                     if (gps_err) printf("(no)"); else printf("(ok)");
                                     if (err_frm) printf("[NO]"); else printf("[OK]");
+                                    gpx.frm0_valid = (err_frm==0 && gps_err==0);
                                 }
                                 if (option_verbose) {
-                                    if (sn > 0) {
+                                    if (sn > 0) { // cfg[0,16,32,48]=SN
                                         printf(" : sn %.0f", sn);
                                         sn = -1;
                                     }
-                                    if (freq > 0) {
+                                }
+                                printf("\n");
+                            }
+                            if (counter % 2 == 1) {
+                                gpx.frm1_count = counter;
+                                if (option_ecc) {
+                                    if (gps_err) printf("(no)"); else printf("(ok)");
+                                    if (err_frm) printf("[NO]"); else printf("[OK]");
+                                    gpx.frm1_valid = (err_frm==0 && gps_err==0);
+                                }
+                                if (option_verbose) {
+                                    if (freq > 0) { // cfg[15]=freq
                                         printf(" : fq %.0f", freq); // kHz
                                         freq = -1;
                                     }
                                 }
                                 printf("\n");
 
-                                if (option_jsn && err_frm==0 && gps_err==0) {
+                                if (option_jsn && gpx.frm0_valid) {
                                     char *ver_jsn = NULL;
                                     char id_str[] = "xxxxxx\0\0\0\0\0\0";
                                     if (gpx.sn > 0 && gpx.sn < 1e9) {
@@ -963,6 +993,9 @@ int main(int argc, char **argv) {
                                     printf("{ \"type\": \"%s\"", "MEISEI"); // alt: "IMS100"
                                     printf(", \"frame\": %d, \"id\": \"IMS100-%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f",
                                            gpx.frnr, id_str, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD );
+                                    if (gpx.frm1_valid && (gpx.frm1_count == gpx.frm0_count + 1)) {
+                                        if (gpx.vV_valid) printf(", \"vel_v\": %.5f", gpx.vV );
+                                    }
                                     printf(", \"subtype\": \"IMS100\"");
                                     if (gpx.jsn_freq > 0) { // not gpx.fq, because gpx.sn not in every frame
                                         printf(", \"freq\": %d", gpx.jsn_freq);
