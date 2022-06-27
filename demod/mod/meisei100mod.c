@@ -58,6 +58,8 @@ Variante 2 (iMS-100 ?)
 0x03..0x04  16 bit  0.5s-counter, count%2=0:
 0x07..0x0A  32 bit  cfg[cnt%64] (float32); cfg[0,16,32,48]=SN
 0x11..0x12  30xx, xx=C1(ims100?),A2(rs11?)
+0x13..0x14  16 bit  temperature, main sensor, raw
+0x15..0x16  16 bit  humidity, raw
 0x17..0x18  16 bit  time ms yyxx, 00.000-59.000
 0x19..0x1A  16 bit  time hh:mm
 0x1B..0x1D  HEADER  0xFB6230
@@ -137,6 +139,8 @@ typedef struct {
     int std; int min; float sek;
     double lat; double lon; double alt;
     double vH; double vD; double vV;
+    ui16_t f_ref;
+    float T; float RH;
     char frame_rawbits[RAWBITFRAME_LEN+10];
     ui8_t frame_bits[BITFRAME_LEN+10];
     ui32_t ecc;
@@ -570,7 +574,8 @@ int main(int argc, char **argv) {
     }
 
     gpx.sn = -1;
-
+    gpx.RH = NAN;
+    gpx.T = NAN;
 
     while ( 1 )
     {
@@ -889,6 +894,43 @@ int main(int argc, char **argv) {
                                 printf("  ");
                                 printf("%02d:%02d:%06.3f ", gpx.std, gpx.min, gpx.sek);
                                 printf("  ");
+
+                                //PTU: main sensor temperature, humidity
+                                if (counter % 4 == 0) {
+                                    gpx.f_ref = bits2val(subframe_bits+HEADLEN+0*46+17, 16);
+                                }
+
+                                if (gpx.f_ref != 0) {  // must know the reference frequency
+                                    if ((gpx.cfg_valid & 0x01E01FFE1FFE0000LL) == 0x01E01FFE1FFE0000LL) { // cfg[56:53,44:33,28:17]
+                                        ui16_t t_raw = bits2val(subframe_bits+HEADLEN+2*46+17, 16);
+                                        float f = ((float)t_raw / (float)gpx.f_ref) * 4.0f;
+                                        if (f > 1.0f) {
+                                            f = 1.0f / (f - 1.0f);
+                                            f = gpx.cfg[53] + gpx.cfg[54]*f + gpx.cfg[55]*f*f + gpx.cfg[56]*f*f*f;
+                                            if (f <= gpx.cfg[33]) {
+                                                gpx.T = gpx.cfg[17];
+                                            } else if (f >= gpx.cfg[44]) {
+                                                gpx.T = gpx.cfg[28];
+                                            } else {
+                                                for (j = 0; j < 11; j++) {
+                                                    if (f < gpx.cfg[34+j]) {
+                                                        f = (logf(f) - logf(gpx.cfg[33+j])) / (logf(gpx.cfg[34+j]) - logf(gpx.cfg[33+j]));
+                                                        gpx.T = gpx.cfg[17+j] - f*(gpx.cfg[17+j] - gpx.cfg[18+j]);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if ((gpx.cfg_valid & 0x001E000000000000LL) == 0x001E000000000000LL) { // cfg[52:49]
+                                        ui16_t u_raw = bits2val(subframe_bits+HEADLEN+3*46, 16);
+                                        float f = ((float)u_raw / (float)gpx.f_ref) * 4.0f;
+                                        gpx.RH = gpx.cfg[49] + gpx.cfg[50]*f + gpx.cfg[51]*f*f + gpx.cfg[52]*f*f*f;
+                                        // Limit to 0...100%
+                                        gpx.RH = fmaxf(gpx.RH, 0.0f);
+                                        gpx.RH = fminf(gpx.RH, 100.0f);
+                                    }
+                                }
                             }
                         }
 
