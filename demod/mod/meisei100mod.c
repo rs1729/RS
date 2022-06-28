@@ -931,7 +931,7 @@ int main(int argc, char **argv) {
                                             // Limit to 0...100%
                                             gpx.RH = fmaxf(gpx.RH, 0.0f);
                                             gpx.RH = fminf(gpx.RH, 100.0f);
-                                            printf(" RH=%.0f%%", gpx.RH);
+                                            printf(" RH=%.0f%% ", gpx.RH);
                                         }
                                     }
                                 }
