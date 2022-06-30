@@ -258,7 +258,7 @@ int main(int argc, char **argv) {
         option_inv = 0,
         option_ecc = 0,    // BCH(63,51)
         option_jsn = 0;    // JSON output (auto_rx)
-    int option_ptu;
+    int option_ptu = 0;
     int option_min = 0;
     int option_iq = 0;
     int option_iqdc = 0;
