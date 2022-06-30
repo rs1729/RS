@@ -841,6 +841,8 @@ int main(int argc, char **argv) {
             jmpIMS:
                         if (reset_gpx) {
                             memset(&gpx, sizeof(gpx), 0);
+                            gpx.RH = NAN;
+                            gpx.T = NAN;
                             sn = -1;
                             freq = -1;
                             reset_gpx = 0;
@@ -880,6 +882,11 @@ int main(int argc, char **argv) {
                                 if (counter % 0x10 == 0) { sn = *fcfg; gpx.sn = sn; gpx._sn = w32; }
                                 // freq
                                 if (counter % 64 == 15) { freq = 400e3+(*fcfg)*100.0; gpx.fq = freq; }
+
+                                //PTU: Save reference frequency
+                                if (counter % 4 == 0) {
+                                    gpx.f_ref = bits2val(subframe_bits+HEADLEN+0*46+17, 16);
+                                }
                             }
 
                             if (counter % 2 == 0) {
@@ -896,14 +903,13 @@ int main(int argc, char **argv) {
                                 printf("%02d:%02d:%06.3f ", gpx.std, gpx.min, gpx.sek);
                                 printf("  ");
 
-                                //PTU: main sensor temperature, humidity
-                                if (counter % 4 == 0) {
-                                    gpx.f_ref = bits2val(subframe_bits+HEADLEN+0*46+17, 16);
-                                }
-
                                 if (option_ptu) {
+                                    gpx.T = NAN;
+                                    gpx.RH = NAN;
                                     if (gpx.f_ref != 0) {  // must know the reference frequency
-                                        if ((gpx.cfg_valid & 0x01E01FFE1FFE0000LL) == 0x01E01FFE1FFE0000LL) { // cfg[56:53,44:33,28:17]
+                                        int T_cfg = ((gpx.cfg_valid & 0x01E01FFE1FFE0000LL) == 0x01E01FFE1FFE0000LL); // cfg[56:53,44:33,28:17]
+                                        int U_cfg = ((gpx.cfg_valid & 0x001E000000000000LL) == 0x001E000000000000LL); // cfg[52:49]
+                                        if (T_cfg) {
                                             ui16_t t_raw = bits2val(subframe_bits+HEADLEN+2*46+17, 16);
                                             float f = ((float)t_raw / (float)gpx.f_ref) * 4.0f;
                                             if (f > 1.0f) {
@@ -923,17 +929,19 @@ int main(int argc, char **argv) {
                                                     }
                                                 }
                                             }
-                                            printf(" T=%.1fC", gpx.T);
+                                            if (!isnan(gpx.T)) printf("T=%.1fC ", gpx.T);
+                                            else T_cfg = 0;
                                         }
-                                        if ((gpx.cfg_valid & 0x001E000000000000LL) == 0x001E000000000000LL) { // cfg[52:49]
+                                        if (U_cfg) {
                                             ui16_t u_raw = bits2val(subframe_bits+HEADLEN+3*46, 16);
                                             float f = ((float)u_raw / (float)gpx.f_ref) * 4.0f;
                                             gpx.RH = gpx.cfg[49] + gpx.cfg[50]*f + gpx.cfg[51]*f*f + gpx.cfg[52]*f*f*f;
                                             // Limit to 0...100%
                                             gpx.RH = fmaxf(gpx.RH, 0.0f);
                                             gpx.RH = fminf(gpx.RH, 100.0f);
-                                            printf(" RH=%.0f%% ", gpx.RH);
+                                            printf("RH=%.0f%% ", gpx.RH);
                                         }
+                                        if (T_cfg || U_cfg) printf(" ");
                                     }
                                 }
                             }
@@ -1052,11 +1060,9 @@ int main(int argc, char **argv) {
                                     if (option_ptu) {
                                         if (!isnan(gpx.T)) {
                                             fprintf(stdout, ", \"temp\": %.1f",  gpx.T );
-                                            gpx.T = NAN;
                                         }
                                         if (!isnan(gpx.RH)) {
                                             fprintf(stdout, ", \"humidity\": %.1f",  gpx.RH );
-                                            gpx.RH = NAN;
                                         }
                                     }
                                     printf(", \"subtype\": \"IMS100\"");
@@ -1077,6 +1083,8 @@ int main(int argc, char **argv) {
                                     if (ver_jsn && *ver_jsn != '\0') printf(", \"version\": \"%s\"", ver_jsn);
                                     printf(" }\n");
                                     printf("\n");
+
+                                    gpx.frm0_valid = 0;
                                 }
 
                             }
