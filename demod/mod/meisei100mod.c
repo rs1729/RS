@@ -913,16 +913,27 @@ int main(int argc, char **argv) {
                                             ui16_t t_raw = bits2val(subframe_bits+HEADLEN+2*46+17, 16);
                                             float f = ((float)t_raw / (float)gpx.f_ref) * 4.0f;
                                             if (f > 1.0f) {
+                                                // Use config coefficients to transform measured frequency to absolute resistance (kOhms)
                                                 f = 1.0f / (f - 1.0f);
-                                                f = gpx.cfg[53] + gpx.cfg[54]*f + gpx.cfg[55]*f*f + gpx.cfg[56]*f*f*f;
-                                                if (f <= gpx.cfg[33]) {
-                                                    gpx.T = gpx.cfg[17];
-                                                } else if (f >= gpx.cfg[44]) {
-                                                    gpx.T = gpx.cfg[28];
+                                                float R = gpx.cfg[53] + gpx.cfg[54]*f + gpx.cfg[55]*f*f + gpx.cfg[56]*f*f*f;
+                                                // iMS-100 sends known resistance (cfg[44:33]) for 12 temperature sampling points
+                                                // (cfg[28:17]). Actual temperature is found by interpolating in one of these
+                                                // 11 intervals.
+                                                if (R <= gpx.cfg[33]) { // R below min value?
+                                                    gpx.T = gpx.cfg[17]; // --> Set T = highest temperature
+                                                } else if (R >= gpx.cfg[44]) { // R above max value?
+                                                    gpx.T = gpx.cfg[28]; // --> Set T = lowest temperature
                                                 } else {
+                                                    // We now know that R is inside the interpolation range. Sampling points are
+                                                    // ordered by increasing resistance (decreasing temperature).
+                                                    // Search for the interval that contains R, then interpolate linearly
+                                                    // (using log(R)).
+                                                    // NOTE: This assumes that the sonde sends the sampling points as described
+                                                    //       above. Shall we do a sanity check to confirm?
+                                                    //       For the time being, T=NAN in case the search doesn't find an interval.
                                                     for (j = 0; j < 11; j++) {
-                                                        if (f < gpx.cfg[34+j]) {
-                                                            f = (logf(f) - logf(gpx.cfg[33+j])) / (logf(gpx.cfg[34+j]) - logf(gpx.cfg[33+j]));
+                                                        if (R < gpx.cfg[34+j]) {
+                                                            f = (logf(R) - logf(gpx.cfg[33+j])) / (logf(gpx.cfg[34+j]) - logf(gpx.cfg[33+j]));
                                                             gpx.T = gpx.cfg[17+j] - f*(gpx.cfg[17+j] - gpx.cfg[18+j]);
                                                             break;
                                                         }
