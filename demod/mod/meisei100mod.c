@@ -76,6 +76,7 @@ Variante 2 (iMS-100 ?)
 0x11..0x12  31xx, xx=C1(ims100?),A2(rs11?)
 0x17..0x18  16 bit  1024-counter yyxx, +0x400=1024; rollover synchron zu ms-counter, nach rollover auch +0x300=768
 0x1B..0x1D  HEADER  0xFB6230
+0x20..0x21  16 bit  GPS-vV * 1.944e1 (knots)
 0x22..0x23  yy00..yy03 (yy00: GPS PRN?)
 
 
