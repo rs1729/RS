@@ -250,6 +250,33 @@ static int get_w16(ui8_t *subframe_bits, int j) {
 
 /* -------------------------------------------------------------------------- */
 
+static int sanity_check_ims100_config_temperature(gpx_t *gpx) {
+    int result = 1;
+    float R_old = 0;
+    float T_old = INFINITY;
+    int i;
+
+    // All resistance values in the R-T interpolation table must be positive and monotonically increasing
+    for (i = 0; i < 12; i++) {
+        if (gpx->cfg[33+i] <= R_old) {
+            result = 0;
+        }
+        R_old = gpx->cfg[33+i];
+    }
+
+    // All temperature values in the R-T interpolation table must be monotonically decreasing
+    for (i = 0; i < 12; i++) {
+        if (gpx->cfg[17+i] >= T_old) {
+            result = 0;
+        }
+        T_old = gpx->cfg[17+i];
+    }
+
+    return result;
+}
+
+/* -------------------------------------------------------------------------- */
+
 
 int main(int argc, char **argv) {
 
@@ -912,7 +939,8 @@ int main(int argc, char **argv) {
                                     if (gpx.f_ref != 0) {  // must know the reference frequency
                                         int T_cfg = ((gpx.cfg_valid & 0x01E01FFE1FFE0000LL) == 0x01E01FFE1FFE0000LL); // cfg[56:53,44:33,28:17]
                                         int U_cfg = ((gpx.cfg_valid & 0x001E000000000000LL) == 0x001E000000000000LL); // cfg[52:49]
-                                        if (T_cfg) {
+                                        // Necessary parameters must exist and their values must ´meet the requirements
+                                        if (T_cfg && sanity_check_ims100_config_temperature(&gpx)) {
                                             ui16_t t_raw = bits2val(subframe_bits+HEADLEN+2*46+17, 16);
                                             float f = ((float)t_raw / (float)gpx.f_ref) * 4.0f;
                                             if (f > 1.0f) {
@@ -929,11 +957,9 @@ int main(int argc, char **argv) {
                                                 } else {
                                                     // We now know that R is inside the interpolation range. Sampling points are
                                                     // ordered by increasing resistance (decreasing temperature).
+                                                    // (We have verified this in the sanity check above.)
                                                     // Search for the interval that contains R, then interpolate linearly
                                                     // (using log(R)).
-                                                    // NOTE: This assumes that the sonde sends the sampling points as described
-                                                    //       above. Shall we do a sanity check to confirm?
-                                                    //       For the time being, T=NAN in case the search doesn't find an interval.
                                                     for (j = 0; j < 11; j++) {
                                                         if (R < gpx.cfg[34+j]) {
                                                             f = (logf(R) - logf(gpx.cfg[33+j])) / (logf(gpx.cfg[34+j]) - logf(gpx.cfg[33+j]));
