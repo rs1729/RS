@@ -883,9 +883,12 @@ int main(int argc, char **argv) {
                                 // freq
                                 if (counter % 64 == 15) { freq = 400e3+(*fcfg)*100.0; gpx.fq = freq; }
 
-                                //PTU: Save reference frequency
+                                //PTU: Save reference frequency (sent in both even and odd frames)
                                 if (counter % 4 == 0) {
                                     gpx.f_ref = bits2val(subframe_bits+HEADLEN+0*46+17, 16);
+                                }
+                                if (counter % 4 == 3) {
+                                    gpx.f_ref = bits2val(subframe_bits+HEADLEN+3*46, 16);
                                 }
                             }
 
