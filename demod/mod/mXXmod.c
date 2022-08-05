@@ -753,10 +753,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 if (!err2) {
                     fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
                 }
-                if (gpx->option.vbs >= 2 && (bcOK || csOK)) { // SN
+                if (gpx->option.vbs >= 1 && (bcOK || csOK)) { // SN
                     fprintf(stdout, "  SN: "col_SN"%s"col_TXT, gpx->SN);
                 }
-                if (gpx->option.vbs >= 2) {
+                if (gpx->option.vbs >= 1) {
                     fprintf(stdout, "  # ");
                     if      (bcOK > 0) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
                     else if (bcOK < 0) fprintf(stdout, " "col_CSoo"(oo)"col_TXT);
@@ -769,7 +769,9 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     fprintf(stdout, " ");
                     if (gpx->T > -273.0f)  fprintf(stdout, " T:%.1fC", gpx->T);
                     if (gpx->RH > -0.5f)   fprintf(stdout, " RH=%.0f%%", gpx->RH);
-                    if (gpx->TH > -273.0f) fprintf(stdout, " TH:%.1fC", gpx->TH);
+                    if (gpx->option.vbs >= 2) {
+                        if (gpx->TH > -273.0f) fprintf(stdout, " TH:%.1fC", gpx->TH);
+                    }
                     if (gpx->P > 0.0f) {
                         if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
                         else                 fprintf(stdout, " P=%.1fhPa ", gpx->P);
@@ -791,10 +793,10 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 if (!err2) {
                     fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
                 }
-                if (gpx->option.vbs >= 2 && (bcOK || csOK)) { // SN
+                if (gpx->option.vbs >= 1 && (bcOK || csOK)) { // SN
                     fprintf(stdout, "  SN: %s", gpx->SN);
                 }
-                if (gpx->option.vbs >= 2) {
+                if (gpx->option.vbs >= 1) {
                     fprintf(stdout, "  # ");
                     //if (bcOK) fprintf(stdout, " (ok)"); else fprintf(stdout, " (no)");
                     if      (bcOK > 0) fprintf(stdout, " (ok)");
@@ -807,7 +809,9 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     fprintf(stdout, " ");
                     if (gpx->T > -273.0f)  fprintf(stdout, " T:%.1fC", gpx->T);
                     if (gpx->RH > -0.5f)   fprintf(stdout, " RH=%.0f%%", gpx->RH);
-                    if (gpx->TH > -273.0f) fprintf(stdout, " TH:%.1fC", gpx->TH);
+                    if (gpx->option.vbs >= 2) {
+                        if (gpx->TH > -273.0f) fprintf(stdout, " TH:%.1fC", gpx->TH);
+                    }
                     if (gpx->P > 0.0f) {
                         if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
                         else                 fprintf(stdout, " P=%.1fhPa ", gpx->P);
@@ -1323,6 +1327,7 @@ int main(int argc, char **argv) {
                 header_found = 0;
 
                 // bis Ende der Sekunde vorspulen; allerdings Doppel-Frame alle 10 sek
+                // M20 only single frame ... AUX ?
                 if (gpx.option.vbs < 3) { // && (regulare frame) // print_frame-return?
                     while ( bitpos < 5*BITFRAME_LEN ) {
                         if (option_softin) {
