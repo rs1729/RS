@@ -64,5 +64,6 @@ wird DFT verwendet). Je nach Empfangsgeraet oder SDR-Software kann das Signal in
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=3050#p336249  
   https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=3100#p354503  
   https://github.com/rs1729/RS/issues/32#issuecomment-792334791  
+  https://www.fingers-welt.de/phpBB/viewtopic.php?f=14&t=43&start=3125#p409627  
 
 
