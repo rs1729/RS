@@ -3,6 +3,7 @@
     UAII2022 Lindenberg
     2022-08-11 13:30Z
     404800 kHz
+    Huayuntianyi HT03G-1U ?
 */
 
 #include <stdio.h>
@@ -255,8 +256,8 @@ int print_frame() {
         float lat = *fval * 180.0 / M_PI;
         printf(" lat: %.4f ", lat);
 
-        val = 0;
-        for (i = 0; i < 3; i++) val |= frame_bytes[29+i] << (8*i);
+        val = 0; // signed int32 or int24
+        for (i = 0; i < 4; i++) val |= frame_bytes[29+i] << (8*i);
         float alt = val/10.0f;
         printf(" alt: %.1f ", alt);  // MSL
 
