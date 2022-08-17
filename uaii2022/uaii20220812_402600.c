@@ -42,45 +42,67 @@ ui8_t frame_bytes[FRAMELEN+1];
 int sample_rate = 0, bits_sample = 0, channels = 0;
 float samples_per_bit = 0;
 
-int read_wav_header(FILE *fp, int *sr, int *bs, int *ch) {
-    char txt[5] = "\0\0\0\0\0";
-    int byte, num, i;
+int findstr(char *buff, char *str, int pos) {
+    int i;
+    for (i = 0; i < 4; i++) {
+        if (buff[(pos+i)%4] != str[i]) break;
+    }
+    return i;
+}
 
-    if (fseek(fp, 0L, SEEK_SET)) return -1;
+int read_wav_header(FILE *fp) {
+    char txt[4+1] = "\0\0\0\0";
+    unsigned char dat[4];
+    int byte, p=0;
+
     if (fread(txt, 1, 4, fp) < 4) return -1;
     if (strncmp(txt, "RIFF", 4)) return -1;
-    if (fseek(fp, 8L, SEEK_SET)) return -1;
+    if (fread(txt, 1, 4, fp) < 4) return -1;
+    // pos_WAVE = 8L
     if (fread(txt, 1, 4, fp) < 4) return -1;
     if (strncmp(txt, "WAVE", 4)) return -1;
-
-    if (fseek(fp, 22L, SEEK_SET)) return -1;
-    num = 0;
-    for (i = 0; i < 2; i++) {
+    // pos_fmt = 12L
+    for ( ; ; ) {
         if ( (byte=fgetc(fp)) == EOF ) return -1;
-        num |= (byte << (8*i));
+        txt[p % 4] = byte;
+        p++; if (p==4) p=0;
+        if (findstr(txt, "fmt ", p) == 4) break;
     }
-    *ch = num;
+    if (fread(dat, 1, 4, fp) < 4) return -1;
+    if (fread(dat, 1, 2, fp) < 2) return -1;
 
-    // if (fseek(fp, 24L, SEEK_SET)) return -1;
-    num = 0;
-    for (i = 0; i < 4; i++) {
+    if (fread(dat, 1, 2, fp) < 2) return -1;
+    channels = dat[0] + (dat[1] << 8);
+
+    if (fread(dat, 1, 4, fp) < 4) return -1;
+    memcpy(&sample_rate, dat, 4); //sample_rate = dat[0]|(dat[1]<<8)|(dat[2]<<16)|(dat[3]<<24);
+
+    if (fread(dat, 1, 4, fp) < 4) return -1;
+    if (fread(dat, 1, 2, fp) < 2) return -1;
+    //byte = dat[0] + (dat[1] << 8);
+
+    if (fread(dat, 1, 2, fp) < 2) return -1;
+    bits_sample = dat[0] + (dat[1] << 8);
+
+    // pos_dat = 36L + info
+    for ( ; ; ) {
         if ( (byte=fgetc(fp)) == EOF ) return -1;
-        num |= (byte << (8*i));
+        txt[p % 4] = byte;
+        p++; if (p==4) p=0;
+        if (findstr(txt, "data", p) == 4) break;
     }
-    *sr = num;
+    if (fread(dat, 1, 4, fp) < 4) return -1;
 
-    if (fseek(fp, 34L, SEEK_SET)) return -1;
-    num = 0;
-    for (i = 0; i < 2; i++) {
-        if ( (byte=fgetc(fp)) == EOF ) return -1;
-        num |= (byte << (8*i));
-    }
-    *bs = num;
 
-    if (fseek(fp, 36L, SEEK_SET)) return -1;
-    if (fread(txt, 1, 4, fp) < 4) return -1;
-    if (strncmp(txt, "data", 4)) return -1;
-    if (fseek(fp, 44L, SEEK_SET)) return -1;
+    fprintf(stderr, "sample_rate: %d\n", sample_rate);
+    fprintf(stderr, "bits       : %d\n", bits_sample);
+    fprintf(stderr, "channels   : %d\n", channels);
+
+    if ((bits_sample != 8) && (bits_sample != 16)) return -1;
+
+    samples_per_bit = sample_rate/(float)BAUD_RATE;
+
+    fprintf(stderr, "samples/bit: %.2f\n", samples_per_bit);
 
     return 0;
 }
@@ -347,17 +369,10 @@ int main(int argc, char **argv) {
     if (!wavloaded) fp = stdin;
 
 
-    i = read_wav_header(fp, &sample_rate, &bits_sample, &channels);
+    i = read_wav_header(fp);
     if (i) return -1;
-    fprintf(stderr, "sample_rate: %d\n", sample_rate);
-    fprintf(stderr, "bits       : %d\n", bits_sample);
-    fprintf(stderr, "channels   : %d\n", channels);
-
-    if ((bits_sample != 8) && (bits_sample != 16)) return -1;
 
     samples_per_bit = sample_rate/(float)BAUD_RATE;
-
-    fprintf(stderr, "samples/bit: %.2f\n", samples_per_bit);
 
 
     bit_count = 0;
