@@ -23,7 +23,7 @@ int option_raw = 0,
 int wav_channel = 0;     // audio channel: left
 
 
-#define BAUD_RATE   750
+#define BAUD_RATE   770
 
 #define HEADLEN 32
 #define HEADOFS 0
