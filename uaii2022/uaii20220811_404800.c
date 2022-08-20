@@ -350,8 +350,6 @@ int main(int argc, char **argv) {
     i = read_wav_header(fp);
     if (i) return -1;
 
-    samples_per_bit = sample_rate/(float)BAUD_RATE;
-
 
     bit_count = 0;
     frames = 0;
