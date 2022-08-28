@@ -25,14 +25,16 @@ int wav_channel = 0;     // audio channel: left
 
 #define BAUD_RATE   (4997.2) // 5000
 
-#define FRAMELEN    66 //200 //(66)
+#define FRAMELEN    64 //200 //(66)
 #define BITFRAMELEN (8*FRAMELEN)
 
-#define HEADLEN 40 //64
+#define HEADLEN 56 //64
 #define HEADOFS 0
 char header[] = "10101010""10101010""10101010"//"10101010"  // preamble
-                "11000001""10010100";
-//preamble_header: 101010101010101010101010 1100000110010100110000011100011001111000110001010110110111100100
+                "11000001""10010100""11000001""11000110";
+//preamble_header_sn1: 101010101010101010101010 1100000110010100110000011100011001111000 110001010110110111100100
+//preamble_header_sn2: 101010101010101010101010 1100000110010100110000011100011001111000 001100100110110111100100
+//preamble_header_sn3: 101010101010101010101010 1100000110010100110000011100011001111000 001010000110110111100100
 char buf[HEADLEN+1] = "xxxxxxxxxx\0";
 int bufpos = 0;
 
@@ -298,8 +300,13 @@ int print_frame() {
     }
     else {
 
+        ui32_t sn;
+        ui32_t cnt;
         int val;
-        int cnt;
+
+        // SN ?
+        sn = xframe[OFS+2] | (xframe[OFS+3]<<8) | ((xframe[OFS+4])<<16) | ((xframe[OFS+5])<<24);
+        printf(" (0x%08X) ", sn);
 
         // counter ?
         cnt = xframe[OFS+6] | (xframe[OFS+7]<<8);
