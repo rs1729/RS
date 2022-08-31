@@ -268,6 +268,8 @@ int print_frame() {
     }
     else {
 
+        // ASCII-String:
+        // SN/ID?,?,counter,YYMMDDhhmmss,?,lat,lon,alt?,?,?,?,?,?,?,?,?,?,?
 
         printf("%s\n", frame_bytes+5);
     }
