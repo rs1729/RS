@@ -16,7 +16,8 @@ typedef short i16_t;
 typedef unsigned int ui32_t;
 
 
-int option_raw = 0,
+int option_verbose = 0,
+    option_raw = 0,
     option_inv = 0,
     option_b = 0,
     option_timestamp = 0,
@@ -26,7 +27,7 @@ int wav_channel = 0;     // audio channel: left
 
 #define BAUD_RATE   2400
 
-#define FRAMELEN    128
+#define FRAMELEN    109 //128
 #define BITFRAMELEN (8*FRAMELEN)
 
 #define HEADLEN 64
@@ -222,6 +223,26 @@ int compare2() {
 }
 
 
+ui32_t crc16rev(ui8_t bytes[], int len) {
+   ui32_t crc16poly = 0x8408; //rev(0x1021)
+   ui32_t rem = 0; // init value
+    int i, j;
+    for (i = 0; i < len; i++) {
+        rem = rem ^ bytes[i];
+        for (j = 0; j < 8; j++) {
+            if (rem & 0x0001) {
+                rem = (rem >> 1) ^ crc16poly;
+            }
+            else {
+                rem = (rem >> 1);
+            }
+            rem &= 0xFFFF;
+        }
+    }
+    return rem;
+}
+
+
 int print_frame() {
     int i, j;
 
@@ -240,6 +261,9 @@ int print_frame() {
             for (j = 0; j < FRAMELEN; j++) {
                 printf("%02X ", frame_bytes[j]);
             }
+            int crcdat = frame_bytes[105] | (frame_bytes[105+1]<<8);
+            int crcval = crc16rev(frame_bytes+8, 97);
+            printf(" #  %s", (crcdat == crcval) ? "[OK]" : "[NO]");
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -259,7 +283,7 @@ int print_frame() {
         printf("%02d:%02d:%04.1f ", h, m, s);  // UTC
         printf(" ");
 
-        int val;
+        int val;  // GPS: little endian
 
         val = 0;
         for (i = 0; i < 4; i++) val |= frame_bytes[21+i] << (8*i);
@@ -278,7 +302,6 @@ int print_frame() {
         float alt = val/10.0f;
         printf(" alt: %.1f ", alt);  // MSL
 
-
         i16_t val16;
         val16 = 0;
         for (i = 0; i < 2; i++) val16 |= frame_bytes[33+i] << (8*i);
@@ -295,6 +318,20 @@ int print_frame() {
         if (vD < 0) vD += 360;
         printf("  vH: %.2f D: %.2f vV: %.2f ", vH, vD, vU);
 
+        printf(" ");
+
+        // counter ?  big endian
+        val = 0;
+        for (i = 0; i < 2; i++) val |= frame_bytes[102+i] << (8*(1-i));
+        printf(" [%5d] ", val);
+
+        printf(" ");
+
+        // CRC
+        int crcdat = frame_bytes[105] | (frame_bytes[105+1]<<8);
+        int crcval = crc16rev(frame_bytes+8, 97);
+        printf(" %s", (crcdat == crcval) ? "[OK]" : "[NO]");
+        if (option_verbose) printf(" # [%04X : %04X]", crcdat, crcval);
 
         printf("\n");
     }
@@ -325,6 +362,9 @@ int main(int argc, char **argv) {
         }
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
+        }
+        else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
+            option_verbose = 1;
         }
         else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "-t" ) == 0) { option_timestamp = 1; }
