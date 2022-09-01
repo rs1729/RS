@@ -224,8 +224,8 @@ int compare2() {
 
 
 ui32_t crc16rev(ui8_t bytes[], int len) {
-   ui32_t crc16poly = 0x8408; //rev(0x1021)
-   ui32_t rem = 0; // init value
+    ui32_t crc16poly = 0x8408; //rev(0x1021)
+    ui32_t rem = 0; // init value
     int i, j;
     for (i = 0; i < len; i++) {
         rem = rem ^ bytes[i];
@@ -274,6 +274,11 @@ int print_frame() {
         printf("\n");
     }
     else {
+
+        // SN/ID? DBG
+        //for (i=0;i<4;i++) printf("%02X", frame_bytes[12+i]); printf(" ");
+
+        printf(" ");
 
         ui32_t h = 0, m = 0;
         float s = 0.0f;
@@ -331,7 +336,7 @@ int print_frame() {
         int crcdat = frame_bytes[105] | (frame_bytes[105+1]<<8);
         int crcval = crc16rev(frame_bytes+8, 97);
         printf(" %s", (crcdat == crcval) ? "[OK]" : "[NO]");
-        if (option_verbose) printf(" # [%04X : %04X]", crcdat, crcval);
+        if (option_verbose) printf(" # [%04X:%04X]", crcdat, crcval);
 
         printf("\n");
     }
@@ -356,6 +361,8 @@ int main(int argc, char **argv) {
         if      ( (strcmp(*argv, "-h") == 0) || (strcmp(*argv, "--help") == 0) ) {
             fprintf(stderr, "%s [options] audio.wav\n", fpname);
             fprintf(stderr, "  options:\n");
+            fprintf(stderr, "       -v\n");
+            fprintf(stderr, "       -r\n");
             fprintf(stderr, "       -i\n");
             fprintf(stderr, "       -b\n");
             return 0;
