@@ -16,7 +16,8 @@ typedef short i16_t;
 typedef unsigned int ui32_t;
 
 
-int option_raw = 0,
+int option_verbose = 0,
+    option_raw = 0,
     option_inv = 0,
     option_b = 0,
     option_timestamp = 0,
@@ -26,7 +27,7 @@ int wav_channel = 0;     // audio channel: left
 
 #define BAUD_RATE   2400
 
-#define FRAMELEN    128
+#define FRAMELEN    107 //128
 #define BITFRAMELEN (8*FRAMELEN)
 
 #define HEADLEN 64
@@ -222,11 +223,32 @@ int compare2() {
 }
 
 
+ui32_t crc16(ui8_t bytes[], int len) {
+    ui32_t crc16poly = 0x1021;
+    ui32_t rem = 0;//0xA9BD;//0; // init value
+    int i, j;
+    for (i = 0; i < len; i++) {
+        rem = rem ^ (bytes[i] << 8);
+        for (j = 0; j < 8; j++) {
+            if (rem & 0x8000) {
+                rem = (rem << 1) ^ crc16poly;
+            }
+            else {
+                rem = (rem << 1);
+            }
+            rem &= 0xFFFF;
+        }
+    }
+    return rem;
+}
+
+
 char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 
 int print_frame() {
     int i, j;
+    int crcdat, crcval, crc1ok, crc2ok;
 
     for (j = 0; j < FRAMELEN; j++) {
         ui8_t byteval = 0;
@@ -243,6 +265,15 @@ int print_frame() {
             for (j = 0; j < FRAMELEN; j++) {
                 printf("%02X ", frame_bytes[j]);
             }
+        // CRC_1
+        crcdat = (frame_bytes[52]<<8) | frame_bytes[52+1];
+        crcval = crc16(frame_bytes+12, 40);
+        crc1ok = (crcdat == crcval);
+        // CRC_2
+        crcdat = (frame_bytes[99]<<8) | frame_bytes[99+1];
+        crcval = crc16(frame_bytes+70, 29) ^ 0x39BB; // crc16(0xA9BD)=0x39BB;
+        crc2ok = (crcdat == crcval);
+        printf(" #  [%s,%s]", crc1ok ? "OK1" : "NO1", crc2ok ? "OK2" : "NO2");
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -317,6 +348,25 @@ int print_frame() {
         if (vD < 0) vD += 360;
         printf("  vH: %.2f D: %.2f vV: %.2f ", vH, vD, vU);
 
+        printf(" ");
+
+        // CRC_1
+        crcdat = (frame_bytes[52]<<8) | frame_bytes[52+1];
+        crcval = crc16(frame_bytes+12, 40);
+        crc1ok = (crcdat == crcval);
+        printf(" %s", crc1ok ? "[OK1]" : "[NO1]");
+        if (option_verbose) printf(" # [%04X:%04X]", crcdat, crcval);
+
+        // CRC_2
+        crcdat = (frame_bytes[99]<<8) | frame_bytes[99+1];
+        crcval = crc16(frame_bytes+70, 29) ^ 0x39BB; // crc16(0xA9BD)=0x39BB;
+        crc2ok = (crcdat == crcval);
+        if (option_verbose) {
+            printf(" ");
+            printf(" %s", crc2ok ? "[OK2]" : "[NO2]");
+            if (option_verbose) printf(" # [%04X:%04X]", crcdat, crcval);
+        }
+
 
         printf("\n");
     }
@@ -341,12 +391,17 @@ int main(int argc, char **argv) {
         if      ( (strcmp(*argv, "-h") == 0) || (strcmp(*argv, "--help") == 0) ) {
             fprintf(stderr, "%s [options] audio.wav\n", fpname);
             fprintf(stderr, "  options:\n");
+            fprintf(stderr, "       -v\n");
+            fprintf(stderr, "       -r\n");
             fprintf(stderr, "       -i\n");
             fprintf(stderr, "       -b\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
+        }
+        else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
+            option_verbose = 1;
         }
         else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "-t" ) == 0) { option_timestamp = 1; }
