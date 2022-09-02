@@ -319,14 +319,19 @@ int print_frame() {
         count = (frame[4]<<8) | frame[5];
         printf("[%5d] ", count);
 
-        // date?
-        printf(" 20%02X-__-%02X ", frame[22], frame[20]);
+        // date? (binary-coded decimal (BCD))
+        ui8_t yy = frame[22]; // ? year
+        ui8_t mm = ((frame[16]&0xF)<<4) | ((frame[17]>>4)&0xF); // ? month
+        ui8_t dd = frame[20]; // day
+        printf(" 20%02X-%02X-%02X ", yy, mm, dd);
 
+        // time  (binary-coded decimal (BCD))
         ui8_t hrs = dechex(frame[23]);
         ui8_t min = dechex(frame[24]);
         ui8_t sec = dechex(frame[25]);
         printf(" %02X:%02X:%02X ", frame[23], frame[24], frame[25]);  // UTC
 
+        // lat
         int   lat_deg = dechex(frame[26]);  // sign ?
         ui8_t lat_min1 = dechex(frame[27]);
         ui8_t lat_min2 = dechex(frame[28]);
@@ -334,6 +339,7 @@ int print_frame() {
         float lat = lat_deg + (lat_min1 + lat_min2*1e-2f + lat_min3*1e-4f) / 60.0f;
         printf(" lat: %.4f ", lat);
 
+        // lon
         int   lon_deg = dechex(frame[30])*10 + dechex(frame[31]>>4);  // sign ?
         ui8_t lon_min1 = dechex( ((frame[31]&0xF)<<4) | ((frame[32]>>4)&0xF) );
         ui8_t lon_min2 = dechex( ((frame[32]&0xF)<<4) | ((frame[33]>>4)&0xF) );
@@ -343,6 +349,7 @@ int print_frame() {
 
         //frame[35]
 
+        // alt
         int   alt1 = dechex(frame[36]);
         ui8_t alt2 = dechex(frame[37]);
         ui8_t alt3 = dechex(frame[38]);
