@@ -225,7 +225,7 @@ int compare2() {
 
 ui32_t crc16(ui8_t bytes[], int len) {
     ui32_t crc16poly = 0x1021;
-    ui32_t rem = 0;//0xA9BD;//0; // init value
+    ui32_t rem = 0; // init value
     int i, j;
     for (i = 0; i < len; i++) {
         rem = rem ^ (bytes[i] << 8);
@@ -248,7 +248,8 @@ char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 int print_frame() {
     int i, j;
-    int crcdat, crcval, crc1ok, crc2ok;
+    int crcdat1, crcval1, crc_ok1,
+        crcdat2, crcval2, crc_ok2;
 
     for (j = 0; j < FRAMELEN; j++) {
         ui8_t byteval = 0;
@@ -260,20 +261,21 @@ int print_frame() {
         frame_bytes[j] = byteval;
     }
 
+    // CRC_1
+    crcdat1 = (frame_bytes[52]<<8) | frame_bytes[52+1];
+    crcval1 = crc16(frame_bytes+12, 40);
+    crc_ok1 = (crcdat1 == crcval1);
+    // CRC_2
+    crcdat2 = (frame_bytes[99]<<8) | frame_bytes[99+1];
+    crcval2 = crc16(frame_bytes+70, 29) ^ 0x39BB; // crc16(0xA9BD)=0x39BB;
+    crc_ok2 = (crcdat2 == crcval2);
+
     if (option_raw) {
         if (option_raw == 1) {
             for (j = 0; j < FRAMELEN; j++) {
                 printf("%02X ", frame_bytes[j]);
             }
-        // CRC_1
-        crcdat = (frame_bytes[52]<<8) | frame_bytes[52+1];
-        crcval = crc16(frame_bytes+12, 40);
-        crc1ok = (crcdat == crcval);
-        // CRC_2
-        crcdat = (frame_bytes[99]<<8) | frame_bytes[99+1];
-        crcval = crc16(frame_bytes+70, 29) ^ 0x39BB; // crc16(0xA9BD)=0x39BB;
-        crc2ok = (crcdat == crcval);
-        printf(" #  [%s,%s]", crc1ok ? "OK1" : "NO1", crc2ok ? "OK2" : "NO2");
+            printf(" #  [%s,%s]", crc_ok1 ? "OK1" : "NO1", crc_ok2 ? "OK2" : "NO2");
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -351,20 +353,13 @@ int print_frame() {
         printf(" ");
 
         // CRC_1
-        crcdat = (frame_bytes[52]<<8) | frame_bytes[52+1];
-        crcval = crc16(frame_bytes+12, 40);
-        crc1ok = (crcdat == crcval);
-        printf(" %s", crc1ok ? "[OK1]" : "[NO1]");
-        if (option_verbose) printf(" # [%04X:%04X]", crcdat, crcval);
-
+        printf(" %s", crc_ok1 ? "[OK1]" : "[NO1]");
+        if (option_verbose) printf(" # [%04X:%04X]", crcdat1, crcval1);
         // CRC_2
-        crcdat = (frame_bytes[99]<<8) | frame_bytes[99+1];
-        crcval = crc16(frame_bytes+70, 29) ^ 0x39BB; // crc16(0xA9BD)=0x39BB;
-        crc2ok = (crcdat == crcval);
         if (option_verbose) {
             printf(" ");
-            printf(" %s", crc2ok ? "[OK2]" : "[NO2]");
-            if (option_verbose) printf(" # [%04X:%04X]", crcdat, crcval);
+            printf(" %s", crc_ok2 ? "[OK2]" : "[NO2]");
+            if (option_verbose) printf(" # [%04X:%04X]", crcdat2, crcval2);
         }
 
 
