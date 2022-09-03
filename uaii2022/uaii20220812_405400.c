@@ -15,7 +15,8 @@ typedef short i16_t;
 typedef unsigned int ui32_t;
 
 
-int option_raw = 0,
+int option_verbose = 0,
+    option_raw = 0,
     option_inv = 0,
     option_b = 0,
     option_timestamp = 0,
@@ -270,10 +271,26 @@ ui8_t  PN9b[64] = { 0xFF, 0x87, 0xB8, 0x59, 0xB7, 0xA1, 0xCC, 0x24,
                     0xE7, 0x8B, 0x72, 0x90, 0x4C, 0xE8, 0xFb, 0xC1};
 
 
+ui32_t xor8sum(ui8_t bytes[], int len) {
+    int j;
+    ui8_t xor8 = 0;
+    ui8_t sum8 = 0;
+
+    for (j = 8; j < 8+53; j++) {
+        xor8 ^= xframe[j];
+        sum8 += xframe[j];
+    }
+    //sum8 &= 0xFF;
+
+    return  (xor8 << 8) | sum8;
+}
+
+
 #define OFS 6
 
 int print_frame() {
     int j;
+    int chkdat, chkval, chk_ok;
 
     bits2bytes(frame_bits, frame_bytes);
 
@@ -283,12 +300,18 @@ int print_frame() {
         xframe[j] = b;
     }
 
+    chkval = xor8sum(xframe+8, 53);
+    chkdat = (xframe[61]<<8) | xframe[61+1];
+    chk_ok = (chkdat == chkval);
+
     if (option_raw) {
         if (option_raw == 1) {
             for (j = 0; j < FRAMELEN; j++) {
                 //printf("%02X ", frame_bytes[j]);
                 printf("%02X ", xframe[j]);
             }
+            printf(" #  %s", chk_ok ? "[OK]" : "[NO]");
+            if (option_verbose) printf(" # [%04X:%04X]", chkdat, chkval);
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -351,6 +374,10 @@ int print_frame() {
 
         }
 
+        // checksum
+        printf("  %s", chk_ok ? "[OK]" : "[NO]");
+        if (option_verbose) printf(" # [%04X:%04X]", chkdat, chkval);
+
         printf("\n");
     }
 
@@ -367,7 +394,6 @@ int main(int argc, char **argv) {
     int header_found = 0;
 
 
-
     fpname = argv[0];
     ++argv;
     while ((*argv) && (!wavloaded)) {
@@ -380,6 +406,9 @@ int main(int argc, char **argv) {
         }
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;
+        }
+        else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
+            option_verbose = 1;
         }
         else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "-t" ) == 0) { option_timestamp = 1; }
