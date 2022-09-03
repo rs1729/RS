@@ -276,9 +276,9 @@ ui32_t xor8sum(ui8_t bytes[], int len) {
     ui8_t xor8 = 0;
     ui8_t sum8 = 0;
 
-    for (j = 8; j < 8+53; j++) {
-        xor8 ^= xframe[j];
-        sum8 += xframe[j];
+    for (j = 0; j < len; j++) {
+        xor8 ^= bytes[j];
+        sum8 += bytes[j];
     }
     //sum8 &= 0xFF;
 
