@@ -31,7 +31,7 @@ int wav_channel = 0;     // audio channel: left
 #define HEADLEN 32 //64
 #define HEADOFS 0
 char header[] = "01010101""01010101""01010101"//"01010101"  // preamble
-                "00101101";//"11010100""00110000";
+                "00101101";//"11010100" //"00110000";
 char buf[HEADLEN+1] = "xxxxxxxxxx\0";
 int bufpos = 0;
 
@@ -259,17 +259,42 @@ ui32_t bits2val(ui8_t *bits, int len) { // big endian
     return val;
 }
 
+ui32_t crc16(ui8_t bytes[], int len) {
+    ui32_t crc16poly = 0x8005;
+    ui32_t rem = 0; // init value
+    int i, j;
+    for (i = 0; i < len; i++) {
+        rem = rem ^ (bytes[i] << 8);
+        for (j = 0; j < 8; j++) {
+            if (rem & 0x8000) {
+                rem = (rem << 1) ^ crc16poly;
+            }
+            else {
+                rem = (rem << 1);
+            }
+            rem &= 0xFFFF;
+        }
+    }
+    return rem;
+}
+
 int print_frame() {
     int i, j;
+    int crcdat, crcval, crc_ok;
 
     bits2bytes(frame_bits, frame_bytes);
 
+    // CRC
+    crcdat = (frame_bytes[54]<<8) | frame_bytes[54+1];
+    crcval = crc16(frame_bytes+5, 49);
+    crc_ok = (crcdat == crcval);
 
     if (option_raw) {
         if (option_raw == 1) {
             for (j = 0; j < FRAMELEN; j++) {
                 printf("%02X ", frame_bytes[j]);
             }
+            printf(" #  %s", crc_ok ? "[OK]" : "[NO]");
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -322,6 +347,11 @@ int print_frame() {
         // counter ?
         val = bits2val(frame_bits+370, 14);
         printf(" [%5d] ", val);
+
+        // CRC
+        printf(" %s", crc_ok ? "[OK]" : "[NO]");
+        //printf(" # [%04X:%04X]", crcdat, crcval);
+
 
         printf("\n");
     }
