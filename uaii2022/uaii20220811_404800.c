@@ -245,6 +245,7 @@ ui32_t crc16rev(ui8_t bytes[], int len) {
 
 int print_frame() {
     int i, j;
+    int crcdat, crcval, crc_ok;
 
     for (j = 0; j < FRAMELEN; j++) {
         ui8_t byteval = 0;
@@ -256,14 +257,17 @@ int print_frame() {
         frame_bytes[j] = byteval;
     }
 
+    // CRC
+    crcdat = frame_bytes[105] | (frame_bytes[105+1]<<8);
+    crcval = crc16rev(frame_bytes+8, 97);
+    crc_ok = (crcdat == crcval);
+
     if (option_raw) {
         if (option_raw == 1) {
             for (j = 0; j < FRAMELEN; j++) {
                 printf("%02X ", frame_bytes[j]);
             }
-            int crcdat = frame_bytes[105] | (frame_bytes[105+1]<<8);
-            int crcval = crc16rev(frame_bytes+8, 97);
-            printf(" #  %s", (crcdat == crcval) ? "[OK]" : "[NO]");
+            printf(" #  %s", crc_ok ? "[OK]" : "[NO]");
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -333,9 +337,7 @@ int print_frame() {
         printf(" ");
 
         // CRC
-        int crcdat = frame_bytes[105] | (frame_bytes[105+1]<<8);
-        int crcval = crc16rev(frame_bytes+8, 97);
-        printf(" %s", (crcdat == crcval) ? "[OK]" : "[NO]");
+        printf(" %s", crc_ok ? "[OK]" : "[NO]");
         if (option_verbose) printf(" # [%04X:%04X]", crcdat, crcval);
 
         printf("\n");
