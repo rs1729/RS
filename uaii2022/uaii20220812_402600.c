@@ -293,6 +293,10 @@ int print_frame() {
         int wday;
         float sek = 0.0f;
 
+        printf(" ("); // SN ?
+        for (i = 0; i < 4; i++) printf("%02d", frame_bytes[12+i]);
+        printf(")  ");
+
         val = 0;
         for (i = 0; i < 4; i++) val |= frame_bytes[16+i] << (8*i);
 
