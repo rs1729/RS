@@ -751,7 +751,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 fprintf(stdout, " lon: "col_GPSlon"%.5f"col_TXT" ", gpx->lon);
                 fprintf(stdout, " alt: "col_GPSalt"%.2f"col_TXT" ", gpx->alt);
                 if (!err2) {
-                    fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
+                    fprintf(stdout, "  vH: "col_GPSvel"%4.1f"col_TXT"  D: "col_GPSvel"%5.1f"col_TXT"  vV: "col_GPSvel"%3.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
                 }
                 if (gpx->option.vbs >= 1 && (bcOK || csOK)) { // SN
                     fprintf(stdout, "  SN: "col_SN"%s"col_TXT, gpx->SN);
@@ -791,7 +791,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 fprintf(stdout, " lon: %.5f ", gpx->lon);
                 fprintf(stdout, " alt: %.2f ", gpx->alt);
                 if (!err2) {
-                    fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
+                    fprintf(stdout, "  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
                 }
                 if (gpx->option.vbs >= 1 && (bcOK || csOK)) { // SN
                     fprintf(stdout, "  SN: %s", gpx->SN);
