@@ -668,7 +668,6 @@ int f32buf_sample(dsp_t *dsp, int inv) {
     if (dsp->opt_iq)
     {
         if (dsp->opt_iq == 5) {
-            ui32_t s_reset = dsp->dectaps*dsp->lut_len;
             int j;
             if ( f32read_cblock(dsp) < dsp->decM ) return EOF;
             for (j = 0; j < dsp->decM; j++) {
@@ -678,16 +677,16 @@ int f32buf_sample(dsp_t *dsp, int inv) {
                     z = dsp->decMbuf[j] * cexp(f0*_2PI*I);
                 }
                 else {
-                    z = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % dsp->lut_len];
+                    z = dsp->decMbuf[j] * dsp->ex[dsp->sample_decM];
                 }
+                dsp->sample_decM += 1; if (dsp->sample_decM >= dsp->lut_len) dsp->sample_decM = 0;
 
-                dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = z;
-                dsp->sample_dec += 1;
-                if (dsp->sample_dec == s_reset) dsp->sample_dec = 0;
+                dsp->decXbuffer[dsp->sample_decX] = z;
+                dsp->sample_decX += 1; if (dsp->sample_decX >= dsp->dectaps) dsp->sample_decX = 0;
             }
             if (dsp->decM > 1)
             {
-                z = lowpass(dsp->decXbuffer, dsp->sample_dec, dsp->dectaps, ws_dec);
+                z = lowpass(dsp->decXbuffer, dsp->sample_decX, dsp->dectaps, ws_dec);
             }
         }
         else if ( f32read_csample(dsp, &z) == EOF ) return EOF;

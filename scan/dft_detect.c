@@ -206,12 +206,13 @@ static char *rawbits = NULL;
 // decimation
 static ui32_t dsp__sr_base;
 static ui32_t dsp__dectaps;
-static ui32_t dsp__sample_dec;
+static ui32_t dsp__sample_decX;
 static int dsp__decM = 1;
 static float complex *dsp__decXbuffer;
 static float complex *dsp__decMbuf;
 static float complex *dsp__ex; // exp_lut
 static ui32_t dsp__lut_len;
+static ui32_t dsp__sample_decM;
 
 static float *ws_dec;
 static double dsp__xlt_fq = 0.0;
@@ -675,15 +676,15 @@ static int f32buf_sample(FILE *fp, int inv) {
     if (option_iq)
     {
         if (option_iq == 5) { // baseband decimation
-            ui32_t s_reset = dsp__dectaps*dsp__lut_len;
+            //ui32_t s_reset = dsp__dectaps*dsp__lut_len;
             int j;
             if ( f32read_cblock(fp) < dsp__decM ) return EOF;
             for (j = 0; j < dsp__decM; j++) {
-                dsp__decXbuffer[dsp__sample_dec % dsp__dectaps] = dsp__decMbuf[j] * dsp__ex[dsp__sample_dec % dsp__lut_len];
-                dsp__sample_dec += 1;
-                if (dsp__sample_dec == s_reset) dsp__sample_dec = 0;
+                dsp__decXbuffer[dsp__sample_decX] = dsp__decMbuf[j] * dsp__ex[dsp__sample_decM];
+                dsp__sample_decM += 1; if (dsp__sample_decM >= dsp__lut_len) dsp__sample_decM = 0;
+                dsp__sample_decX += 1; if (dsp__sample_decX >= dsp__dectaps) dsp__sample_decX = 0;
             }
-            z = lowpass(dsp__decXbuffer, dsp__sample_dec, dsp__dectaps, ws_dec);
+            z = lowpass(dsp__decXbuffer, dsp__sample_decX, dsp__dectaps, ws_dec);
 
         }
         else if ( f32read_csample(fp, &z) == EOF ) return EOF;

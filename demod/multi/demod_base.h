@@ -9,6 +9,7 @@
 #ifndef M_PI
     #define M_PI  (3.1415926535897932384626433832795)
 #endif
+#define _2PI  (6.2831853071795864769252867665590)
 
 
 #ifndef INTTYPES
@@ -100,6 +101,10 @@ typedef struct {
     float complex *rot_iqbuf;
     float complex F1sum;
     float complex F2sum;
+    //
+    double complex iw1;
+    double complex iw2;
+
 
     //
     char *rawbits;
@@ -132,8 +137,9 @@ typedef struct {
     int blk_cnt;
     ui32_t sr_base;
     ui32_t dectaps;
-    ui32_t sample_dec;
+    ui32_t sample_decX;
     ui32_t lut_len;
+    ui32_t sample_decM;
     float complex *decXbuffer;
     float complex *decMbuf;
     float complex *ex; // exp_lut
@@ -153,7 +159,7 @@ typedef struct {
     int lpFMtaps; // ui32_t
     float *ws_lpFM;
     float *lpFM_buf;
-	float *fm_buffer;
+    float *fm_buffer;
 
     int opt_cnt;
 
@@ -192,7 +198,7 @@ typedef struct {
 
 
 
-float read_wav_header(pcm_t *);
+int read_wav_header(pcm_t *);
 int f32buf_sample(dsp_t *, int);
 int read_slbit(dsp_t *, int*, int, int, int, float, int);
 int read_softbit(dsp_t *, hsbit_t *, int, int, int, float, int );
