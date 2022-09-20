@@ -53,6 +53,7 @@ typedef struct {
     char ID[8+4];
     ui8_t frame_bytes[FRAMELEN+4];
     char frame_bits[BITFRAMELEN+8];
+    char frm_str[FRAMELEN+4];
     option_t option;
 } gpx_t;
 
@@ -85,9 +86,18 @@ static int bits2bytes(char *bitstr, ui8_t *bytes) {
     return 0;
 }
 
+static int fn(gpx_t *gpx, int n) {
+    int pos = 0;
+    if (n <= 0) return 0;
+    while (n > 0 && pos < 128) {
+        if (gpx->frm_str[pos] == '\0') n -= 1;
+        pos += 1;
+    }
+    return pos;
+}
 
 static int print_frame(gpx_t *gpx, int pos) {
-    int i, j, len = 91;
+    int i, j, len = 91; // 128
 
     if (pos/8 < OFS+len) return -1;
 
@@ -114,6 +124,48 @@ static int print_frame(gpx_t *gpx, int pos) {
 
         printf("%s\n", gpx->frame_bytes+OFS);
 
+
+        memset(gpx->frm_str, 0, FRAMELEN);
+        strncpy(gpx->frm_str, gpx->frame_bytes+OFS, 128);
+        for (j = 0; j < 128; j++) {
+            if (gpx->frm_str[j] == ',') gpx->frm_str[j] = '\0';
+        }
+
+        int pos_ID = fn(gpx, 0);
+        strncpy(gpx->ID, gpx->frm_str+pos_ID, 8);
+
+        int pos_FRNR = fn(gpx, 2);
+        gpx->frnr = atoi(gpx->frm_str+pos_FRNR);
+
+        int pos_DATETIME = fn(gpx, 3);
+        char datetime_str[12+1];
+        strncpy(datetime_str, gpx->frm_str+pos_DATETIME, 12);
+        datetime_str[12] = '\0';
+        gpx->sec = atoi(datetime_str+10); datetime_str[10] = '\0';
+        gpx->min = atoi(datetime_str+ 8); datetime_str[ 8] = '\0';
+        gpx->hrs = atoi(datetime_str+ 6); datetime_str[ 6] = '\0';
+        gpx->day   = atoi(datetime_str+ 4); datetime_str[ 4] = '\0';
+        gpx->month = atoi(datetime_str+ 2); datetime_str[ 2] = '\0';
+        gpx->year  = atoi(datetime_str) + 2000;
+
+        int pos_LAT = fn(gpx, 5);
+        gpx->lat = atof(gpx->frm_str+pos_LAT);
+
+        int pos_LON = fn(gpx, 6);
+        gpx->lon = atof(gpx->frm_str+pos_LON);
+
+        int pos_ALT = fn(gpx, 7);
+        gpx->alt = atof(gpx->frm_str+pos_ALT);
+
+        if (gpx->option.vbs) {
+            printf(" [%4d] ", gpx->frnr);
+            printf(" (%s) ", gpx->ID);
+            printf(" %4d-%02d-%02d ", gpx->year, gpx->month, gpx->day);
+            printf("%02d:%02d:%02d ", gpx->hrs, gpx->min, gpx->sec);
+            printf(" lat: %.6f  lon: %.6f  alt: %.0f ", gpx->lat, gpx->lon, gpx->alt);
+            printf("\n");
+            printf("\n");
+        }
     }
 
     return 0;
