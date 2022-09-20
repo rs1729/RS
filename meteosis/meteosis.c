@@ -22,13 +22,13 @@ int wav_channel = 0;     // audio channel: left
 
 #define BAUD_RATE   1200
 
-#define FRAMELEN    148
+#define FRAMELEN    135 //148
 #define BITFRAMELEN (8*FRAMELEN)
 
 #define HEADLEN 32 //40
 #define HEADOFS 0
-char header[] = "10101010""10101010""10101010"//"10101010"  // preamble
-                "11010000";//10101110 00000000 11000100
+char header[] = "10101010""10101010"  // preamble: AA AA
+                "10110100""00101011"; // 10000000: B4 2B 80
 char buf[HEADLEN+1] = "xxxxxxxxxx\0";
 int bufpos = 0;
 
@@ -245,12 +245,12 @@ int bits2bytes(char *bitstr, ui8_t *bytes) {
     return 0;
 }
 
-int ofs = 6;
+int OFS = 5;
 
 int print_frame() {
     int i, j;
 
-    bits2bytes(frame_bits+ofs, frame_bytes);
+    bits2bytes(frame_bits, frame_bytes);
 
     if (option_raw) {
         if (option_raw == 1) {
@@ -260,7 +260,7 @@ int print_frame() {
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
-                printf("%c", frame_bits[ofs+j]);
+                printf("%c", frame_bits[j]);
                 if (j % 8 == 7) printf(" ");
             }
         }
@@ -271,7 +271,7 @@ int print_frame() {
         // ASCII-String:
         // SN/ID?,?,counter,YYMMDDhhmmss,?,lat,lon,alt?,?,?,?,?,?,?,?,?,?,?
 
-        printf("%s\n", frame_bytes+5);
+        printf("%s\n", frame_bytes+OFS);
     }
 
     return 0;
