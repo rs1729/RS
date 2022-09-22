@@ -733,7 +733,7 @@ static int lowpass_init(float f, int taps, float **pws) {
 }
 
 
-static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+static float complex lowpass1(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
     ui32_t s = sample % taps;
     double complex w = 0;
@@ -741,6 +741,22 @@ static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps,
         w += buffer[n]*ws[taps+s-n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
     }
     return (float complex)w;
+// symmetry: ws[n] == ws[taps-1-n]
+}
+static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    float complex w = 0;     // -Ofast
+    int n;
+    int s = sample % taps; // lpIQ
+    int S1 = s+1;
+    int S1N = S1-taps;
+    int n0 = taps-1-s;
+    for (n = 0; n < n0; n++) {
+        w += buffer[S1+n]*ws[n];
+    }
+    for (n = n0; n < taps; n++) {
+        w += buffer[S1N+n]*ws[n];
+    }
+    return w;
 // symmetry: ws[n] == ws[taps-1-n]
 }
 
