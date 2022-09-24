@@ -697,8 +697,8 @@ static int print_frame(gpx_t *gpx, int crc_err, int len) {
         {
             get_SondeSN(gpx);
             get_FrameNb(gpx);
-            printf("(%7d)  ", gpx->sn);
-            printf("[%5d]  ", gpx->frnr);
+            printf(" (%7d) ", gpx->sn);
+            printf(" [%5d] ", gpx->frnr);
 
             get_GPSlat(gpx);
             get_GPSlon(gpx);
