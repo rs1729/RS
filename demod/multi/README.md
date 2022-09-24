@@ -10,8 +10,9 @@ simultaneous decoding
   `gcc -O2 -c rs41base.c` <br />
   `gcc -O2 -c dfm09base.c` <br />
   `gcc -O2 -c m10base.c` <br />
+  `gcc -O2 -c m20base.c` <br />
   `gcc -O2 -c lms6Xbase.c` <br />
-  `gcc -O2 rs_multi.c demod_base.o bch_ecc_mod.o rs41base.o dfm09base.o m10base.o lms6Xbase.o \`<br />
+  `gcc -O2 rs_multi.c demod_base.o bch_ecc_mod.o rs41base.o dfm09base.o m10base.o m20base.o lms6Xbase.o \`<br />
   &nbsp;&nbsp;&nbsp;&nbsp; `-lm -pthread -o rs_multi`
 
 #### Usage/Examples
