@@ -651,6 +651,43 @@ static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps,
     return w;
 // symmetry: ws[n] == ws[taps-1-n]
 }
+static float complex lowpass0_sym(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
+    double complex w = buffer[(sample+(taps+1)/2) % taps]*ws[(taps-1)/2]; // (N+1)/2 = (N-1)/2 + 1
+    for (n = 0; n < (taps-1)/2; n++) {
+        w += (buffer[(sample+n+1)%taps]+buffer[(sample+taps-n)%taps])*ws[n];
+    }
+    return (float complex)w;
+}
+static float complex lowpass2_sym(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    float complex w = 0;
+    int n;
+    int s = (sample+1) % taps; // lpIQ
+    int SW = (taps-1)/2;
+    int B1 = s + SW;
+    int n1 = SW - s;
+    int n0 = 0;
+
+    if (s > SW) {
+        B1 -= taps;
+        n1 = -n1 - 1;
+        n0 = B1+n1+1;
+    }
+
+    w = buffer[B1]*ws[SW];
+
+    for (n = 1; n < n1+1; n++) {
+        w += (buffer[B1 + n] + buffer[B1 - n]) * ws[SW+n];
+    }
+
+    for (n = 0; n < SW-n1; n++) {
+        w += (buffer[s + n] + buffer[s-1 - n]) * ws[SW+SW-n];
+    }
+
+    return w;
+// symmetry: ws[n] == ws[taps-1-n]
+}
+
 
 static float re_lowpass0(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
@@ -724,7 +761,7 @@ int f32buf_sample(dsp_t *dsp, int inv) {
         w = z * conj(z0);
         s_fm = gain * carg(w)/M_PI;
 
-        dsp->rot_iqbuf[dsp->sample_in % dsp->N_IQBUF] = z;
+        dsp->rot_iqbuf[dsp->sample_in % dsp->N_IQBUF] = z;  // sample_in & (N-1) , N = (1<<LOG2N)
 
 
         if (dsp->opt_iq >= 2)
@@ -801,7 +838,7 @@ int f32buf_sample(dsp_t *dsp, int inv) {
     dsp->fm_buffer[dsp->sample_in % dsp->M] = s_fm;
 
     if (inv) s = -s;
-    dsp->bufs[dsp->sample_in % dsp->M] = s;
+    dsp->bufs[dsp->sample_in % dsp->M] = s;  // sample_in & (M-1) , M = (1<<LOG2N)
 
 
     xneu = dsp->bufs[(dsp->sample_in  ) % dsp->M];
@@ -1328,7 +1365,7 @@ int init_buffers(dsp_t *dsp) {
 
     dsp->K = K;
     dsp->L = L;
-    dsp->M = M;
+    dsp->M = M; // = (1<<LOG2N)
 
     dsp->Nvar = L; // wenn Nvar fuer xnorm, dann Nvar=rshd.L
 
@@ -1405,7 +1442,7 @@ int init_buffers(dsp_t *dsp) {
     {
         if (dsp->nch < 2) return -1;
 
-        dsp->N_IQBUF = dsp->DFT.N;
+        dsp->N_IQBUF = dsp->DFT.N; // = (1<<LOG2N)
         dsp->rot_iqbuf = calloc(dsp->N_IQBUF+1, sizeof(float complex));  if (dsp->rot_iqbuf == NULL) return -1;
     }
 
