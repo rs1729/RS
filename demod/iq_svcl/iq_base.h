@@ -70,8 +70,9 @@ typedef struct {
     int blk_cnt;
     ui32_t sr_base;
     ui32_t dectaps;
-    ui32_t sample_dec;
+    ui32_t sample_decX;
     ui32_t lut_len;
+    ui32_t sample_decM;
     float complex *decXbuffer;
     float complex *decMbuf;
     float complex *ex; // exp_lut
@@ -105,7 +106,7 @@ typedef struct {
 
 
 
-float read_wav_header(pcm_t *);
+int read_wav_header(pcm_t *);
 
 int init_buffers(dsp_t *);
 int free_buffers(dsp_t *);

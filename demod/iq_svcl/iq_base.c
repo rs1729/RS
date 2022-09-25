@@ -160,7 +160,7 @@ static int findstr(char *buff, char *str, int pos) {
     return i;
 }
 
-float read_wav_header(pcm_t *pcm) {
+int read_wav_header(pcm_t *pcm) {
     FILE *fp = pcm->fp;
     char txt[4+1] = "\0\0\0\0";
     unsigned char dat[4];
@@ -168,11 +168,13 @@ float read_wav_header(pcm_t *pcm) {
     int sample_rate = 0, bits_sample = 0, channels = 0;
 
     if (fread(txt, 1, 4, fp) < 4) return -1;
-    if (strncmp(txt, "RIFF", 4)) return -1;
+    if (strncmp(txt, "RIFF", 4) && strncmp(txt, "RF64", 4)) return -1;
+
     if (fread(txt, 1, 4, fp) < 4) return -1;
     // pos_WAVE = 8L
     if (fread(txt, 1, 4, fp) < 4) return -1;
     if (strncmp(txt, "WAVE", 4)) return -1;
+
     // pos_fmt = 12L
     for ( ; ; ) {
         if ( (byte=fgetc(fp)) == EOF ) return -1;
@@ -486,7 +488,7 @@ static float complex lowpass0(float complex buffer[], ui32_t sample, ui32_t taps
     }
     return (float complex)w;
 }
-static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+static float complex lowpass1(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
     ui32_t s = sample % taps;
     double complex w = 0;
@@ -496,23 +498,42 @@ static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps,
     return (float complex)w;
 // symmetry: ws[n] == ws[taps-1-n]
 }
+static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    float complex w = 0;     // -Ofast
+    int n;
+    int s = sample % taps; // lpIQ
+    int S1 = s+1;
+    int S1N = S1-taps;
+    int n0 = taps-1-s;
+    for (n = 0; n < n0; n++) {
+        w += buffer[S1+n]*ws[n];
+    }
+    for (n = n0; n < taps; n++) {
+        w += buffer[S1N+n]*ws[n];
+    }
+    return w;
+// symmetry: ws[n] == ws[taps-1-n]
+}
 
 /* -------------------------------------------------------------------------- */
 
 int read_ifblock(dsp_t *dsp, float complex *z) {
 
-    ui32_t s_reset = dsp->dectaps*dsp->lut_len;
+    //ui32_t s_reset = dsp->dectaps*dsp->lut_len;
     int j;
 
     if ( f32read_cblock(dsp) < dsp->decM ) return EOF;
     //if ( f32read_cblock(dsp) < dsp->decM * blk_sz) return EOF;
+
     for (j = 0; j < dsp->decM; j++) {
-        dsp->decXbuffer[dsp->sample_dec % dsp->dectaps] = dsp->decMbuf[j] * dsp->ex[dsp->sample_dec % dsp->lut_len];
-        dsp->sample_dec += 1;
-        if (dsp->sample_dec == s_reset) dsp->sample_dec = 0;
+        dsp->decXbuffer[dsp->sample_decX] = dsp->decMbuf[j] * dsp->ex[dsp->sample_decM];
+        dsp->sample_decX += 1; if (dsp->sample_decX >= dsp->dectaps) dsp->sample_decX = 0;
+        dsp->sample_decM += 1; if (dsp->sample_decM >= dsp->lut_len) dsp->sample_decM = 0;
     }
 
-    *z = lowpass(dsp->decXbuffer, dsp->sample_dec, dsp->dectaps, ws_dec);
+    *z = lowpass(dsp->decXbuffer, dsp->sample_decX, dsp->dectaps, ws_dec);
+
+    //dsp->sample_in += 1;
 
     return 0;
 }
