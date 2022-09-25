@@ -30,7 +30,11 @@
     #define M_PI  (3.1415926535897932384626433832795)
 #endif
 
+#define LP_IQ    1
+#define LP_FM    2
+
 #define FM_GAIN (0.8)
+float fm_gain = FM_GAIN;
 
 
 typedef unsigned char  ui8_t;
@@ -52,6 +56,8 @@ typedef struct {
 
     ui32_t sample;
 
+    int opt_lp;
+
     // IF: lowpass
     int lpIQ_bw;
     float lpIQ_fbw;
@@ -59,11 +65,21 @@ typedef struct {
     float *ws_lpIQ;
     float complex *lpIQ_buf;
 
+    // FM: lowpass
+    int lpFM_bw;
+    int lpFMtaps; // ui32_t
+    float *ws_lpFM;
+    float *lpFM_buf;
+    float *fm_buffer;
+
+    int decFM;
+
 } dsp_t;
 
 
 typedef struct {
     int sr;       // sample_rate
+    int sr_out;
     int bps;      // bits_sample  bits/sample
     int nch;      // channels
     int bps_out;
@@ -79,7 +95,7 @@ static int findstr(char *buff, char *str, int pos) {
     return i;
 }
 
-static float read_wav_header(pcm_t *pcm) {
+static int read_wav_header(pcm_t *pcm) {
     FILE *fp = pcm->fp;
     char txt[4+1] = "\0\0\0\0";
     unsigned char dat[4];
@@ -87,11 +103,13 @@ static float read_wav_header(pcm_t *pcm) {
     int sample_rate = 0, bits_sample = 0, channels = 0;
 
     if (fread(txt, 1, 4, fp) < 4) return -1;
-    if (strncmp(txt, "RIFF", 4)) return -1;
+    if (strncmp(txt, "RIFF", 4) && strncmp(txt, "RF64", 4)) return -1;
+
     if (fread(txt, 1, 4, fp) < 4) return -1;
     // pos_WAVE = 8L
     if (fread(txt, 1, 4, fp) < 4) return -1;
     if (strncmp(txt, "WAVE", 4)) return -1;
+
     // pos_fmt = 12L
     for ( ; ; ) {
         if ( (byte=fgetc(fp)) == EOF ) return -1;
@@ -142,7 +160,7 @@ static float read_wav_header(pcm_t *pcm) {
 
 static float write_wav_header(pcm_t *pcm) {
     FILE *fp = stdout;
-    ui32_t sr  = pcm->sr;
+    ui32_t sr  = pcm->sr_out;
     ui32_t bps = pcm->bps_out;
     ui32_t data = 0;
 
@@ -255,14 +273,6 @@ static int lowpass_init(float f, int taps, float **pws) {
     return taps;
 }
 
-static float complex lowpass0(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
-    ui32_t n;
-    double complex w = 0;
-    for (n = 0; n < taps; n++) {
-        w += buffer[(sample+n+1)%taps]*ws[taps-1-n];
-    }
-    return (float complex)w;
-}
 static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
     ui32_t n;
     ui32_t s = sample % taps;
@@ -274,9 +284,20 @@ static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps,
 // symmetry: ws[n] == ws[taps-1-n]
 }
 
+static float re_lowpass(float buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
+    ui32_t s = sample % taps;
+    double w = 0;
+    for (n = 0; n < taps; n++) {
+        w += buffer[n]*ws[taps+s-n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
+    }
+    return (float)w;
+}
+
 /* -------------------------------------------------------------------------- */
 
 #define IF_TRANSITION_BW (4e3)  // 4kHz transition width
+#define FM_TRANSITION_BW (4e3)  // (min) transition width
 
 static int init_buffers(dsp_t *dsp) {
 
@@ -294,6 +315,32 @@ static int init_buffers(dsp_t *dsp) {
     dsp->lpIQ_buf = calloc( dsp->lpIQtaps+3, sizeof(float complex));
     if (dsp->lpIQ_buf == NULL) return -1;
 
+
+    // FM lowpass
+    if (dsp->opt_lp & LP_FM)
+    {
+        float f_lp; // lowpass_bw
+        int taps; // lowpass taps: 4*sr/transition_bw
+
+        f_lp = 4e3/(float)dsp->sr; // default
+        if (dsp->lpFM_bw > 0) f_lp = dsp->lpFM_bw/(float)dsp->sr;
+        taps = 4*dsp->sr/FM_TRANSITION_BW;
+        if (dsp->decFM > 1)
+        {
+            f_lp *= 2; //if (dsp->opt_iq >= 2 && dsp->opt_iq < 6) f_lp *= 2;
+            taps = taps/2;
+        }
+        if (dsp->sr > 100e3) taps = taps/2;
+        if (dsp->sr > 200e3) taps = taps/2;
+        //if (dsp->opt_iq == 5) taps = taps/2;
+        if (taps%2==0) taps++;
+        taps = lowpass_init(f_lp, taps, &dsp->ws_lpFM); if (taps < 0) return -1;
+
+        dsp->lpFMtaps = taps;
+        dsp->lpFM_buf = calloc( dsp->lpFMtaps+3, sizeof(float));
+        if (dsp->lpFM_buf == NULL) return -1;
+    }
+
     return 0;
 }
 
@@ -302,33 +349,58 @@ static int free_buffers(dsp_t *dsp) {
     if (dsp->lpIQ_buf) { free(dsp->lpIQ_buf); dsp->lpIQ_buf = NULL; }
     if (dsp->ws_lpIQ)  { free(dsp->ws_lpIQ);  dsp->ws_lpIQ  = NULL; }
 
+    // FM lowpass
+    if (dsp->opt_lp & LP_FM)
+    {
+        if (dsp->ws_lpFM)  { free(dsp->ws_lpFM);  dsp->ws_lpFM  = NULL; }
+        if (dsp->lpFM_buf) { free(dsp->lpFM_buf); dsp->lpFM_buf = NULL; }
+    }
+
     return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
 static int fm_demod(dsp_t *dsp, float *s) {
-    double gain = FM_GAIN;
-
-    float complex z, z1, w;
     static float complex z0;
+    float complex z, z1, w;
+    float s_fm;
+    float gain = fm_gain;
+    ui32_t _sample = dsp->sample * dsp->decFM;
+    int m;
 
-    if ( f32read_csample(dsp, &z) == EOF ) return EOF;
+    for (m = 0; m < dsp->decFM; m++)
+    {
 
-    dsp->lpIQ_buf[dsp->sample % dsp->lpIQtaps] = z;
-    z1 = lowpass(dsp->lpIQ_buf, dsp->sample, dsp->lpIQtaps, dsp->ws_lpIQ);
+        if ( f32read_csample(dsp, &z) == EOF ) return EOF;
 
-    w = z1 * conj(z0);
-    *s = gain * carg(w)/M_PI;
+        dsp->lpIQ_buf[_sample % dsp->lpIQtaps] = z;
+        z1 = lowpass(dsp->lpIQ_buf, _sample, dsp->lpIQtaps, dsp->ws_lpIQ);
 
-    z0 = z1;
+        w = z1 * conj(z0);
+        s_fm = gain * carg(w)/M_PI;
+
+        z0 = z1;
+
+        // FM-lowpass
+        if (dsp->opt_lp & LP_FM) {
+            dsp->lpFM_buf[_sample % dsp->lpFMtaps] = s_fm;
+            if (m+1 == dsp->decFM) {
+                s_fm = re_lowpass(dsp->lpFM_buf, _sample, dsp->lpFMtaps, dsp->ws_lpFM);
+            }
+        }
+
+        _sample += 1;
+    }
+
+    *s = s_fm;
 
     dsp->sample += 1;
 
     return 0;
 }
 
-static int write_fm(dsp_t *dsp, float s) {
+static int fwrite_fm(dsp_t *dsp, float s) {
     int bps = dsp->bps_out;
     FILE *fpo = stdout;
     ui8_t u = 0;
@@ -357,6 +429,8 @@ int main(int argc, char *argv[]) {
     int k;
     int option_pcmraw = 0;
     int option_wav = 0;
+    int option_lp = 0;
+    int option_decFM = 0;
     int file_loaded = 0;
 
     int bitQ = 0;
@@ -378,7 +452,19 @@ int main(int argc, char *argv[]) {
             ++argv;
             if (*argv) bw = atof(*argv);
             else return 1;
-            if (bw > 4.6 && bw < 24.0) lpIQ_bw = bw*1e3;
+            if (bw > 2.0) lpIQ_bw = bw*1e3;
+        }
+        else if   (strcmp(*argv, "--lpFM") == 0) { option_lp |= LP_FM; }  // FM lowpass
+        else if   (strcmp(*argv, "--decFM") == 0) {   // FM decimation
+            option_decFM = 4;
+            option_lp |= LP_FM;
+        }
+        else if   (strcmp(*argv, "-g") == 0) {  // FM gain (default: 0.8)
+            double _g = 0.0;
+            ++argv;
+            if (*argv) _g = atof(*argv);
+            else return 1;
+            if (_g > 0) fm_gain = _g;
         }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
@@ -436,16 +522,30 @@ int main(int argc, char *argv[]) {
 
     if (pcm.bps_out == 0) pcm.bps_out = pcm.bps;
 
-    if (option_wav) write_wav_header( &pcm );
 
     dsp.fp = fp;
     dsp.sr  = pcm.sr;
     dsp.bps = pcm.bps;
     dsp.nch = pcm.nch;
     dsp.bps_out = pcm.bps_out;
+    if (lpIQ_bw > pcm.sr) lpIQ_bw = pcm.sr;
     dsp.lpIQ_bw = lpIQ_bw;  // IF lowpass bandwidth
 
+    dsp.decFM = 1;
+    if (option_decFM) {
+        int fm_sr = dsp.sr;
+        while (fm_sr % 2 == 0 && fm_sr/2 >= 48000) {
+            fm_sr /= 2;
+            dsp.decFM *= 2;
+        }
+        //option_lp |= LP_FM;
+    }
+    dsp.opt_lp = option_lp;
+
     init_buffers(&dsp);
+
+    pcm.sr_out = pcm.sr / dsp.decFM;
+    if (option_wav) write_wav_header( &pcm );
 
 
     while ( 1 )
@@ -453,7 +553,7 @@ int main(int argc, char *argv[]) {
         bitQ = fm_demod(&dsp, &s);
         if ( bitQ == EOF ) break;
 
-        write_fm(&dsp, s);
+        fwrite_fm(&dsp, s);
     }
 
 
