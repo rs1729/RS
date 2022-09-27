@@ -273,9 +273,18 @@ static int lowpass_init(float f, int taps, float **pws) {
     return taps;
 }
 
+static float complex lowpass0(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    ui32_t n;
+    double complex w = 0;
+    for (n = 0; n < taps; n++) {
+        w += buffer[(sample+n+1)%taps]*ws[taps-1-n];
+    }
+    return (float complex)w;
+}
+//static __attribute__((optimize("-ffast-math"))) float complex lowpass()
 static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
-    float complex w = 0;     // -Ofast
-    int n;
+    float complex w = 0;
+    int n; // -Ofast
     int S = taps-1 - (sample % taps);
     for (n = 0; n < taps; n++) {
         w += buffer[n]*ws[S+n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
