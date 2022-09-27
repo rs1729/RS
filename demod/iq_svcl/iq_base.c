@@ -305,7 +305,7 @@ static int f32_cblk(dsp_t *dsp) {
     int BL = dsp->decM * blk_sz;
     int len = BL;
     float x, y;
-    ui8_t s[4*2*BL]; //uin8,int16,flot32
+    ui8_t s[4*2*BL]; //uin8,int16,float32
     ui8_t *u = (ui8_t*)s;
     short *b = (short*)s;
     float *f = (float*)s;
@@ -488,20 +488,21 @@ static float complex lowpass0(float complex buffer[], ui32_t sample, ui32_t taps
     }
     return (float complex)w;
 }
-static float complex lowpass1(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
-    ui32_t n;
-    ui32_t s = sample % taps;
-    double complex w = 0;
+//static __attribute__((optimize("-ffast-math"))) float complex lowpass()
+static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    float complex w = 0;
+    int n; // -Ofast
+    int S = taps-1 - (sample % taps);
     for (n = 0; n < taps; n++) {
-        w += buffer[n]*ws[taps+s-n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
+        w += buffer[n]*ws[S+n]; // ws[taps+s-n] = ws[(taps+sample-n)%taps]
     }
-    return (float complex)w;
+    return w;
 // symmetry: ws[n] == ws[taps-1-n]
 }
-static float complex lowpass(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
-    float complex w = 0;     // -Ofast
+static float complex lowpass2(float complex buffer[], ui32_t sample, ui32_t taps, float *ws) {
+    float complex w = 0;
     int n;
-    int s = sample % taps; // lpIQ
+    int s = sample % taps;
     int S1 = s+1;
     int S1N = S1-taps;
     int n0 = taps-1-s;
