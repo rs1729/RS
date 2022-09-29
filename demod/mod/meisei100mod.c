@@ -23,7 +23,7 @@
 PCM-FM, 1200 baud biphase-S
 1200 bit pro Sekunde: zwei Frames, die wiederum in zwei Subframes unterteilt werden koennen, d.h. 4 mal 300 bit.
 
-Variante 1 (RS-11G ?)
+Variante 1 (RS-11G)
 <option -1>
 049DCE1C667FDD8F537C8100004F20764630A20000000010040436 FB623080801F395FFE08A76540000FE01D0C2C1E75025006DE0A07
 049DCE1C67008C73D7168200004F0F764B31A2FFFF000010270B14 FB6230000000000000000000000000000000000000000000001D59
@@ -991,7 +991,7 @@ int main(int argc, char **argv) {
                                                     }
                                                 }
                                             }
-                                            if (!isnan(gpx.T)) printf("T=%.1fC ", gpx.T);
+                                            if (!isnan(gpx.T)) printf("T=%.1fC ", gpx.T); // better don't use -ffast-math here
                                             else T_cfg = 0;
                                         }
                                         if (U_cfg) {
@@ -1120,10 +1120,10 @@ int main(int argc, char **argv) {
                                         if (gpx.vV_valid) printf(", \"vel_v\": %.5f", gpx.vV );
                                     }
                                     if (option_ptu) {
-                                        if (!isnan(gpx.T)) {
+                                        if (!isnan(gpx.T)) { // don't use -ffast-math here
                                             fprintf(stdout, ", \"temp\": %.1f",  gpx.T );
                                         }
-                                        if (!isnan(gpx.RH)) {
+                                        if (!isnan(gpx.RH)) { // don't use -ffast-math here
                                             fprintf(stdout, ", \"humidity\": %.1f",  gpx.RH );
                                         }
                                     }
