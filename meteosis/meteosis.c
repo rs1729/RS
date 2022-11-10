@@ -24,6 +24,7 @@ int wav_channel = 0;     // audio channel: left
 
 #define FRAMELEN    135 //148
 #define BITFRAMELEN (8*FRAMELEN)
+#define DATLEN  128
 
 #define HEADLEN 32 //40
 #define HEADOFS 0
@@ -217,6 +218,31 @@ int compare2() {
     return i;
 }
 
+ui32_t crc16_re(ui8_t bytes[], int len) {
+    ui32_t crc16poly = 0x8005; //rev(0xA001)
+    ui32_t rem = 0xFFFF; // init value
+    int i, j;
+    ui32_t re = 0;
+    for (i = 0; i < len; i++) {
+        rem = rem ^ (bytes[i] << 8);
+        for (j = 0; j < 8; j++) {
+            if (rem & 0x8000) {
+                rem = (rem << 1) ^ crc16poly;
+            }
+            else {
+                rem = (rem << 1);
+            }
+            rem &= 0xFFFF;
+        }
+    }
+
+    for (j = 0; j < 16; j++) {
+        if (rem & (1<<(15-j)))  re |= (1<<j);
+    }
+
+    return re;
+}
+
 int bits2bytes(char *bitstr, ui8_t *bytes) {
     int i, bit, d, byteval;
     int bitpos, bytepos;
@@ -249,14 +275,22 @@ int OFS = 5;
 
 int print_frame() {
     int i, j;
+    int crcdat, crcval, crc_ok;
 
     bits2bytes(frame_bits, frame_bytes);
+
+    // CRC
+    crcdat = (frame_bytes[OFS+DATLEN+1]<<8) | frame_bytes[OFS+DATLEN];
+    crcval = crc16_re(frame_bytes+OFS, DATLEN);
+    crc_ok = (crcdat == crcval);
 
     if (option_raw) {
         if (option_raw == 1) {
             for (j = 0; j < FRAMELEN; j++) {
                 printf("%02X ", frame_bytes[j]);
             }
+            printf(" # [%04X:%04X]", crcdat, crcval);
+            printf(" # [%s]", crc_ok ? "OK" : "NO");
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -271,7 +305,9 @@ int print_frame() {
         // ASCII-String:
         // SN/ID?,?,counter,YYMMDDhhmmss,?,lat,lon,alt?,?,?,?,?,?,?,?,?,?,?
 
-        printf("%s\n", frame_bytes+OFS);
+        printf("%s", frame_bytes+OFS);
+        printf("  [%s]", crc_ok ? "OK" : "NO");
+        printf("\n");
     }
 
     return 0;

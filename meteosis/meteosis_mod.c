@@ -43,6 +43,7 @@ static char rawheader[] = "10101010""10101010"  // preamble: AA AA
 
 #define FRAMELEN       (130+OFS)
 #define BITFRAMELEN    (8*FRAMELEN)
+#define DATLEN  128
 
 
 typedef struct {
@@ -57,6 +58,31 @@ typedef struct {
     option_t option;
 } gpx_t;
 
+
+static ui32_t crc16_re(ui8_t bytes[], int len) {
+    ui32_t crc16poly = 0x8005; //rev(0xA001)
+    ui32_t rem = 0xFFFF; // init value
+    int i, j;
+    ui32_t re = 0;
+    for (i = 0; i < len; i++) {
+        rem = rem ^ (bytes[i] << 8);
+        for (j = 0; j < 8; j++) {
+            if (rem & 0x8000) {
+                rem = (rem << 1) ^ crc16poly;
+            }
+            else {
+                rem = (rem << 1);
+            }
+            rem &= 0xFFFF;
+        }
+    }
+
+    for (j = 0; j < 16; j++) {
+        if (rem & (1<<(15-j)))  re |= (1<<j);
+    }
+
+    return re;
+}
 
 static int bits2bytes(char *bitstr, ui8_t *bytes) {
     int i, bit, d, byteval;
@@ -89,7 +115,7 @@ static int bits2bytes(char *bitstr, ui8_t *bytes) {
 static int fn(gpx_t *gpx, int n) {
     int pos = 0;
     if (n <= 0) return 0;
-    while (n > 0 && pos < 128) {
+    while (n > 0 && pos < DATLEN) {
         if (gpx->frm_str[pos] == '\0') n -= 1;
         pos += 1;
     }
@@ -97,17 +123,25 @@ static int fn(gpx_t *gpx, int n) {
 }
 
 static int print_frame(gpx_t *gpx, int pos) {
-    int i, j, len = 91; // 128
+    int i, j;
+    int crcdat, crcval, crc_ok;
 
-    if (pos/8 < OFS+len) return -1;
+    if (pos/8 < OFS+DATLEN) return -1;
 
     bits2bytes(gpx->frame_bits, gpx->frame_bytes);
+
+    // CRC
+    crcdat = (gpx->frame_bytes[OFS+DATLEN+1]<<8) | gpx->frame_bytes[OFS+DATLEN];
+    crcval = crc16_re(gpx->frame_bytes+OFS, DATLEN);
+    crc_ok = (crcdat == crcval);
 
     if (gpx->option.raw) {
         if (gpx->option.raw == 1) {
             for (j = 0; j < FRAMELEN; j++) {
                 printf("%02X ", gpx->frame_bytes[j]);
             }
+            printf(" # [%04X:%04X]", crcdat, crcval);
+            printf(" # [%s]", crc_ok ? "OK" : "NO");
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -122,12 +156,14 @@ static int print_frame(gpx_t *gpx, int pos) {
         // ASCII-String:
         // SN/ID?,?,counter,YYMMDDhhmmss,?,lat,lon,alt?,?,?,?,?,?,?,?,?,?,?
 
-        printf("%s\n", gpx->frame_bytes+OFS);
+        printf("%s", gpx->frame_bytes+OFS);
+        printf("  [%s]", crc_ok ? "OK" : "NO");
+        printf("\n");
 
 
         memset(gpx->frm_str, 0, FRAMELEN);
-        strncpy(gpx->frm_str, gpx->frame_bytes+OFS, 128);
-        for (j = 0; j < 128; j++) {
+        strncpy(gpx->frm_str, gpx->frame_bytes+OFS, DATLEN);
+        for (j = 0; j < DATLEN; j++) {
             if (gpx->frm_str[j] == ',') gpx->frm_str[j] = '\0';
         }
 
