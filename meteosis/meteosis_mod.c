@@ -16,6 +16,15 @@
   #include <io.h>
 #endif
 
+// optional JSON "version"
+//  (a) set global
+//      gcc -DVERSION_JSN [-I<inc_dir>] ...
+#ifdef VERSION_JSN
+  #include "version_jsn.h"
+#endif
+// or
+//  (b) set local compiler option, e.g.
+//      gcc -DVER_JSN_STR=\"0.0.2\" ...
 
 
 #include "demod_mod.h"
@@ -25,6 +34,7 @@ typedef struct {
     i8_t vbs;  // verbose output
     i8_t raw;  // raw frames
     i8_t inv;
+    i8_t jsn;  // JSON output (auto_rx)
     i8_t aut;
 } option_t;
 
@@ -55,6 +65,7 @@ typedef struct {
     ui8_t frame_bytes[FRAMELEN+4];
     char frame_bits[BITFRAMELEN+8];
     char frm_str[FRAMELEN+4];
+    int jsn_freq;   // freq/kHz (SDR)
     option_t option;
 } gpx_t;
 
@@ -200,6 +211,32 @@ static int print_frame(gpx_t *gpx, int pos) {
             printf("%02d:%02d:%02d ", gpx->hrs, gpx->min, gpx->sec);
             printf(" lat: %.6f  lon: %.6f  alt: %.0f ", gpx->lat, gpx->lon, gpx->alt);
             printf("\n");
+        }
+
+        if (gpx->option.jsn) {
+            if (crc_ok) {
+                // UTC oder GPS?
+                char *ver_jsn = NULL;
+                printf("{ \"type\": \"%s\"", "MTS01");
+                printf(", \"frame\": %d, \"id\": \"MTS01-%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
+                       gpx->frnr, gpx->ID, gpx->year, gpx->month, gpx->day, gpx->hrs, gpx->min, (float)gpx->sec, gpx->lat, gpx->lon, gpx->alt );
+                if (gpx->jsn_freq > 0) {
+                    printf(", \"freq\": %d", gpx->jsn_freq);
+                }
+
+                // Reference time/position
+                //printf(", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec ?
+                //printf(", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid ?
+
+                #ifdef VER_JSN_STR
+                    ver_jsn = VER_JSN_STR;
+                #endif
+                if (ver_jsn && *ver_jsn != '\0') printf(", \"version\": \"%s\"", ver_jsn);
+                printf(" }\n");
+            }
+        }
+
+        if (gpx->option.vbs || gpx->option.jsn && crc_ok) {
             printf("\n");
         }
     }
@@ -344,6 +381,16 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--min") == 0) {
             option_min = 1;
         }
+        else if   (strcmp(*argv, "--json") == 0) {
+            gpx.option.jsn = 1;
+        }
+        else if   (strcmp(*argv, "--jsn_cfq") == 0) {
+            int frq = -1;  // center frequency / Hz
+            ++argv;
+            if (*argv) frq = atoi(*argv); else return -1;
+            if (frq < 300000000) frq = -1;
+            cfreq = frq;
+        }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
             ++argv;
@@ -379,6 +426,7 @@ int main(int argc, char **argv) {
     //
     if (option_noLUT && option_iq == 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
 
+    if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
 
     #ifdef EXT_FSK
