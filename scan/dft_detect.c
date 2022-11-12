@@ -172,6 +172,10 @@ static rsheader_t rs_hdr[Nrs] = {
     { 9600, 0, 0, imet1rs_header, 0.5, 0.0, 0.80, 2, NULL, "IMET4",    tn_IMET4,   1, 1, 0.0, 0.0}, // (rs_hdr[idxI4])
 };
 
+static int idx_MTS01 = -1,
+           idx_C34C50 = -1,
+           idx_IMET1AB = -1;
+
 
 /*
 // m10-false-positive:
@@ -1092,11 +1096,25 @@ static int init_buffers() {
 
 
     for (j = 0; j < Nrs; j++) {
+        #ifdef NOMTS01
+        if ( strncmp(rs_hdr[j].type, "MTS01", 5) == 0 ) idx_MTS01 = j;
+        #endif
+        #ifdef NOC34C50
+        if ( strncmp(rs_hdr[j].type, "C34C50", 6) == 0 ) idx_C34C50 = j;
+        #endif
+        #ifdef NOIMET1AB
+        if ( strncmp(rs_hdr[j].type, "IMET1AB", 7) == 0 ) idx_IMET1AB = j;
+        #endif
+    }
+
+    for (j = 0; j < Nrs; j++) {
         rs_hdr[j].spb = sample_rate/(float)rs_hdr[j].sps;
         rs_hdr[j].hLen = strlen(rs_hdr[j].header);
         rs_hdr[j].L = rs_hdr[j].hLen * rs_hdr[j].spb + 0.5;
-        if (rs_hdr[j].hLen > hLen) hLen = rs_hdr[j].hLen;
-        if (rs_hdr[j].L > Lmax) Lmax = rs_hdr[j].L;
+        if (j != idx_MTS01 && j != idx_C34C50 && j != idx_IMET1AB) {
+            if (rs_hdr[j].hLen > hLen) hLen = rs_hdr[j].hLen;
+            if (rs_hdr[j].L > Lmax) Lmax = rs_hdr[j].L;
+        }
     }
 
     // L = hLen * sample_rate/2500.0 + 0.5; // max(hLen*spb)
@@ -1406,13 +1424,9 @@ int main(int argc, char **argv) {
         if (k >= K-4) {
             for (j = 0; j <= idxIMETafsk; j++) { // incl. IMET-preamble
 
-                #ifdef NOC34C50
-                if ( strncmp(rs_hdr[j].type, "C34C50", 6) == 0 ) continue;
-                #endif
-
-                #ifdef NOMTS01
-                if ( strncmp(rs_hdr[j].type, "MTS01", 5) == 0 ) continue;
-                #endif
+                if ( j == idx_MTS01 ) continue;   // only ifdef NOMTS01
+                if ( j == idx_C34C50 ) continue;  // only ifdef NOC34C50
+                if ( j == idx_IMET1AB ) continue; // only ifdef NOIMET1AB
 
                 mv0_pos[j] = mv_pos[j];
                 mp[j] = getCorrDFT(K, 0, mv+j, mv_pos+j, rs_hdr+j);
