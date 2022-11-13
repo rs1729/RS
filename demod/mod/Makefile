@@ -1,4 +1,4 @@
-PROGRAMS := rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod
+PROGRAMS := rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod mts01mod
 
 LDLIBS = -lm
 CC = gcc
@@ -24,6 +24,8 @@ meisei100mod: meisei100mod.o demod_mod.o bch_ecc_mod.o
 rs92mod: rs92mod.o demod_mod.o bch_ecc_mod.o
 
 mp3h1mod: mp3h1mod.o demod_mod.o
+
+mts01mod: mts01mod.o demod_mod.o
 
 demod_mod.o: CFLAGS += -Ofast
 demod_mod.o: demod_mod.h
