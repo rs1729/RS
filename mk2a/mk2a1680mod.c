@@ -26,6 +26,11 @@
 #include <math.h>
 #include <complex.h>
 
+#ifdef CYGWIN
+  #include <fcntl.h>  // cygwin: _setmode()
+  #include <io.h>
+#endif
+
 // optional JSON "version"
 //  (a) set global
 //      gcc -DVERSION_JSN [-I<inc_dir>] ...
@@ -2117,6 +2122,11 @@ int main(int argc, char **argv) {
     dsp_t dsp = {0};  //memset(&dsp, 0, sizeof(dsp));
     gpx_t gpx = {0};
     hdb_t hdb = {0};
+
+#ifdef CYGWIN
+    _setmode(fileno(stdin), _O_BINARY);  // _setmode(_fileno(stdin), _O_BINARY);
+#endif
+    setbuf(stdout, NULL);
 
 
     fpname = argv[0];
