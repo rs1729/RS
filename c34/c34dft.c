@@ -11,6 +11,11 @@
 #include <complex.h>
 #include <math.h>
 
+#ifdef CYGWIN
+  #include <fcntl.h>  // cygwin: _setmode()
+  #include <io.h>
+#endif
+
 // optional JSON "version"
 //  (a) set global
 //      gcc -DVERSION_JSN [-I<inc_dir>] ...
@@ -519,6 +524,12 @@ int main(int argc, char *argv[]) {
     float k_f0, k_f1, k_df;
     float cb0, cb1;
     int cfreq = -1;
+
+#ifdef CYGWIN
+    _setmode(fileno(stdin), _O_BINARY);  // _setmode(_fileno(stdin), _O_BINARY);
+#endif
+    setbuf(stdout, NULL);
+
 
     fpname = argv[0];
     ++argv;
