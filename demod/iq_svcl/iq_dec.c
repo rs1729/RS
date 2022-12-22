@@ -7,13 +7,15 @@
  *
  *  usage:
  *
- *      ./iq_dec [--bo <b>] --iq <fq> [iq_baseband.wav]   # <b>=8,16,32 bit output
- *      ./iq_dec [--bo <b>] --iq <fq> - <sr> <bs> [iq_baseband.raw]
+ *      ./iq_dec [--bo <b>] [--iq <fq>] [iq_baseband.wav]   # <b>=8,16,32 bit output
+ *      ./iq_dec [--bo <b>] [--iq <fq>] - <sr> <bs> [iq_baseband.raw]
  *
- *      ./iq_dec [--bo <b>] [--wav] [--FM] --iq <fq> iq_baseband.wav
- *      ./iq_dec [--bo <b>] [--wav] [--decFM] --iq <fq> - <sr> <bs> [iq_baseband.raw]
+ *      ./iq_dec [--bo <b>] [--wav] [--FM] [--iq <fq>] iq_baseband.wav
+ *      ./iq_dec [--bo <b>] [--wav] [--decFM] [--iq <fq>] - <sr> <bs> [iq_baseband.raw]
+ *               --iq <fq>  : center at fq=freq/sr (default: 0.0)
  *               --wav      : output wav header
  *               --FM/decFM : FM demodulation
+ *               --bo <b>   : output bits per sample b=8,16,32  (u8, s16, f32 (default))
  *
  *
  *  author: zilog80
@@ -72,8 +74,8 @@ typedef struct {
     //
 
     // IQ-data
-    int opt_iq;
-    int opt_iqdc;
+    //int opt_iq; // always IQ input
+    int opt_iqdc; // in f32read_cblock() anyway
 
 
     double V_noise;
@@ -81,7 +83,8 @@ typedef struct {
     double SNRdB;
 
     // decimate
-    int opt_nolut; // default: LUT
+    int exlut;
+    int opt_nolut; // default: exlut
     int opt_IFmin;
     int decM;
     int decFM;
@@ -521,8 +524,11 @@ static int ifblock(dsp_t *dsp, float complex *z_out) {
             double f0 = dsp->xlt_fq*_s_base;
             z = dsp->decMbuf[j] * cexp(f0*_2PI*I);
         }
-        else {
+        else if (dsp->exlut) {
             z = dsp->decMbuf[j] * dsp->ex[dsp->sample_decM];
+        }
+        else {
+            z = dsp->decMbuf[j];
         }
         dsp->sample_decM += 1; if (dsp->sample_decM >= dsp->lut_len) dsp->sample_decM = 0;
 
@@ -562,8 +568,11 @@ static int if_fm(dsp_t *dsp, float complex *z_out, float *s) {
                 double f0 = dsp->xlt_fq*_s_base;
                 z = dsp->decMbuf[j] * cexp(f0*_2PI*I);
             }
-            else {
+            else if (dsp->exlut) {
                 z = dsp->decMbuf[j] * dsp->ex[dsp->sample_decM];
+            }
+            else {
+                z = dsp->decMbuf[j];
             }
             dsp->sample_decM += 1; if (dsp->sample_decM >= dsp->lut_len) dsp->sample_decM = 0;
 
@@ -662,7 +671,7 @@ static int init_buffers(dsp_t *dsp) {
     fprintf(stderr, "dec: %d\n", decM);
 
 
-    if (!dsp->opt_nolut)
+    if (dsp->exlut && !dsp->opt_nolut)
     {
         // look up table, exp-rotation
         int W = 2*8; // 16 Hz window
@@ -759,7 +768,7 @@ static int free_buffers(dsp_t *dsp) {
     // decimate
     if (dsp->decXbuffer) { free(dsp->decXbuffer); dsp->decXbuffer = NULL; }
     if (dsp->decMbuf)    { free(dsp->decMbuf);    dsp->decMbuf    = NULL; }
-    if (!dsp->opt_nolut) {
+    if (dsp->exlut && !dsp->opt_nolut) {
         if (dsp->ex)     { free(dsp->ex);         dsp->ex         = NULL; }
     }
 
@@ -930,7 +939,7 @@ int main(int argc, char *argv[]) {
 
     //int option_inv = 0;    // invertiert Signal
     int option_min = 0;
-    int option_iq = 0;
+    //int option_iq = 5;
     int option_iqdc = 0;
     int option_lp = 0;
     int option_dc = 0;
@@ -969,7 +978,7 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "       --iq0,2,3    (IQ data)\n");
             return 0;
         }
-        else if   (strcmp(*argv, "--iqdc") == 0) { option_iqdc = 1; }  // iq-dc removal (iq0,2,3)
+        else if   (strcmp(*argv, "--iqdc") == 0) { option_iqdc = 1; }  // iq-dc removal
         else if   (strcmp(*argv, "--iq") == 0) { // fq baseband -> IF (rotate from and decimate)
             double fq = 0.0;                     // --iq <fq> , -0.5 < fq < 0.5
             ++argv;
@@ -978,7 +987,8 @@ int main(int argc, char *argv[]) {
             if (fq < -0.5) fq = -0.5;
             if (fq >  0.5) fq =  0.5;
             dsp.xlt_fq = -fq; // S(t) -> S(t)*exp(-f*2pi*I*t)
-            option_iq = 5;
+            dsp.exlut = 1;
+            //option_iq = 5;
         }
         else if   (strcmp(*argv, "--IFbw") == 0) {  // min IF bandwidth / kHz
             int ifbw = 0;
@@ -1050,12 +1060,12 @@ int main(int argc, char *argv[]) {
     }
     if (!wavloaded) fp = stdin;
 
-    if (option_iq == 5 && option_dc) option_lp |= LP_FM;
+    if (/*option_iq == 5 &&*/ option_dc) option_lp |= LP_FM;
 
     // LUT faster for decM, however frequency correction after decimation
     // LUT recommonded if decM > 2
     //
-    if (option_noLUT && option_iq == 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
+    if (option_noLUT /*&& option_iq == 5*/) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
 
 
     pcm.sel_ch = 0;
@@ -1076,8 +1086,8 @@ int main(int argc, char *argv[]) {
     dsp.bps = pcm.bps;
     dsp.nch = pcm.nch;
     dsp.ch = pcm.sel_ch;
-    dsp.opt_iq = option_iq;
-    dsp.opt_iqdc = option_iqdc;
+    //dsp.opt_iq = option_iq;
+    dsp.opt_iqdc = option_iqdc; // in f32read_cblock() anyway
     dsp.opt_lp = option_lp;
     dsp.lpIQ_bw = lpIQ_bw;  // 10e3 // IF lowpass bandwidth
     dsp.lpFM_bw = 6e3; // FM audio lowpass
