@@ -805,7 +805,7 @@ int main(int argc, char **argv) {
                                         if (gpx.f_ref != 0) {  // must know the reference frequency
                                             int T_cfg = ((gpx.cfg_valid & 0x0000FFFE0FFE0000LL) == 0x0000FFFE0FFE0000LL); // cfg[47:33,27:17]
                                             int U_cfg = ((gpx.cfg_valid & 0x001E000000000000LL) == 0x001E000000000000LL); // cfg[52:49]
-                                            // Necessary parameters must exist and their values must ´meet the requirements
+                                            // Necessary parameters must exist and their values must meet the requirements
                                             if (T_cfg && sanity_check_rs11g_config_temperature(&gpx)) {
                                                 ui16_t t_raw = bits2val(subframe_bits+HEADLEN+2*46+17, 16);
                                                 float f = ((float)t_raw / (float)gpx.f_ref) * 4.0f;
@@ -835,7 +835,7 @@ int main(int argc, char **argv) {
                                                         }
                                                     }
                                                 }
-                                                if (!isnan(gpx.T)) printf("T=%.1fC ", gpx.T);
+                                                if (!isnan(gpx.T)) printf("T=%.1fC ", gpx.T); // better don't use -ffast-math here
                                                 else T_cfg = 0;
                                             }
                                             if (U_cfg) {
@@ -882,10 +882,10 @@ int main(int argc, char **argv) {
                                         printf(", \"frame\": %d, \"id\": \"RS11G-%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                                                gpx.frnr, id_str, gpx.jahr, gpx.monat, gpx.tag, gpx.std, gpx.min, gpx.sek, gpx.lat, gpx.lon, gpx.alt, gpx.vH, gpx.vD, gpx.vV );
                                         if (option_ptu) {
-                                            if (!isnan(gpx.T)) {
+                                            if (!isnan(gpx.T)) { // better don't use -ffast-math here
                                                 fprintf(stdout, ", \"temp\": %.1f",  gpx.T );
                                             }
-                                            if (!isnan(gpx.RH)) {
+                                            if (!isnan(gpx.RH)) { // better don't use -ffast-math here
                                                 fprintf(stdout, ", \"humidity\": %.1f",  gpx.RH );
                                             }
                                         }
@@ -1056,7 +1056,7 @@ int main(int argc, char **argv) {
                                     if (gpx.f_ref != 0) {  // must know the reference frequency
                                         int T_cfg = ((gpx.cfg_valid & 0x01E01FFE1FFE0000LL) == 0x01E01FFE1FFE0000LL); // cfg[56:53,44:33,28:17]
                                         int U_cfg = ((gpx.cfg_valid & 0x001E000000000000LL) == 0x001E000000000000LL); // cfg[52:49]
-                                        // Necessary parameters must exist and their values must ´meet the requirements
+                                        // Necessary parameters must exist and their values must meet the requirements
                                         if (T_cfg && sanity_check_ims100_config_temperature(&gpx)) {
                                             ui16_t t_raw = bits2val(subframe_bits+HEADLEN+2*46+17, 16);
                                             float f = ((float)t_raw / (float)gpx.f_ref) * 4.0f;
