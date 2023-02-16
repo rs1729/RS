@@ -66,7 +66,6 @@ print "\n";
 
 my $iqraw = "rtlsdr.raw";
 my $ts = "-n ".(8*$band_sr);
-#$ts = "";
 system("$str_rtlsdr $ts $iqraw");
 
 my $powfile = "peaks.txt";
@@ -194,9 +193,12 @@ for ($j = 0; $j < $num_peaks; $j++) {
 sleep(1);
 print "\n";
 
+$ts = "-n ".(120*$band_sr);
+#$ts = "";
+
 if ($num_peaks > 0)
 {
-    my $cmd = "$str_rtlsdr -n ".(60*$band_sr)." - $tee";
+    my $cmd = "$str_rtlsdr $ts - $tee";
     if ($verbose) { print $cmd."\n"; }
     system("$cmd"); # timeout
 }
