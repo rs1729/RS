@@ -76,31 +76,31 @@ system("python plot_fft_pow.py &");
 
 my @rs_matrix;
 
-$rs_matrix[2][0] = "dfm";
-$rs_matrix[2][1] = "9600"; # lp-filter bw
+$rs_matrix[2][0] = "dfm";   # tn_DFM=2
+$rs_matrix[2][1] = "9600";  # lp-filter bw
 $rs_matrix[2][2] = "./dfm09mod --ecc --ptu -vv --IQ";  # --auto  ## DFM9 = DFM
 
-$rs_matrix[3][0] = "rs41";
-$rs_matrix[3][1] = "9600"; # lp-filter bw
+$rs_matrix[3][0] = "rs41";  # tn_RS41=3
+$rs_matrix[3][1] = "9600";  # lp-filter bw
 $rs_matrix[3][2] = "./rs41mod --ptu2 -vx --IQ";  # --auto
 
-$rs_matrix[4][0] = "rs92";
+$rs_matrix[4][0] = "rs92";  # tn_RS92=4
 $rs_matrix[4][1] = "9600";
 $rs_matrix[4][2] = "./rs92mod --ecc --crc -v --IQ"; # -e brdc / -a almanac
 
-$rs_matrix[5][0] = "m10"; # scan: carrier offset
-$rs_matrix[5][1] = "9600";
+$rs_matrix[5][0] = "m10";   # tn_M10=5
+$rs_matrix[5][1] = "9600";  # scan: carrier offset
 $rs_matrix[5][2] = "./m10mod -c --ptu -v --dc --IQ";
 
-$rs_matrix[6][0] = "m20"; # scan: carrier offset
-$rs_matrix[6][1] = "9600";
+$rs_matrix[6][0] = "m20";   # tn_M20=6
+$rs_matrix[6][1] = "9600";  # scan: carrier offset
 $rs_matrix[6][2] = "./mXXmod -c --ptu -v --dc --IQ";
 
-$rs_matrix[7][0] = "imet4";
+$rs_matrix[7][0] = "imet4"; # tn_IMET4=26
 $rs_matrix[7][1] = "12000";
 $rs_matrix[7][2] = "./imet4iq -v --dc --lpIQ --iq";
 
-$rs_matrix[8][0] = "lms6";
+$rs_matrix[8][0] = "lms6";  # tn_LMS6=8
 $rs_matrix[8][1] = "9600";
 $rs_matrix[8][2] = "./lms6Xmod --vit2 --ecc -v --IQ";
 
@@ -130,7 +130,6 @@ while ($line = <$fh>) {
         my $fq = $1;
         if ($verbose) { print "[ $fq ] "; }
         print $line; # no chomp
-        #my $lp = $filter/($if_sr*2.0);
         my $cmd = "$detect -t 10 --IQ $fq - $band_sr $bps $iqraw 2>/dev/null";
         #if ($verbose) { print $cmd."\n"; }
         system("$cmd");
@@ -138,6 +137,7 @@ while ($line = <$fh>) {
         if ($ret & 0x80) {
             $ret = - (0x100 - $ret);  #  ($ret & 0x80) = core dump
         }
+        if (abs($ret) == 26)  { $ret = 7; }  # imet4
         if ($ret) {
             push @peakarray, $fq;
             push @rs_array, $ret;
@@ -171,16 +171,14 @@ for ($j = 0; $j < $num_peaks; $j++) {
             $filter = $rs_matrix[$idx][1];
             my $inv = ($rs_array[$j] < 0 ? "-i" : "");
             if ($idx >= 5 && $idx <= 7) { $inv = ""; } # || $idx==8
-            $decoder = sprintf("%s %s", $rs_matrix[$idx][2], $inv);
-
-            #my $lp = $filter/($if_sr*2.0);
+            $decoder = sprintf("%s", $rs_matrix[$idx][2]);
 
             my $pid = fork();
             die if not defined $pid;
             if (not $pid) {
                 my $rs_str = sprintf("%s_%.0fkHz", $rs, ($center_freq+$band_sr*$peakarray[$j])*1e-3);
                 if ($verbose) { print "\nrs: <".$rs_str.">\n"; }
-                my $cmd = "$decoder ".($peakarray[$j])." - $band_sr $bps $sdr.$j 2>/dev/null > $log.$j";
+                my $cmd = "$decoder ".($peakarray[$j])." $inv - $band_sr $bps $sdr.$j 2>/dev/null > $log.$j";
                 if ($verbose) { print $cmd."\n"; }
                 system("$cmd");
                 exit;
