@@ -918,18 +918,20 @@ static int headcmp(dsp_t *dsp, int opt_dc) {
 
     //if (opt_dc == 0 || dsp->opt_iq > 1) dsp->dc = 0;
 
-    if (dsp->symhd != 1) step = 2;
+    if (dsp->symhd != 1) step = 2; // step == symhd
     if (inv) sign=1;
 
     for (pos = 0; pos < len; pos++) {                  // L = dsp->hdrlen * dsp->sps + 0.5;
         //read_bufbit(dsp, dsp->symhd, dsp->rawbits+pos*step, mvp+1-(int)(len*dsp->sps), pos);
         read_bufbit(dsp, dsp->symhd, dsp->rawbits+pos*step, dsp->mv_pos+1-dsp->L, pos);
     }
+
+    pos = len*step; // == hdrlen
     dsp->rawbits[pos] = '\0';
 
-    while (len > 0) {
-        if ((dsp->rawbits[len-1]^sign) != dsp->hdr[len-1]) errs += 1;
-        len--;
+    while (pos > 0) {
+        if ((dsp->rawbits[pos-1]^sign) != dsp->hdr[pos-1]) errs += 1;
+        pos--;
     }
 
     return errs;
