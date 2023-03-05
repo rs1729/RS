@@ -921,7 +921,7 @@ static int print_frame(gpx_t *gpx, int pos, dsp_t *dsp) {
             }
             fprintf(stdout, "\n");
         }
-        if (gpx->option.slt /*&& gpx->option.jsn*/) {
+        if (gpx->option.slt /*&& gpx->option.jsn && gpx->frame_bytes[1] != 0x49*/) {
             print_pos(gpx, bc, cs1 == cs2);
         }
     }
@@ -932,6 +932,7 @@ static int print_frame(gpx_t *gpx, int pos, dsp_t *dsp) {
                 byte = gpx->frame_bytes[i];
                 fprintf(stdout, "%02x", byte);
             }
+            if (cs1 == cs2) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             fprintf(stdout, "\n");
         }
     }
