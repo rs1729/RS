@@ -601,7 +601,9 @@ static float get_Temp(gpx_t *gpx) {
     x = (4095.0-ADC_RT)/ADC_RT;  // (Vcc-Vout)/Vout = Vcc/Vout - 1
     R =  Rs[scT] /( x - Rs[scT]/Rp[scT] );
 
-    if (R > 0)  T = 1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
+    if (R > 0)  T = 1.0/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
+
+    if (T > 333.15) T = 0; // T > 60C invalid
 
     return  T - 273.15; // Celsius
 }
@@ -624,7 +626,7 @@ static float get_Tntc2(gpx_t *gpx) {
     ADC_ntc0  = (gpx->frame_bytes[0x07] << 8) | gpx->frame_bytes[0x06]; // M10: 0x40,0x3F
     x = (4095.0 - ADC_ntc0)/ADC_ntc0;  // (Vcc-Vout)/Vout
     R = Rs / x;
-    if (R > 0)  T = 1/(1/T25 + 1/b * log(R/R25));
+    if (R > 0)  T = 1.0/(1.0/T25 + 1.0/b * log(R/R25));
     //if (R > 0)  T =  1/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
 
     return T - 273.15;
@@ -713,8 +715,8 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
         get_SN(gpx);
 
         if (gpx->option.ptu && csOK) {
-            gpx->T   = get_Temp(gpx);  // temperature
-            gpx->TH  = get_Tntc2(gpx); // rel. humidity sensor temperature
+            gpx->T  = get_Temp(gpx);   // temperature
+            gpx->TH = get_Tntc2(gpx);  // rel. humidity sensor temperature
             gpx->RH = get_RH(gpx);     // relative humidity
             gpx->P  = get_P(gpx);      // (optional) pressure
         }
