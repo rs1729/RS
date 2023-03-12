@@ -603,7 +603,7 @@ static float get_Temp(gpx_t *gpx) {
 
     if (R > 0)  T = 1.0/( p0 + p1*log(R) + p2*log(R)*log(R) + p3*log(R)*log(R)*log(R) );
 
-    if (T > 333.15) T = 0; // T > 60C invalid
+    if (T-273.15 < -120.0 || T-273.15 > 60.0) T = 0; // T < -120C, T > 60C invalid
 
     return  T - 273.15; // Celsius
 }
@@ -670,9 +670,11 @@ static float get_RH(gpx_t *gpx) {
     RH = -1.0f;
     if (humval < 48000)
     {
-        RH = x;
-        if (RH < 0.0f  ) RH = 0.0f;
-        if (RH > 100.0f) RH = 100.0f;
+        if (x > -20.0f && x < 120.f) {
+            RH = x;
+            if (RH < 0.0f  ) RH = 0.0f;
+            if (RH > 100.0f) RH = 100.0f;
+        }
     }
 
     // (Hyland and Wexler) Tntc2 (T_RH) <-> Tmain ?
