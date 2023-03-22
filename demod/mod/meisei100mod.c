@@ -331,6 +331,7 @@ int main(int argc, char **argv) {
 
     int option_verbose = 0,
         option_raw = 0,
+        option_dbg = 0,
         option_inv = 0,
         option_ecc = 0,    // BCH(63,51)
         option_jsn = 0;    // JSON output (auto_rx)
@@ -427,6 +428,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         else if ( (strcmp(*argv, "-r") == 0) ) { option_raw = 1; }
+        else if ( (strcmp(*argv, "--dbg") == 0) ) { option_dbg = 1; }
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
             option_inv = 1;  // nicht noetig
         }
@@ -445,7 +447,7 @@ int main(int argc, char **argv) {
             ++argv;
             if (*argv) {
                 baudrate = atof(*argv);
-                if (baudrate < 2200 || baudrate > 2400) baudrate = 2400; // default: 2400
+                if (baudrate < 2200 || baudrate > 2600) baudrate = 2400; // default: 2400
             }
             else return -1;
         }
@@ -783,6 +785,10 @@ int main(int argc, char **argv) {
                                  | ( (w16[0]&0xFF00)>>8 | (w16[0]&0xFF)<<8 );
                             fw32 = f32e2(w32);
 
+                            if (option_dbg) {
+                                printf(" # [%02d] %08x : %.1f # ", counter % 64, w32, fw32);
+                            }
+
                             if (err_blks == 0) // err_frm zu schwach
                             {
                                 gpx.cfg[counter%64] = fw32;
@@ -1016,6 +1022,10 @@ int main(int argc, char **argv) {
                             w16[0] = bits2val(subframe_bits+HEADLEN+46*1   , 16);
                             w16[1] = bits2val(subframe_bits+HEADLEN+46*1+17, 16);
                             w32 = (w16[1]<<16) | w16[0];
+
+                            if (option_dbg) {
+                                printf(" # [%02d] %08x : %.1f # ", counter % 64, w32, *fcfg);
+                            }
                                              // counter ok   and    w16[] ok  (max 1 error)
                             if (err_frm == 0 && block_err[0] < 2 && block_err[1] < 2)
                             {
