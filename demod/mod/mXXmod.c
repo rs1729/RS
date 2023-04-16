@@ -105,7 +105,8 @@ typedef struct {
     double vx; double vy; double vD2;
     float T;  float RH; float TH; float P;
     ui8_t numSV;
-    ui8_t utc_ofs;
+    //ui8_t utc_ofs;
+    ui8_t fwVer;
     char SN[12+4];
     ui8_t SNraw[3];
     ui8_t frame_bytes[FRAME_LEN+AUX_LEN+4];
@@ -218,6 +219,7 @@ frame[0x44..0x45]: frame check
 #define pos_SN        0x12  // 3 byte
 #define pos_CNT       0x15  // 1 byte
 #define pos_BlkChk    0x16  // 2 byte
+#define pos_FWVER     (stdFLEN-2)  // 1 byte
 #define pos_Check     (stdFLEN-1)  // 2 byte
 
 #define len_BlkChk    0x16 // frame[0x02..0x17] , incl. chk16
@@ -733,6 +735,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
 
         Gps2Date(gpx->week, gpx->gpssec, &gpx->jahr, &gpx->monat, &gpx->tag);
         get_SN(gpx);
+        gpx->fwVer = gpx->frame_bytes[pos_FWVER];
 
         if (gpx->option.ptu && csOK) {
             gpx->T  = get_Temp(gpx);   // temperature
@@ -763,10 +766,11 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 }
                 if (gpx->option.vbs >= 1) {
                     fprintf(stdout, "  # ");
-                    if      (bcOK > 0) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
-                    else if (bcOK < 0) fprintf(stdout, " "col_CSoo"(oo)"col_TXT);
-                    else               fprintf(stdout, " "col_CSno"(no)"col_TXT);
-                    //
+                    if (gpx->fwVer < 0x07) {
+                        if      (bcOK > 0) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
+                        else if (bcOK < 0) fprintf(stdout, " "col_CSoo"(oo)"col_TXT);
+                        else               fprintf(stdout, " "col_CSno"(no)"col_TXT);
+                    }
                     if (csOK) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                     else      fprintf(stdout, " "col_CSno"[NO]"col_TXT);
                 }
@@ -803,11 +807,12 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                 }
                 if (gpx->option.vbs >= 1) {
                     fprintf(stdout, "  # ");
-                    //if (bcOK) fprintf(stdout, " (ok)"); else fprintf(stdout, " (no)");
-                    if      (bcOK > 0) fprintf(stdout, " (ok)");
-                    else if (bcOK < 0) fprintf(stdout, " (oo)");
-                    else               fprintf(stdout, " (no)");
-                    //
+                    if (gpx->fwVer < 0x07) {
+                        //if (bcOK) fprintf(stdout, " (ok)"); else fprintf(stdout, " (no)");
+                        if      (bcOK > 0) fprintf(stdout, " (ok)");
+                        else if (bcOK < 0) fprintf(stdout, " (oo)");
+                        else               fprintf(stdout, " (no)");
+                    }
                     if (csOK) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
                 }
                 if (gpx->option.ptu && csOK) {
@@ -928,9 +933,11 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
             }
             if (gpx->option.vbs) {
                 fprintf(stdout, " # "col_Check"%04x"col_FRTXT, cs2);
-                if      (bc > 0) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
-                else if (bc < 0) fprintf(stdout, " "col_CSoo"(oo)"col_TXT);
-                else             fprintf(stdout, " "col_CSno"(no)"col_TXT);
+                if (gpx->frame_bytes[pos_FWVER] < 0x07) {
+                    if      (bc > 0) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
+                    else if (bc < 0) fprintf(stdout, " "col_CSoo"(oo)"col_TXT);
+                    else             fprintf(stdout, " "col_CSno"(no)"col_TXT);
+                }
                 if (cs1 == cs2) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
                 else            fprintf(stdout, " "col_CSno"[NO]"col_TXT);
             }
@@ -943,9 +950,11 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
             }
             if (gpx->option.vbs) {
                 fprintf(stdout, " # %04x", cs2);
-                if      (bc > 0) fprintf(stdout, " (ok)");
-                else if (bc < 0) fprintf(stdout, " (oo)");
-                else             fprintf(stdout, " (no)");
+                if (gpx->frame_bytes[pos_FWVER] < 0x07) {
+                    if      (bc > 0) fprintf(stdout, " (ok)");
+                    else if (bc < 0) fprintf(stdout, " (oo)");
+                    else             fprintf(stdout, " (no)");
+                }
                 if (cs1 == cs2) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
             }
             fprintf(stdout, "\n");
