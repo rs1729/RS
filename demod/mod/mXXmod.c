@@ -194,7 +194,7 @@ frame[0x08..0x0A]: GPS altitude
 frame[0x0B..0x0E]: GPS hor.Vel. (velE,velN)
 frame[0x0F..0x11]: GPS TOW
 frame[0x15]:       counter
-frame[0x16..0x17]: block check
+frame[0x16..0x17]: block check (fwVer < 0x06)
 
 frame[0x18..0x19]: GPS ver.Vel. (velU)
 frame[0x1A..0x1B]: GPS week
@@ -706,11 +706,18 @@ static float get_P(gpx_t *gpx) {
 // cf. DF9DQ
 //
     float hPa = 0.0f;
-    ui16_t val = (gpx->frame_bytes[0x25] << 8) | gpx->frame_bytes[0x24];
+    ui32_t val = (gpx->frame_bytes[0x25] << 8) | gpx->frame_bytes[0x24];
 
     if (val > 0) {
         hPa = val/16.0f;
     }
+
+    //if (gpx->fwVer >= 0x07) { // SPI1
+    //    ui32_t val24 = (val << 8) | gpx->frame_bytes[0x16];
+    //    if (val24 > 0) {
+    //        hPa = val24/(float)(16*256);
+    //    }
+    //}
 
     return hPa;
 }
