@@ -194,12 +194,12 @@ frame[0x08..0x0A]: GPS altitude
 frame[0x0B..0x0E]: GPS hor.Vel. (velE,velN)
 frame[0x0F..0x11]: GPS TOW
 frame[0x15]:       counter
-frame[0x16..0x17]: block check (fwVer < 0x06)
-
+frame[0x16..0x17]: block check (fwVer < 0x06) ; frame[0x16]: SPI1 P[0] (fwVer >= 0x07), frame[0x17]=0x00
 frame[0x18..0x19]: GPS ver.Vel. (velU)
 frame[0x1A..0x1B]: GPS week
 frame[0x1C..0x1F]: GPS latitude
 frame[0x20..0x23]: GPS longitude
+frame[0x24..0x25]: SPI1 P[1..2] (if pressure sensor)
 
 frame[0x44..0x45]: frame check
 */
@@ -703,21 +703,19 @@ static float get_RH(gpx_t *gpx) {
 }
 
 static float get_P(gpx_t *gpx) {
-// cf. DF9DQ
 //
     float hPa = 0.0f;
-    ui32_t val = (gpx->frame_bytes[0x25] << 8) | gpx->frame_bytes[0x24];
+    ui32_t val = (gpx->frame_bytes[0x25] << 8) | gpx->frame_bytes[0x24]; // cf. DF9DQ
+    ui8_t p0 = 0x00;
+
+    if (gpx->fwVer >= 0x07) { // SPI1
+        p0 = gpx->frame_bytes[0x16];
+    }
+    val = (val << 8) | p0;
 
     if (val > 0) {
-        hPa = val/16.0f;
+        hPa = val/(float)(16*256);
     }
-
-    //if (gpx->fwVer >= 0x07) { // SPI1
-    //    ui32_t val24 = (val << 8) | gpx->frame_bytes[0x16];
-    //    if (val24 > 0) {
-    //        hPa = val24/(float)(16*256);
-    //    }
-    //}
 
     return hPa;
 }
@@ -789,8 +787,9 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         if (gpx->TH > -273.0f) fprintf(stdout, " TH:%.1fC", gpx->TH);
                     }
                     if (gpx->P > 0.0f) {
-                        if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
-                        else                 fprintf(stdout, " P=%.1fhPa ", gpx->P);
+                        if      (gpx->P <  10.0f) fprintf(stdout, " P=%.3fhPa ", gpx->P);
+                        else if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
+                        else                      fprintf(stdout, " P=%.1fhPa ", gpx->P);
                     }
                 }
                 fprintf(stdout, ANSI_COLOR_RESET"");
@@ -830,8 +829,9 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         if (gpx->TH > -273.0f) fprintf(stdout, " TH:%.1fC", gpx->TH);
                     }
                     if (gpx->P > 0.0f) {
-                        if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
-                        else                 fprintf(stdout, " P=%.1fhPa ", gpx->P);
+                        if      (gpx->P <  10.0f) fprintf(stdout, " P=%.3fhPa ", gpx->P);
+                        else if (gpx->P < 100.0f) fprintf(stdout, " P=%.2fhPa ", gpx->P);
+                        else                      fprintf(stdout, " P=%.1fhPa ", gpx->P);
                     }
                 }
             }
