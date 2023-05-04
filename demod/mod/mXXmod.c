@@ -219,8 +219,8 @@ frame[0x44..0x45]: frame check
 #define pos_SN        0x12  // 3 byte
 #define pos_CNT       0x15  // 1 byte
 #define pos_BlkChk    0x16  // 2 byte
-#define pos_FWVER     (stdFLEN-2)  // 1 byte
-#define pos_Check     (stdFLEN-1)  // 2 byte
+#define pos_stdFW     0x43  // 1 byte
+#define pos_stdCheck  (stdFLEN-1)  // 2 byte
 
 #define len_BlkChk    0x16 // frame[0x02..0x17] , incl. chk16
 
@@ -252,6 +252,10 @@ frame[0x44..0x45]: frame check
 #define col_CSoo       "\x1b[38;5;220m"
 #define col_CSno       "\x1b[38;5;1m"
 #define col_CNST       "\x1b[38;5;58m"  // 3 byte
+#define col_ptuP       "\x1b[38;5;180m"
+#define col_ptuT       "\x1b[38;5;110m"
+#define col_ptuU       "\x1b[38;5;120m"
+#define col_ptuTH      "\x1b[38;5;115m"
 
 /*
 $ for code in  {0..255}
@@ -708,13 +712,13 @@ static float get_P(gpx_t *gpx) {
     ui32_t val = (gpx->frame_bytes[0x25] << 8) | gpx->frame_bytes[0x24]; // cf. DF9DQ
     ui8_t p0 = 0x00;
 
-    if (gpx->fwVer >= 0x07) { // SPI1
+    if (gpx->fwVer >= 0x07) { // SPI1_P[0]
         p0 = gpx->frame_bytes[0x16];
     }
     val = (val << 8) | p0;
 
     if (val > 0) {
-        hPa = val/(float)(16*256);
+        hPa = val/(float)(16*256); // 4096=0x1000
     }
 
     return hPa;
@@ -740,7 +744,6 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
 
         Gps2Date(gpx->week, gpx->gpssec, &gpx->jahr, &gpx->monat, &gpx->tag);
         get_SN(gpx);
-        gpx->fwVer = gpx->frame_bytes[pos_FWVER];
 
         if (gpx->option.ptu && csOK) {
             gpx->T  = get_Temp(gpx);   // temperature
@@ -888,6 +891,8 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
     int cs1, cs2;
     int bc1, bc2, bc;
     int flen = stdFLEN; // stdFLEN=0x64, auxFLEN=0x76; M20:0x45 ?
+    int pos_fw = pos_stdFW;
+    int pos_check = pos_stdCheck;
 
     if (b2B) {
         bits2bytes(gpx->frame_bits, gpx->frame_bytes);
@@ -897,10 +902,21 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
     else {
         gpx->auxlen = flen - stdFLEN;
         //if (gpx->auxlen < 0 || gpx->auxlen > AUX_LEN) gpx->auxlen = 0; // 0x43,0x45
+        if (gpx->auxlen < 0) {
+            gpx->auxlen = 0;
+            pos_fw = flen-2; // only if flen < stdFLEN
+        }
+        else if (gpx->auxlen > AUX_LEN) {
+            gpx->auxlen = AUX_LEN;
+            flen = stdFLEN+AUX_LEN;
+        }
     }
+    pos_check = flen-1;
+    gpx->fwVer = gpx->frame_bytes[pos_fw];
+    if (gpx->fwVer > 0x20) gpx->fwVer = 0;
 
-    cs1 = (gpx->frame_bytes[pos_Check+gpx->auxlen] << 8) | gpx->frame_bytes[pos_Check+gpx->auxlen+1];
-    cs2 = checkM10(gpx->frame_bytes, pos_Check+gpx->auxlen);
+    cs1 = (gpx->frame_bytes[pos_check] << 8) | gpx->frame_bytes[pos_check+1];
+    cs2 = checkM10(gpx->frame_bytes, pos_check);
 
     bc1 = (gpx->frame_bytes[pos_BlkChk] << 8) | gpx->frame_bytes[pos_BlkChk+1];
     bc2 = blk_checkM10(len_BlkChk, gpx->frame_bytes+2); // len(essentialBlock+chk16) = 0x16
@@ -933,14 +949,23 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
                 if ((i >= pos_GPSvU)    &&  (i < pos_GPSvU+2))    fprintf(stdout, col_GPSvel);
                 if ((i >= pos_SN)       &&  (i < pos_SN+3))       fprintf(stdout, col_SN);
                 if  (i == pos_CNT) fprintf(stdout, col_CNT);
-                if ((i >= pos_BlkChk)   &&  (i < pos_BlkChk+2))   fprintf(stdout, col_Check);
-                if ((i >= pos_Check+gpx->auxlen)  &&  (i < pos_Check+gpx->auxlen+2))  fprintf(stdout, col_Check);
+                if (gpx->fwVer < 0x07) {
+                    if ((i >= pos_BlkChk)   &&  (i < pos_BlkChk+2))   fprintf(stdout, col_Check);
+                } else {
+                    if ((i >= pos_BlkChk+1) &&  (i < pos_BlkChk+2))   fprintf(stdout, col_Check);
+                }
+                if (i >= 0x02 && i <= 0x03)  fprintf(stdout, col_ptuU);
+                if (i >= 0x04 && i <= 0x05)  fprintf(stdout, col_ptuT);
+                if (i >= 0x06 && i <= 0x07)  fprintf(stdout, col_ptuTH);
+                if (i == 0x16 && gpx->fwVer >= 0x07 || i >= 0x24 && i <= 0x25)  fprintf(stdout, col_ptuP);
+
+                if ((i >= pos_check)  &&  (i < pos_check+2))  fprintf(stdout, col_Check);
                 fprintf(stdout, "%02x", byte);
                 fprintf(stdout, col_FRTXT);
             }
             if (gpx->option.vbs) {
                 fprintf(stdout, " # "col_Check"%04x"col_FRTXT, cs2);
-                if (gpx->frame_bytes[pos_FWVER] < 0x07) {
+                if (gpx->fwVer < 0x07) {
                     if      (bc > 0) fprintf(stdout, " "col_CSok"(ok)"col_TXT);
                     else if (bc < 0) fprintf(stdout, " "col_CSoo"(oo)"col_TXT);
                     else             fprintf(stdout, " "col_CSno"(no)"col_TXT);
@@ -957,7 +982,7 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
             }
             if (gpx->option.vbs) {
                 fprintf(stdout, " # %04x", cs2);
-                if (gpx->frame_bytes[pos_FWVER] < 0x07) {
+                if (gpx->fwVer < 0x07) {
                     if      (bc > 0) fprintf(stdout, " (ok)");
                     else if (bc < 0) fprintf(stdout, " (oo)");
                     else             fprintf(stdout, " (no)");
