@@ -104,6 +104,7 @@ typedef struct {
     double vH; double vD; double vV;
     double vx; double vy; double vD2;
     float T;  float RH; float TH; float P;
+    float batV;
     ui8_t numSV;
     //ui8_t utc_ofs;
     ui8_t fwVer;
@@ -724,6 +725,16 @@ static float get_P(gpx_t *gpx) {
     return hPa;
 }
 
+static float get_BatV(gpx_t *gpx) {
+    float batV = 0.0f;
+    ui8_t val = gpx->frame_bytes[0x26]; // cf. DF9DQ
+
+    batV = val * (3.3f/255); // upper 8 bits ADC
+
+    return batV;
+}
+
+
 /* -------------------------------------------------------------------------- */
 
 static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
@@ -751,6 +762,8 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
             gpx->RH = get_RH(gpx);     // relative humidity
             gpx->P  = get_P(gpx);      // (optional) pressure
         }
+
+        gpx->batV = get_BatV(gpx);     // battery V
 
         if ( !gpx->option.slt )
         {
@@ -795,6 +808,9 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         else                      fprintf(stdout, " P=%.1fhPa ", gpx->P);
                     }
                 }
+                if (gpx->option.vbs >= 3 && csOK) {
+                    fprintf(stdout, " (bat:%.2fV)", gpx->batV);
+                }
                 fprintf(stdout, ANSI_COLOR_RESET"");
             }
             else {
@@ -837,6 +853,9 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                         else                      fprintf(stdout, " P=%.1fhPa ", gpx->P);
                     }
                 }
+                if (gpx->option.vbs >= 3 && csOK) {
+                    fprintf(stdout, " (bat:%.2fV)", gpx->batV);
+                }
             }
             fprintf(stdout, "\n");
         }
@@ -861,6 +880,7 @@ static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
                     if (gpx->RH > -0.5f)  fprintf(stdout, ", \"humidity\": %.1f", gpx->RH );
                     if (gpx->P > 0.0f)    fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
                 }
+                fprintf(stdout, ", \"batt\": %.2f", gpx->batV);
                 fprintf(stdout, ", \"rawid\": \"M20_%02X%02X%02X\"", gpx->frame_bytes[pos_SN], gpx->frame_bytes[pos_SN+1], gpx->frame_bytes[pos_SN+2]); // gpx->type
                 fprintf(stdout, ", \"subtype\": \"0x%02X\"", gpx->type);
                 if (gpx->jsn_freq > 0) {
