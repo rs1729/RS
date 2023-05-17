@@ -26,24 +26,22 @@ int wav_channel = 0;     // audio channel: left
 
 #define BAUD_RATE  4800.0 // (4997.2) // 5000
 
-#define FRAMELEN    69 //64 //200 //(66)
+#define FRAMELEN    69 //64
 #define BITFRAMELEN (8*FRAMELEN)
 /*
-#define HEADLEN 56 //64
+#define HEADLEN 56
 #define HEADOFS 0
-char header[] = "10101010""10101010""10101010"//"10101010"  // preamble
-                "11000001""10010100""11000001""11000110";
+char header[] = "10101010""10101010""10101010"   // AA AA AA (preamble)
+                "11000001""10010100""11000001";  // C1 94 C1
 */
 //preamble_header_sn1: 101010101010101010101010 1100000110010100110000011100011001111000 110001010110110111100100
 //preamble_header_sn2: 101010101010101010101010 1100000110010100110000011100011001111000 001100100110110111100100
 //preamble_header_sn3: 101010101010101010101010 1100000110010100110000011100011001111000 001010000110110111100100
 
-#define HEADLEN 48 //64
+#define HEADLEN 40 //48
 #define HEADOFS 0
-char header[] = //"10101010""10101010""10101010"//"10101010"  // preamble
-                //"00101101""11010100""10101010";//"000100";
-                "10101010""10101010""10101010"
-                "00101101""11010100""10101010"; //00010010010101000011011110001001
+char header[] = "10101010""10101010""10101010"       // AA AA AA (preamble)
+                "00101101""11010100"; //"10101010";  // 2D D4 55/AA
 
 char buf[HEADLEN+1] = "xxxxxxxxxx\0";
 int bufpos = 0;
@@ -267,13 +265,13 @@ int bits2bytes(char *bitstr, ui8_t *bytes) {
 // cf. https://www.ti.com/lit/an/swra322/swra322.pdf
 //     https://destevez.net/2019/07/lucky-7-decoded/
 //
-// counter low byte: frame[OFS+6] XOR 0xCC
-// zero bytes, frame[OFS+32]: 0C CA C9 FB 49 37 E5 A8
+// counter low byte: frame[OFS+4] XOR 0xCC
+// zero bytes, frame[OFS+30]: 0C CA C9 FB 49 37 E5 A8
 //
 ui8_t  PN9b[64] = { 0xFF, 0x87, 0xB8, 0x59, 0xB7, 0xA1, 0xCC, 0x24,
                     0x57, 0x5E, 0x4B, 0x9C, 0x0E, 0xE9, 0xEA, 0x50,
                     0x2A, 0xBE, 0xB4, 0x1B, 0xB6, 0xB0, 0x5D, 0xF1,
-                    0xE6, 0x9A, 0xE3, 0x45, 0xFD, 0x2c, 0x53, 0x18,
+                    0xE6, 0x9A, 0xE3, 0x45, 0xFD, 0x2C, 0x53, 0x18,
                     0x0C, 0xCA, 0xC9, 0xFB, 0x49, 0x37, 0xE5, 0xA8,
                     0x51, 0x3B, 0x2F, 0x61, 0xAA, 0x72, 0x18, 0x84,
                     0x02, 0x23, 0x23, 0xAB, 0x63, 0x89, 0x51, 0xB3,
@@ -295,7 +293,7 @@ ui32_t xor8sum(ui8_t bytes[], int len) {
 }
 
 
-#define OFS 4
+#define OFS 6  // xPN9: OFS=8, different baud
 
 int print_frame() {
     int j;
@@ -305,12 +303,12 @@ int print_frame() {
 
     for (j = 0; j < FRAMELEN; j++) {
         ui8_t b = frame_bytes[j];
-        //if (j >= 6) b ^= PN9b[(j-6)%64];
+        //if (j >= 6) b ^= PN9b[(j-6)%64]; // PN9 baud diff
         xframe[j] = b;
     }
 
-    chkval = xor8sum(xframe+OFS+2, 53);
-    chkdat = (xframe[OFS+55]<<8) | xframe[OFS+55+1];
+    chkval = xor8sum(xframe+OFS, 53);
+    chkdat = (xframe[OFS+53]<<8) | xframe[OFS+53+1];
     chk_ok = (chkdat == chkval);
 
     if (option_raw) {
@@ -336,21 +334,24 @@ int print_frame() {
         ui32_t cnt;
         int val;
 
-        // SN ?
-        sn = xframe[OFS+2] | (xframe[OFS+3]<<8) | ((xframe[OFS+4])<<16) | ((xframe[OFS+5])<<24);
-        printf(" (0x%08X) ", sn);
+        sn = xframe[OFS] | (xframe[OFS+1]<<8) | (xframe[OFS+2]<<16) | (xframe[OFS+3]<<24);
 
-        // counter ?
-        cnt = xframe[OFS+6] | (xframe[OFS+7]<<8);
-        printf(" [%5d] ", cnt);
+        // counter
+        cnt = xframe[OFS+4] | (xframe[OFS+5]<<8);
 
-        ui8_t frid = xframe[OFS+8];
+        ui8_t frid = xframe[OFS+6];
 
         if (frid == 2)
         {
+            // SN ?
+            printf(" (0x%08X) ", sn);
+
+            // counter
+            printf(" [%5d] ", cnt);
+
             // time/UTC
             int hms;
-            hms = xframe[OFS+9] | (xframe[OFS+10]<<8) | ((xframe[OFS+11])<<16);
+            hms = xframe[OFS+7] | (xframe[OFS+8]<<8) | (xframe[OFS+9]<<16);
             hms &= 0x3FFFF;
             //printf(" (%6d) ", hms);
             ui8_t h =  hms / 10000;
@@ -359,7 +360,7 @@ int print_frame() {
             printf(" %02d:%02d:%02d ", h, m, s);  // UTC
 
             // alt
-            val = xframe[OFS+15] | (xframe[OFS+16]<<8) | ((xframe[OFS+17])<<16);
+            val = xframe[OFS+13] | (xframe[OFS+14]<<8) | (xframe[OFS+15]<<16);
             val &= 0x7FFFFF; // int23 ?
             val >>= 4;
             //if (val & 0x3FFFFF) val -= 0x400000;
@@ -367,7 +368,7 @@ int print_frame() {
             printf(" alt: %.1f ", alt);  // MSL
 
             // lat
-            val = xframe[OFS+17] | (xframe[OFS+18]<<8) | ((xframe[OFS+19])<<16) | ((xframe[OFS+20])<<24);
+            val = xframe[OFS+15] | (xframe[OFS+16]<<8) | (xframe[OFS+17]<<16) | (xframe[OFS+18]<<24);
             val >>= 7;
             val &= 0x3FFFFFF; // int26 ?
             if (val & 0x2000000) val -= 0x4000000; // sign ?
@@ -375,19 +376,27 @@ int print_frame() {
             printf(" lat: %.4f ", lat);
 
             // lon
-            val = xframe[OFS+21] | (xframe[OFS+22]<<8) | ((xframe[OFS+23])<<16)| ((xframe[OFS+24])<<24);
+            val = xframe[OFS+19] | (xframe[OFS+20]<<8) | (xframe[OFS+21]<<16)| (xframe[OFS+22]<<24);
             val &= 0x3FFFFFF; // int26 ?
             if (val & 0x2000000) val -= 0x4000000; // sign ?
             float lon = val / 1e5f;
             printf(" lon: %.4f ", lon);
 
+            // checksum
+            printf("  %s", chk_ok ? "[OK]" : "[NO]");
+            if (option_verbose) printf(" # [%04X:%04X]", chkdat, chkval);
+
+            printf("\n");
         }
+        else if (frid ==1 && option_verbose) {
+            printf(" (0x%08X) ", sn);
+            printf(" [%5d] ", cnt);
 
-        // checksum
-        printf("  %s", chk_ok ? "[OK]" : "[NO]");
-        if (option_verbose) printf(" # [%04X:%04X]", chkdat, chkval);
+            printf("  %s", chk_ok ? "[OK]" : "[NO]");
+            if (option_verbose) printf(" # [%04X:%04X]", chkdat, chkval);
 
-        printf("\n");
+            printf("\n");
+        }
     }
 
     return 0;
