@@ -17,8 +17,14 @@ RS
   `RS/mk2a`: MkIIa (LMS6-1680MHz) <br />
   `RS/meisei`: Meisei (iMS-100, RS-11G) <br />
 
-  `RS/demod/mod`: alternative decoders using cross-correlation for header-synchronization <br />
-  &nbsp;&nbsp;&nbsp;&nbsp; RS41, M10, M20, DFM-06/09/17, LMS6-403, Meisei (iMS-100, RS-11G), iMet-54, RS92-SGP
+  `RS/demod/mod`: alternative decoders using cross-correlation for header-synchronization, FM/IQ data;<br />
+  &nbsp;&nbsp;&nbsp;&nbsp; RS41, M10/M20, DFM-06/09/17, LMS6-403, Meisei (iMS-100, RS-11G), iMet-54, RS92-SGP, MRZ-N1, MTS01
+
+
+  `RS/tree/test/uaii2022`: [UAII2022](https://github.com/rs1729/RS/tree/test/uaii2022): CF-06AH, HT03G, WxR-301D, PS-B3, ATMS-3710 <br />
+
+  `RS/tree/test/weathex`: Weathex w/o PN9 <br />
+
 
   `RS/ecc`: error correction codes (Reed-Solomon/BCH) <br />
 
