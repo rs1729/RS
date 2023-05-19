@@ -296,6 +296,11 @@ static void printJSON() {
     if (gpx.jsn_freq > 0) {
         printf(", \"freq\": %d", gpx.jsn_freq);
     }
+
+    // Reference time/position
+    printf(", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+    printf(", \"ref_position\": \"%s\"", "MSL" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+
     #ifdef VER_JSN_STR
         ver_jsn = VER_JSN_STR;
     #endif
@@ -363,7 +368,7 @@ static int evalBytes2() {
         gpx.chk = (gpx.chk & ~(0x1<<0)) | (check<<0);
         if (check==0) cnt_dat = sample_count;
     }
-    else if (id == 0x15 ) {  // time
+    else if (id == 0x15 ) {  // time (UTC)
         int std = val / 10000;
         int min = (val-std*10000) / 100;
         int sek = val % 100;
@@ -383,7 +388,7 @@ static int evalBytes2() {
         gpx.chk = (gpx.chk & ~(0x1<<3)) | (check<<3);
         if (check==0) cnt_lon = sample_count;
     }
-    else if (id == 0x18 ) {  // alt: decimeter
+    else if (id == 0x18 ) {  // alt: decimeter (MSL)
         gpx.alt = val/10.0;
         gpx.chk = (gpx.chk & ~(0x1<<4)) | (check<<4);
         if (check==0) cnt_alt = sample_count;
