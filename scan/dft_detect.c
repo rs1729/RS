@@ -32,6 +32,7 @@ static int option_verbose = 0,  // ausfuehrliche Anzeige
            option_dc = 0,
            option_silent = 0,
            option_cont = 0,
+           option_d2 = 0,
            option_pcmraw = 0,
            option_singleLpIQ = 0,
            wavloaded = 0;
@@ -176,6 +177,23 @@ static rsheader_t rs_hdr[Nrs] = {
 static int idx_MTS01 = -1,
            idx_C34C50 = -1,
            idx_IMET1AB = -1;
+
+
+static int rs_detect2[Nrs];
+
+static int rs_d2() {
+    int tn = 0;
+    for (tn = 0; tn < Nrs; tn++) {
+        if ( rs_detect2[tn] > 1 ) break;
+    }
+    return tn;
+}
+
+static int reset_d2() {
+    int n = 0;
+    for (n = 0; n < Nrs; n++) rs_detect2[n] = 0;
+    return 0;
+}
 
 
 /*
@@ -1302,6 +1320,8 @@ int main(int argc, char **argv) {
     int j_max;
     float mv_max;
 
+    int d2_tn = Nrs;
+
 
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _setmode(_fileno(stdin), _O_BINARY);
@@ -1364,6 +1384,9 @@ int main(int argc, char **argv) {
             if (*argv) tl = atof(*argv);
             else return -50;
         }
+        else if ( (strcmp(*argv, "-d2") == 0) ) {
+            option_d2 = 1;
+        }
         else if ( (strcmp(*argv, "--ch2") == 0) ) { wav_channel = 1; }  // right channel (default: 0=left)
         else if ( (strcmp(*argv, "--ths") == 0) ) {
             ++argv;
@@ -1397,6 +1420,9 @@ int main(int argc, char **argv) {
     }
     if (!wavloaded) fp = stdin;
 
+    if (option_d2) {
+        option_cont = 0;
+    }
 
     if (option_pcmraw == 0) {
         j = read_wav_header(fp, wav_channel);
@@ -1547,16 +1573,23 @@ int main(int argc, char **argv) {
 
                         if (header_found) {
                             if (!option_silent && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
-                                if (option_verbose) fprintf(stdout, "sample: %d\n", mv_pos[j]);
-                                fprintf(stdout, "%s: %.4f", rs_hdr[j].type, mv[j]);
-                                if (option_dc && option_iq) {
-                                    fprintf(stdout, " , %+.1fHz", rs_hdr[j].df*sr_base);
-                                    if (option_verbose) {
-                                        fprintf(stdout, "   [ fq-ofs: %+.6f", rs_hdr[j].df);
-                                        fprintf(stdout, " = %+.1fHz ]", rs_hdr[j].df*sr_base);
-                                    }
+                                if (option_d2) {
+                                    rs_detect2[j] += 1;
+                                    d2_tn = rs_d2();
+                                    if ( d2_tn == Nrs ) header_found = 0;
                                 }
-                                fprintf(stdout, "\n");
+                                if ( !option_d2 || j == d2_tn ) {
+                                    if (option_verbose) fprintf(stdout, "sample: %d\n", mv_pos[j]);
+                                    fprintf(stdout, "%s: %.4f", rs_hdr[j].type, mv[j]);
+                                    if (option_dc && option_iq) {
+                                        fprintf(stdout, " , %+.1fHz", rs_hdr[j].df*sr_base);
+                                        if (option_verbose) {
+                                            fprintf(stdout, "   [ fq-ofs: %+.6f", rs_hdr[j].df);
+                                            fprintf(stdout, " = %+.1fHz ]", rs_hdr[j].df*sr_base);
+                                        }
+                                    }
+                                    fprintf(stdout, "\n");
+                                }
                             }
                             // if ((j < 3) && mv[j] < 0) header_found = -1;
 
@@ -1570,7 +1603,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (header_found && !option_cont) break;
+        if (header_found && !option_cont || d2_tn < Nrs) break;
         header_found = 0;
         for (j = 0; j < Nrs; j++) mv[j] = 0.0;
     }
