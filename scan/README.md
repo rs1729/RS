@@ -85,7 +85,7 @@ RS41: 0.9784
 Ex.5<br />
 Some radiosonde types have similar signals, false detection is possible.
 ```
-$ dft_detect -c -t 4 fm_meisei.wav 2>/dev/null
+$ ./dft_detect -c -t 4 fm_meisei.wav 2>/dev/null
 MEISEI: 0.9802
 MRZ: -0.9720
 MEISEI: 0.9829
@@ -95,7 +95,7 @@ Here a Meisei radiosonde seems to be more likely.
 Ex.6<br />
 Confirmed detection (two hits):
 ```
-$ dft_detect -d2 -t 4 fm_meisei.wav 2>/dev/null
+$ ./dft_detect -d2 -t 4 fm_meisei.wav 2>/dev/null
 MEISEI: 0.9829
 ```
 
