@@ -334,6 +334,7 @@ int print_frame() {
         ui32_t cnt;
         int val;
 
+        // SN
         sn = xframe[OFS] | (xframe[OFS+1]<<8) | (xframe[OFS+2]<<16) | (xframe[OFS+3]<<24);
 
         // counter
@@ -343,7 +344,7 @@ int print_frame() {
 
         if (frid == 2)
         {
-            // SN ?
+            // SN
             printf(" (0x%08X) ", sn);
 
             // counter
@@ -361,24 +362,24 @@ int print_frame() {
 
             // alt
             val = xframe[OFS+13] | (xframe[OFS+14]<<8) | (xframe[OFS+15]<<16);
-            val &= 0x7FFFFF; // int23 ?
             val >>= 4;
-            //if (val & 0x3FFFFF) val -= 0x400000;
+            val &= 0x7FFFF; // int19 ?
+            //if (val & 0x40000) val -= 0x80000;
             float alt = val / 10.0f;
             printf(" alt: %.1f ", alt);  // MSL
 
             // lat
             val = xframe[OFS+15] | (xframe[OFS+16]<<8) | (xframe[OFS+17]<<16) | (xframe[OFS+18]<<24);
             val >>= 7;
-            val &= 0x3FFFFFF; // int26 ?
-            if (val & 0x2000000) val -= 0x4000000; // sign ?
+            val &= 0x1FFFFFF; // int25 ?
+            if (val & 0x1000000) val -= 0x2000000; // sign ?  (or 90 -> -90 wrap ?)
             float lat = val / 1e5f;
             printf(" lat: %.4f ", lat);
 
             // lon
             val = xframe[OFS+19] | (xframe[OFS+20]<<8) | (xframe[OFS+21]<<16)| (xframe[OFS+22]<<24);
             val &= 0x3FFFFFF; // int26 ?
-            if (val & 0x2000000) val -= 0x4000000; // sign ?
+            if (val & 0x2000000) val -= 0x4000000; // sign ?  (or 180 -> -180 wrap ?)
             float lon = val / 1e5f;
             printf(" lon: %.4f ", lon);
 
