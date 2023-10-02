@@ -65,7 +65,7 @@ typedef struct {
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
     i8_t slt;  // silent (only raw/json)
-    i8_t cal;  // save/load cal/conf
+    i8_t cal;  // json cal/conf
 } option_t;
 
 typedef struct {
@@ -516,9 +516,9 @@ static int get_FrameConf(gpx_t *gpx, int ofs) {
             for (i = 0; i < 51; i++) { // 0x00..0x32
                 sum += gpx->calfrchk[i];
             }
-            if (sum == 51) {
+            if (sum == 51) { // count all subframes
                 int calconf_dat = gpx->calibytes[0] | (gpx->calibytes[1]<<8);
-                int calconf_crc = crc16(gpx->calibytes+2, 50*16-2); // subframe 0x32=51 not included (variable)
+                int calconf_crc = crc16(gpx->calibytes+2, 50*16-2); // subframe 0x32 not included (variable)
 
                 if (calconf_dat == calconf_crc) gpx->calconf_complete = 1;
             }
@@ -2544,6 +2544,11 @@ int main(int argc, char *argv[]) {
     memcpy(gpx.frame, rs41_header_bytes, sizeof(rs41_header_bytes)); // 8 header bytes
 
     gpx.calconf_subfrm = gpx.frame+pos_CalData;
+    if (gpx.option.cal) {
+        gpx.option.jsn = 1;
+        gpx.option.ecc = 2;
+        gpx.option.crc = 1;
+    }
 
     if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
