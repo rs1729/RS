@@ -1076,11 +1076,17 @@ int print_eGPS(int pos, ui8_t PKT_ID) {
     min = (byteframe+pos)[posGPStim+1];
     sek = (byteframe+pos)[posGPStim+2];
 
-    fprintf(stdout, "(%02d:%02d:%02d) ", std, min, sek);
-    fprintf(stdout, " lat: %.6f° ", lat);
-    fprintf(stdout, " lon: %.6f° ", lon);
-    fprintf(stdout, " alt: %dm ", alt);
-    fprintf(stdout, " sats: %d ", sats);
+    if (std < 25 && min < 61 && sek < 100) {
+        fprintf(stdout, "(%02d:%02d:%02d) ", std, min, sek);
+    }
+    if (lat > -91.0f && lat < 91.0f && lon > -181.0f && lon < 181.0f) {
+        fprintf(stdout, " lat: %.6f° ", lat);
+        fprintf(stdout, " lon: %.6f° ", lon);
+        if (alt > -1000 && alt < 80000) {
+            fprintf(stdout, " alt: %dm ", alt);
+        }
+        fprintf(stdout, " sats: %d ", sats);
+    }
 
     gpx.vH = gpx.vD = gpx.vV = 0;
     if (PKT_ID == PKT_eGPS) {
@@ -1091,7 +1097,9 @@ int print_eGPS(int pos, ui8_t PKT_ID) {
         vD = atan2(vE, vN) * 180.0 / M_PI;
         if (vD < 0) vD += 360.0;
         // TODO: TEST eGPS/vel
-        fprintf(stdout, "  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", vH, vD, vU);
+        if (vH < 1000.0f && vU > -1000.0f && vU < 1000.0f) {
+            fprintf(stdout, "  vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", vH, vD, vU);
+        }
     }
 
     fprintf(stdout, " # ");
