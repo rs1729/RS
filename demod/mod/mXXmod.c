@@ -724,6 +724,9 @@ static float get_P(gpx_t *gpx) {
     if (val > 0) {
         hPa = val/(float)(16*256); // 4096=0x1000
     }
+    if (hPa > 2560.0f) { // val > 0xA00000
+        hPa = -1.0f;
+    }
 
     return hPa;
 }
