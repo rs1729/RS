@@ -136,6 +136,7 @@ e.g. -b --br 2398
 
 typedef struct {
     int frnr; int frnr1;
+    int ref_yr;
     int jahr; int monat; int tag;
     int std; int min; float sek;
     double lat; double lon; double alt;
@@ -326,6 +327,21 @@ static int reset_gpx(gpx_t *gpx) {
 
 /* -------------------------------------------------------------------------- */
 
+static int est_year_ims100(int _y, int _yr) {
+    int yr_rollover = 20; // default: 2020..2029
+    int yr_offset = 20;
+    if (_yr > 2003 && _yr < 2100) {
+        yr_rollover = _yr - 2004;
+        yr_offset = (yr_rollover / 10) * 10;
+    }
+    _y %= 10;
+    _y += yr_offset;
+    if (_y < yr_rollover) _y += 10;
+    return 2000+_y;
+}
+
+/* -------------------------------------------------------------------------- */
+
 
 int main(int argc, char **argv) {
 
@@ -509,6 +525,12 @@ int main(int argc, char **argv) {
             if (frq < 300000000) frq = -1;
             cfreq = frq;
         }
+        else if   (strcmp(*argv, "--year") == 0) {
+            int _yr = 0;
+            ++argv;
+            if (*argv) _yr = atoi(*argv); else return -1;
+            if (_yr > 2003 && _yr < 2100) gpx.ref_yr = _yr;
+        }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
             ++argv;
@@ -547,6 +569,9 @@ int main(int argc, char **argv) {
     if (option_noLUT && option_iq == 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
 
     if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
+
+    // ims100: default ref. year
+    if (gpx.ref_yr < 2000) gpx.ref_yr = 2024; // -> 2020..2029
 
 
     #ifdef EXT_FSK
@@ -1127,12 +1152,9 @@ int main(int argc, char **argv) {
                                 dat2 = bits2val(subframe_bits+HEADLEN, 16);
                                 gpx.tag = dat2/1000;
                                 gpx.monat = (dat2/10)%100;
-                                _y = (dat2%10)+10;
-                                if (_y < 14) _y += 10; // 2020
-                                gpx.jahr = 2000 + _y;
-                                //if (option_verbose) printf("%05u  ", dat2);
-                                //printf("(%02d-%02d-%02d) ", gpx.tag, gpx.monat, gpx.jahr%100); // 2020: +20 ?
-                                printf("(%04d-%02d-%02d) ", gpx.jahr, gpx.monat, gpx.tag); // 2020: +20 ?
+                                _y = dat2 % 10;
+                                gpx.jahr = est_year_ims100(_y, gpx.ref_yr);
+                                printf("(%04d-%02d-%02d) ", gpx.jahr, gpx.monat, gpx.tag);
 
                                 lat1 = bits2val(subframe_bits+HEADLEN+46*0+17, 16);
                                 lat2 = bits2val(subframe_bits+HEADLEN+46*1   , 16);
