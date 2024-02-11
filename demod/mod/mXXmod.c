@@ -83,7 +83,7 @@ static char rawheader[] = "10011001100110010100110010011001";
 #define FRAME_LEN       (100+1)   // 0x64+1
 #define BITFRAME_LEN    (FRAME_LEN*BITS)
 
-#define AUX_LEN          20
+#define AUX_LEN          64
 #define BITAUX_LEN      (AUX_LEN*BITS)
 
 
@@ -875,7 +875,7 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
     ui8_t byte;
     int cs1, cs2;
     int bc1, bc2, bc;
-    int flen = stdFLEN; // stdFLEN=0x64, auxFLEN=0x76; M20:0x45 ?
+    int flen = stdFLEN; // M10:stdFLEN=0x64,auxFLEN=0x76; M20:stdFLEN=0x45,auxFLEN=0x6F ?
     int pos_fw = pos_stdFW;
     int pos_check = pos_stdCheck;
 
