@@ -37,7 +37,7 @@
 //      gcc -DVER_JSN_STR=\"0.0.2\" ...
 
 
-typedef  unsigned char  ui8_t;
+typedef unsigned char  ui8_t;
 typedef unsigned short ui16_t;
 typedef unsigned int   ui32_t;
 typedef char  i8_t;
@@ -64,6 +64,7 @@ int option_verbose = 0,  // ausfuehrliche Anzeige
     option_b = 1,
     option_json = 0;
 
+int rawhex = 0;  // raw hex input
 
 /* ------------------------------------------------------------------------------------ */
 
@@ -910,6 +911,17 @@ void print_rawbits(int len) {
     fprintf(stdout, "\n");
 }
 
+int hexval(char nib) {
+    int i;
+    int h = 0;
+
+    if      (nib >= '0' && nib <= '9') h = nib-'0';
+    else if (nib >= 'a' && nib <= 'f') h = nib-'a'+0xA;
+    else if (nib >= 'A' && nib <= 'F') h = nib-'A'+0xA;
+    else return -1;
+
+    return (h & 0xF);
+}
 
 /* -------------------------------------------------------------------------- */
 
@@ -1216,7 +1228,7 @@ int print_xdata(int pos, ui8_t N) {
 /* -------------------------------------------------------------------------- */
 
 
-int print_frame(dsp_t *dsp, int len) {
+int print_frame(int len, int bits2byte) {
     int i;
     int framelen;
     int crc_err1 = 0,
@@ -1225,15 +1237,20 @@ int print_frame(dsp_t *dsp, int len) {
     int ofs = 0;
     int out = 0;
 
-    if ( len < 2 || len > LEN_BYTEFRAME) return -1;
-    for (i = len; i < LEN_BYTEFRAME; i++) byteframe[i] = 0;
-
     gpx.gps_valid = 0;
     gpx.ptu_valid = 0;
 
-    framelen = bits2bytes(bitframe, byteframe, len);
+    if ( len < 2 || len > LEN_BYTEFRAME ) return -1;
 
-    if (option_rawbits)
+    if (bits2byte) {
+        memset(byteframe, 0, LEN_BYTEFRAME);
+        framelen = bits2bytes(bitframe, byteframe, len);
+    }
+    else {
+        framelen = len;
+    }
+
+    if (option_rawbits && !rawhex)
     {
         print_rawbits(framelen*BITS);
     }
@@ -1449,6 +1466,7 @@ int main(int argc, char *argv[]) {
             if (frq < 300000000) frq = -1;
             cfreq = frq;
         }
+        else if (strcmp(*argv, "--rawhex") == 0) { rawhex = 1; }  // raw hex input
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
             ++argv;
@@ -1478,185 +1496,228 @@ int main(int argc, char *argv[]) {
     if (!wavloaded) fp = stdin;
 
 
-    if (option_iq == 0 && option_pcmraw) {
-        fclose(fp);
-        fprintf(stderr, "error: raw data not IQ\n");
-        return -1;
-    }
-    if (option_iq) sel_wavch = 0;
+    if (!rawhex) {
 
-    pcm.sel_ch = sel_wavch;
-    if (option_pcmraw == 0) {
-        k = read_wav_header(&pcm, fp);
-        if ( k < 0 ) {
+        if (option_iq == 0 && option_pcmraw) {
             fclose(fp);
-            fprintf(stderr, "error: wav header\n");
+            fprintf(stderr, "error: raw data not IQ\n");
             return -1;
         }
-    }
+        if (option_iq) sel_wavch = 0;
 
-    gpx.jsn_freq = 0;
-    if (cfreq > 0) {
-        int fq_kHz = (cfreq - dsp.xlt_fq*pcm.sr + 500)/1e3;
-        gpx.jsn_freq = fq_kHz;
-    }
+        pcm.sel_ch = sel_wavch;
+        if (option_pcmraw == 0) {
+            k = read_wav_header(&pcm, fp);
+            if ( k < 0 ) {
+                fclose(fp);
+                fprintf(stderr, "error: wav header\n");
+                return -1;
+            }
+        }
+
+        gpx.jsn_freq = 0;
+        if (cfreq > 0) {
+            int fq_kHz = (cfreq - dsp.xlt_fq*pcm.sr + 500)/1e3;
+            gpx.jsn_freq = fq_kHz;
+        }
+
+        // init dsp
+        //
+        dsp.fp = fp;
+        dsp.sr = pcm.sr;
+        dsp.bps = pcm.bps;
+        dsp.nch = pcm.nch;
+        dsp.ch = pcm.sel_ch;
+        dsp.br = (float)BAUD_RATE;
+
+        if (option_decFM) {
+            if (option_iq == 5) option_lp |= LP_IQFM;
+            else                option_lp |= LP_FM;
+            if (dsp.sr > 60000) dsp.opt_fmdec = 1;
+        }
+        dsp.sps = (float)dsp.sr/dsp.br;
+        dsp.decFM = 1;
+        if (dsp.opt_fmdec) {
+            dsp.decFM = option_decFM;
+            while (dsp.sr % dsp.decFM > 0  &&  dsp.decFM > 1) dsp.decFM /= 2;
+            dsp.sps /= (float)dsp.decFM;
+        }
+
+        if (dsp.opt_imet1) {
+            if (lpIQ_bw < 60e3) lpIQ_bw = 80e3;
+        }
+
+        dsp.opt_iq = option_iq;
+        dsp.opt_iqdc = option_iqdc;
+        dsp.opt_lp = option_lp;
+        dsp.lpIQ_bw = lpIQ_bw; // IF lowpass bandwidth
+        dsp.lpFM_bw = 6e3; // FM audio lowpass
+        if (option_iq == 6) dsp.lpFM_bw = 6e3;
+        else if (option_iq == 5) dsp.lpFM_bw = 6e3;
+        dsp.opt_dc = option_dc;
+        dsp.opt_IFmin = option_min;
+
+        // LUT faster, however frequency correction after decimation
+        // LUT recommonded if decM > 2
+        //
+        if (option_noLUT && option_iq >= 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
+
+        init_buffers(&dsp); // free
+
+        dsp.sr_fm = dsp.sr/dsp.decFM;
+
+        bitlen = dsp.sr_fm/(double)BAUD_RATE;
+
+        f1 = 2200.0;  // bit0: 2200Hz
+        f2 = 1200.0;  // bit1: 1200Hz
+        iw1 = _2PI*I*f1;
+        iw2 = _2PI*I*f2;
+
+        N = 2*bitlen + 0.5;
+        buffer = calloc( N+1, sizeof(float)); if (buffer == NULL) return -1;
+
+        ptr = -1; sample_count = -1;
+
+        while (f32_sample(&dsp, &s) != EOF) {
+
+            ptr++; sample_count++;
+            if (ptr == N) ptr = 0;
+            buffer[ptr] = s;
+
+            n = bitlen;
+            t = sample_count / (double)dsp.sr_fm;
+            tn = (sample_count-n) / (double)dsp.sr_fm;
+
+            x = buffer[sample_count % N];
+            x0 = buffer[(sample_count - n + N) % N];
+
+            // f1
+            X0 = x0 * cexp(-tn*iw1); // alt
+            X  = x  * cexp(-t *iw1); // neu
+            F1sum +=  X - X0;
+
+            // f2
+            X0 = x0 * cexp(-tn*iw2); // alt
+            X  = x  * cexp(-t *iw2); // neu
+            F2sum +=  X - X0;
+
+            xbit = cabs(F2sum) - cabs(F1sum);
+
+            s = xbit / bitlen;
 
 
-    // init dsp
-    //
-    dsp.fp = fp;
-    dsp.sr = pcm.sr;
-    dsp.bps = pcm.bps;
-    dsp.nch = pcm.nch;
-    dsp.ch = pcm.sel_ch;
-    dsp.br = (float)BAUD_RATE;
+            if ( s < 0 ) bit = 0;  // 2200Hz
+            else         bit = 1;  // 1200Hz
 
-    if (option_decFM) {
-        if (option_iq == 5) option_lp |= LP_IQFM;
-        else                option_lp |= LP_FM;
-        if (dsp.sr > 60000) dsp.opt_fmdec = 1;
-    }
-    dsp.sps = (float)dsp.sr/dsp.br;
-    dsp.decFM = 1;
-    if (dsp.opt_fmdec) {
-        dsp.decFM = option_decFM;
-        while (dsp.sr % dsp.decFM > 0  &&  dsp.decFM > 1) dsp.decFM /= 2;
-        dsp.sps /= (float)dsp.decFM;
-    }
+            bitbuf[sample_count % 3] = bit;
 
-    if (dsp.opt_imet1) {
-        if (lpIQ_bw < 60e3) lpIQ_bw = 80e3;
-    }
-
-    dsp.opt_iq = option_iq;
-    dsp.opt_iqdc = option_iqdc;
-    dsp.opt_lp = option_lp;
-    dsp.lpIQ_bw = lpIQ_bw; // IF lowpass bandwidth
-    dsp.lpFM_bw = 6e3; // FM audio lowpass
-    if (option_iq == 6) dsp.lpFM_bw = 6e3;
-    else if (option_iq == 5) dsp.lpFM_bw = 6e3;
-    dsp.opt_dc = option_dc;
-    dsp.opt_IFmin = option_min;
-
-    // LUT faster, however frequency correction after decimation
-    // LUT recommonded if decM > 2
-    //
-    if (option_noLUT && option_iq >= 5) dsp.opt_nolut = 1; else dsp.opt_nolut = 0;
-
-    init_buffers(&dsp); // free
-
-    dsp.sr_fm = dsp.sr/dsp.decFM;
-
-    bitlen = dsp.sr_fm/(double)BAUD_RATE;
-
-    f1 = 2200.0;  // bit0: 2200Hz
-    f2 = 1200.0;  // bit1: 1200Hz
-    iw1 = _2PI*I*f1;
-    iw2 = _2PI*I*f2;
-
-    N = 2*bitlen + 0.5;
-    buffer = calloc( N+1, sizeof(float)); if (buffer == NULL) return -1;
-
-    ptr = -1; sample_count = -1;
-
-    while (f32_sample(&dsp, &s) != EOF) {
-
-        ptr++; sample_count++;
-        if (ptr == N) ptr = 0;
-        buffer[ptr] = s;
-
-        n = bitlen;
-        t = sample_count / (double)dsp.sr_fm;
-        tn = (sample_count-n) / (double)dsp.sr_fm;
-
-        x = buffer[sample_count % N];
-        x0 = buffer[(sample_count - n + N) % N];
-
-        // f1
-        X0 = x0 * cexp(-tn*iw1); // alt
-        X  = x  * cexp(-t *iw1); // neu
-        F1sum +=  X - X0;
-
-        // f2
-        X0 = x0 * cexp(-tn*iw2); // alt
-        X  = x  * cexp(-t *iw2); // neu
-        F2sum +=  X - X0;
-
-        xbit = cabs(F2sum) - cabs(F1sum);
-
-        s = xbit / bitlen;
-
-
-        if ( s < 0 ) bit = 0;  // 2200Hz
-        else         bit = 1;  // 1200Hz
-
-        bitbuf[sample_count % 3] = bit;
-
-        if (header_found && option_b)
-        {
-            if (sample_count - pos_bit > bitlen+bitlen/5 + 3)
+            if (header_found && option_b)
             {
-                int bitsum = bitbuf[0]+bitbuf[1]+bitbuf[2];
-                if (bitsum > 1.5) bit = 1; else bit = 0;
+                if (sample_count - pos_bit > bitlen+bitlen/5 + 3)
+                {
+                    int bitsum = bitbuf[0]+bitbuf[1]+bitbuf[2];
+                    if (bitsum > 1.5) bit = 1; else bit = 0;
 
-                bitframe[bitpos] = bit;
-                bitpos++;
-                if (bitpos >= LEN_BITFRAME-200) {  // LEN_GPSePTU*BITS+40
+                    bitframe[bitpos] = bit;
+                    bitpos++;
+                    if (bitpos >= LEN_BITFRAME-200) {  // LEN_GPSePTU*BITS+40
 
-                    print_frame(&dsp, bitpos/BITS);
+                        print_frame(bitpos/BITS, 1);
 
-                    bitpos = 0;
-                    header_found = 0;
+                        bitpos = 0;
+                        header_found = 0;
+                    }
+                    pos_bit += bitlen;
                 }
-                pos_bit += bitlen;
+            }
+            else
+            {
+                if (bit != bit0) {
+
+                    pos0 = pos;
+                    pos = sample_count;  //sample_count-(N-1)/2
+
+                    len =  (pos-pos0)/bitlen + 0.5;
+                    for (i = 0; i < len; i++) {
+                        inc_bufpos();
+                        buf[bufpos] = 0x30 + bit0;
+
+                        if (!header_found) {
+                            if (compare() >= HEADLEN) {
+                                header_found = 1;
+                                bitpos = 10;
+                                pos_bit = pos;
+                                if (option_b) {
+                                    bitframe[bitpos] = bit;
+                                    bitpos++;
+                                }
+                                dsp.mv_pos = dsp.sample_in;
+                                dsp.pre_pos = dsp.mv_pos - HEADLEN*dsp.sps;
+                                if (dsp.pre_pos > dsp.mv_pos) dsp.pre_pos = 0;
+                            }
+                        }
+                        else {
+                            bitframe[bitpos] = bit0;
+                            bitpos++;
+                            if (bitpos >= LEN_BITFRAME-200) {  // LEN_GPSePTU*BITS+40
+
+                                print_frame(bitpos/BITS, 1);
+
+                                bitpos = 0;
+                                header_found = 0;
+                            }
+                        }
+                    }
+                    bit0 = bit;
+                }
             }
         }
-        else
-        {
-            if (bit != bit0) {
 
-                pos0 = pos;
-                pos = sample_count;  //sample_count-(N-1)/2
+        if (buffer) { free(buffer); buffer = NULL; }
+        free_buffers(&dsp);
 
-                len =  (pos-pos0)/bitlen + 0.5;
-                for (i = 0; i < len; i++) {
-                    inc_bufpos();
-                    buf[bufpos] = 0x30 + bit0;
+    }
+    else { // rawhex
+        char buffer_rawhex[3*(LEN_BYTEFRAME)+12];
+        char *pbuf = NULL;
+        int hi, lo;
+        int len, j, n;
 
-                    if (!header_found) {
-                        if (compare() >= HEADLEN) {
-                            header_found = 1;
-                            bitpos = 10;
-                            pos_bit = pos;
-                            if (option_b) {
-                                bitframe[bitpos] = bit;
-                                bitpos++;
-                            }
-                            dsp.mv_pos = dsp.sample_in;
-                            dsp.pre_pos = dsp.mv_pos - HEADLEN*dsp.sps;
-                            if (dsp.pre_pos > dsp.mv_pos) dsp.pre_pos = 0;
-                        }
-                    }
-                    else {
-                        bitframe[bitpos] = bit0;
-                        bitpos++;
-                        if (bitpos >= LEN_BITFRAME-200) {  // LEN_GPSePTU*BITS+40
+        gpx.jsn_freq = 0;
+        if (cfreq > 0) {
+            gpx.jsn_freq = cfreq/1e3;
+        }
 
-                            print_frame(&dsp, bitpos/BITS);
+        while (1 > 0) {
 
-                            bitpos = 0;
-                            header_found = 0;
-                        }
-                    }
-                }
-                bit0 = bit;
+            memset(byteframe, 0, LEN_BYTEFRAME);
+            memset(buffer_rawhex, 0, 3*(LEN_BYTEFRAME)+6);
+            pbuf = fgets(buffer_rawhex, 3*(LEN_BYTEFRAME)+6, fp);
+            if (pbuf == NULL) break;
+            buffer_rawhex[3*(LEN_BYTEFRAME)] = '\0';
+            len = strlen(buffer_rawhex);
+            while (len > 0 && buffer_rawhex[len-1] <= ' ') len--;
+            buffer_rawhex[len] = '\0';
+            j = 0;
+            n = 0;
+            while (pbuf[j] && n < LEN_BYTEFRAME) {
+                if (pbuf[j] == ' ') j++; // if/while
+                hi = hexval(pbuf[j]); if (hi < 0) break;
+                j++;
+                lo = hexval(pbuf[j]); if (lo < 0) break;
+                j++;
+                byteframe[n] = (hi << 4) | lo;
+                n++;
+            }
+            len = n;
+            if (len > 10) {
+                print_frame(len, 0);
             }
         }
     }
+
     fprintf(stdout, "\n");
 
-    if (buffer) { free(buffer); buffer = NULL; }
-    free_buffers(&dsp);
 
     fclose(fp);
 
