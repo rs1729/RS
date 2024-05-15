@@ -414,6 +414,8 @@ static int get_GPSkoord_latlon(gpx_t *gpx) {
     gpx->vV = 0;
 
     // TODO: vV/sats
+    // num Sats solution ? GLONASS + GPS ?
+    //gpx->numSats = gpx->frame[pos_GPSnSats-3]; ?
 
 
     return 0;
@@ -648,6 +650,7 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
             printf(" vV: %3.1f ", gpx->vV);
             if (gpx->option.vbs > 1) printf("  sats: %d ", gpx->numSats);
         }
+        //if (gpx->option.vbs > 1) printf("  sats: %d ", gpx->numSats);
 
         if (gpx->option.ptu) {
             if (gpx->T > -273.0f || gpx->RH > -0.5f) printf(" ");
@@ -721,8 +724,12 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
                         gpx->snC, gpx->snD, gpx->yr, gpx->mth, gpx->day, gpx->hrs, gpx->min, gpx->sec, gpx->lat, gpx->lon, gpx->alt);
                 printf(", \"vel_h\": %.5f, \"heading\": %.5f", gpx->vH, gpx->vD);
 
-                if ( !ofs_ptucfg ) { // TODO: vel/sats
-                    printf(", \"vel_v\": %.5f, \"sats\": %d", gpx->vV, gpx->numSats);
+                if ( !ofs_ptucfg ) {
+                    printf(", \"vel_v\": %.5f", gpx->vV);
+                }
+                if ( !ofs_ptucfg )
+                {
+                    printf(", \"sats\": %d", gpx->numSats);
                 }
 
                 if (gpx->option.ptu) {
