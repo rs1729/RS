@@ -409,6 +409,7 @@ static int get_GPSkoord_latlon(gpx_t *gpx) {
 
     if ((alt < -1000.0) || (alt > 80000.0)) return -3; // plausibility-check: altitude, if ecef=(0,0,0)
 
+    // TODO: vel/sats
 
     return 0;
 }
@@ -635,7 +636,7 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
         printf(" lat: %.5f ", gpx->lat);
         printf(" lon: %.5f ", gpx->lon);
         printf(" alt: %.2f ", gpx->alt);
-        if (ofs_ptucfg == 0) {
+        if ( !ofs_ptucfg ) {
             printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
             if (gpx->option.vbs > 1) printf("  sats: %d ", gpx->numSats);
         }
@@ -708,8 +709,14 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
                 char *ver_jsn = NULL;
                 printf("{ \"type\": \"%s\"", "MRZ");
                 printf(", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
-                printf("\"id\": \"MRZ-%d-%d\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                        gpx->snC, gpx->snD, gpx->yr, gpx->mth, gpx->day, gpx->hrs, gpx->min, gpx->sec, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSats);
+                printf("\"id\": \"MRZ-%d-%d\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
+                        gpx->snC, gpx->snD, gpx->yr, gpx->mth, gpx->day, gpx->hrs, gpx->min, gpx->sec, gpx->lat, gpx->lon, gpx->alt);
+
+                if ( !ofs_ptucfg ) { // TODO: vel/sats
+                    printf(", \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
+                            gpx->vH, gpx->vD, gpx->vV, gpx->numSats);
+                }
+
                 if (gpx->option.ptu) {
                     if (gpx->T > -273.0f) {
                         fprintf(stdout, ", \"temp\": %.1f",  gpx->T );
