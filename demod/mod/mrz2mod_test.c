@@ -267,6 +267,8 @@ static i16_t i2(ui8_t *bytes) { // 16bit signed int
 #define pos_GPSlat  (OFS+ 7)  //   4 byte
 #define pos_GPSlon  (OFS+11)  //   4 byte
 #define pos_GPSalt  (OFS+15)  //   4 byte
+#define pos_GPSvH   (OFS+19)  //   2 byte
+#define pos_GPSvD   (OFS+21)  //   2 byte
 
 
 // -----------------------------------------------------------------------------
@@ -361,7 +363,7 @@ static int get_GPSkoord_ecef(gpx_t *gpx) {
     gpx->lat = lat;
     gpx->lon = lon;
     gpx->alt = alt;
-    if ((alt < -1000.0) || (alt > 80000.0)) return -3; // plausibility-check: altitude, if ecef=(0,0,0)
+    if (alt < -1000.0 || alt > 80000.0) return -3; // plausibility-check: altitude, if ecef=(0,0,0)
 
 
     // ECEF-Velocities
@@ -388,14 +390,9 @@ static int get_GPSkoord_ecef(gpx_t *gpx) {
 }
 
 static int get_GPSkoord_latlon(gpx_t *gpx) {
-    int k;
     int XYZ; // 32bit
-    double X[3], lat, lon, alt;
-    ui8_t *gpsVel;
     short vH, vV; // 16bit
     unsigned short vD;
-    double V[3];
-    double vx, vy, dir;
 
 
     memcpy(&XYZ, gpx->frame+pos_GPSlat, 4);
@@ -407,9 +404,17 @@ static int get_GPSkoord_latlon(gpx_t *gpx) {
     memcpy(&XYZ, gpx->frame+pos_GPSalt, 4);
     gpx->alt = XYZ * 1e-2;
 
-    if ((alt < -1000.0) || (alt > 80000.0)) return -3; // plausibility-check: altitude, if ecef=(0,0,0)
+    if (gpx->alt < -1000.0 || gpx->alt > 80000.0) return -3; // plausibility-check: altitude
 
-    // TODO: vel/sats
+    vH = gpx->frame[pos_GPSvH] | (gpx->frame[pos_GPSvH+1] << 8);
+    vD = gpx->frame[pos_GPSvD] | (gpx->frame[pos_GPSvD+1] << 8);
+
+    gpx->vH = vH / 100.0;
+    gpx->vD = vD / 100.0;
+    gpx->vV = 0;
+
+    // TODO: vV/sats
+
 
     return 0;
 }
@@ -636,8 +641,11 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
         printf(" lat: %.5f ", gpx->lat);
         printf(" lon: %.5f ", gpx->lon);
         printf(" alt: %.2f ", gpx->alt);
+
+        printf("  vH: %4.1f  D: %5.1f ", gpx->vH, gpx->vD);
+
         if ( !ofs_ptucfg ) {
-            printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
+            printf(" vV: %3.1f ", gpx->vV);
             if (gpx->option.vbs > 1) printf("  sats: %d ", gpx->numSats);
         }
 
@@ -711,10 +719,10 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
                 printf(", \"frame\": %lu, ", (unsigned long)gpx->gps_cnt); // sec_gps0+0.5
                 printf("\"id\": \"MRZ-%d-%d\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
                         gpx->snC, gpx->snD, gpx->yr, gpx->mth, gpx->day, gpx->hrs, gpx->min, gpx->sec, gpx->lat, gpx->lon, gpx->alt);
+                printf(", \"vel_h\": %.5f, \"heading\": %.5f", gpx->vH, gpx->vD);
 
                 if ( !ofs_ptucfg ) { // TODO: vel/sats
-                    printf(", \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                            gpx->vH, gpx->vD, gpx->vV, gpx->numSats);
+                    printf(", \"vel_v\": %.5f, \"sats\": %d", gpx->vV, gpx->numSats);
                 }
 
                 if (gpx->option.ptu) {
