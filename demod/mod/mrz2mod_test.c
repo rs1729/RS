@@ -87,12 +87,13 @@ typedef struct {
     float calC; // C(ntc)
     float A_adcT; float B_adcT; float C_adcT;
     float A_adcH; float B_adcH; float C_adcH;
+    float Tadc; float RHadc;
+    float T; float RH;
     ui8_t frame[FRAME_LEN+16];
     char frame_bits[BITFRAME_LEN+16];
     ui32_t cfg[16];
     ui32_t snC;
     ui32_t snD;
-    float T; float RH;
     ui8_t cfg_ntc; ui8_t cfg_T; ui8_t cfg_H;
     ui8_t crcOK;
     //
@@ -257,18 +258,21 @@ static i16_t i2(ui8_t *bytes) { // 16bit signed int
 #define pos_GPSecefZ    (OFS+16)  //   4 byte
 #define pos_GPSecefV    (OFS+20)  // 3*2 byte
 #define pos_GPSnSats    (OFS+26)  //   1 byte (num Sats ?)
-#define pos_PTU1        (OFS+35)  //   4 byte
-#define pos_PTU2        (OFS+39)  //   4 byte
+#define pos_T16         (OFS+29)  //   2 byte
+#define pos_H16         (OFS+31)  //   2 byte
+#define pos_FFFF        (OFS+33)  //   2 byte
+#define pos_ADCT        (OFS+35)  //   4 byte
+#define pos_ADCH        (OFS+39)  //   4 byte
 #define pos_CNT2        (OFS+43)  //   1 byte   (0x01..0x10 ?)
 #define pos_CFG         (OFS+44)  // 2/4 byte
 #define pos_CRC_ECEF    (OFS+CRCLEN_ECEF+1)   //   2 byte
 #define pos_CRC_LATLON  (OFS+CRCLEN_LATLON+1) //   2 byte
 
-#define pos_GPSlat  (OFS+ 7)  //   4 byte
-#define pos_GPSlon  (OFS+11)  //   4 byte
-#define pos_GPSalt  (OFS+15)  //   4 byte
-#define pos_GPSvH   (OFS+19)  //   2 byte
-#define pos_GPSvD   (OFS+21)  //   2 byte
+#define pos_GPSlat      (OFS+ 7)  //   4 byte
+#define pos_GPSlon      (OFS+11)  //   4 byte
+#define pos_GPSalt      (OFS+15)  //   4 byte
+#define pos_GPSvH       (OFS+19)  //   2 byte
+#define pos_GPSvD       (OFS+21)  //   2 byte
 
 
 // -----------------------------------------------------------------------------
@@ -413,9 +417,9 @@ static int get_GPSkoord_latlon(gpx_t *gpx) {
     gpx->vD = vD / 100.0;
     gpx->vV = 0;
 
-    // TODO: vV/sats
+    //TODO: Sats
     // num Sats solution ? GLONASS + GPS ?
-    //gpx->numSats = gpx->frame[pos_GPSnSats-3]; ?
+    gpx->numSats = gpx->frame[pos_GPSnSats-3]; // ?
 
 
     return 0;
@@ -483,10 +487,10 @@ static int get_ptu(gpx_t *gpx, int ofs) {
 
     float ADC_MAX = 32767.0; //32767=(1<<15)? 32767?
 
-    int ADCT = u4(gpx->frame+pos_PTU1+ofs); // u3?
+    int ADCT = u4(gpx->frame+pos_ADCT+ofs); // u3?
     float adc_t = ADCT/100.0;
 
-    int ADCH = u4(gpx->frame+pos_PTU2+ofs); // u3?
+    int ADCH = u4(gpx->frame+pos_ADCH+ofs); // u3?
     float adc_h = ADCH/100.0;
 
 
@@ -501,15 +505,15 @@ static int get_ptu(gpx_t *gpx, int ofs) {
             }
         }
     }
-    gpx->T = t;
+    gpx->Tadc = t;
 
-    if (gpx->T > -273.0f)
+    if (gpx->Tadc > -273.0f)
     {
         if (gpx->cfg_H == 0x7) {
             float poly2 = adc_h*adc_h * gpx->A_adcH + adc_h * gpx->B_adcH + gpx->A_adcH;
             float K = poly2/ADC_MAX;
 
-            rh = (K - 0.1515) / (0.00636*(1.05460 - 0.00216*gpx->T)); // if T = 273.15, set T=0 ?
+            rh = (K - 0.1515) / (0.00636*(1.05460 - 0.00216*gpx->Tadc)); // if T = 273.15, set T=0 ?
             if (rh < -10.0f || rh > 120.0f) rh = -1.0f;
             else {
                 if (rh < 0.0f) rh = 0.0f;
@@ -517,7 +521,11 @@ static int get_ptu(gpx_t *gpx, int ofs) {
             }
         }
     }
-    gpx->RH = rh;
+    gpx->RHadc = rh;
+
+
+    gpx->T  = i2(gpx->frame+pos_T16+ofs) / 100.0;
+    gpx->RH = i2(gpx->frame+pos_H16+ofs) / 100.0;
 
     return 0;
 }
@@ -645,18 +653,22 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
         printf(" alt: %.2f ", gpx->alt);
 
         printf("  vH: %4.1f  D: %5.1f ", gpx->vH, gpx->vD);
-
         if ( !ofs_ptucfg ) {
             printf(" vV: %3.1f ", gpx->vV);
-            if (gpx->option.vbs > 1) printf("  sats: %d ", gpx->numSats);
         }
-        //if (gpx->option.vbs > 1) printf("  sats: %d ", gpx->numSats);
+        if (gpx->option.vbs > 1) printf("  sats: %d ", gpx->numSats);
 
         if (gpx->option.ptu) {
             if (gpx->T > -273.0f || gpx->RH > -0.5f) printf(" ");
-            if (gpx->T > -273.0f) printf(" T=%.1fC", gpx->T);
-            if (gpx->RH > -0.5f)  printf(" RH=%.0f%%", gpx->RH);
+            if (gpx->T > -273.0f) printf(" T=%.2fC", gpx->T);
+            if (gpx->RH > -0.5f)  printf(" RH=%.2f%%", gpx->RH);
             if (gpx->T > -273.0f || gpx->RH > -0.5f) printf(" ");
+            if (gpx->option.vbs > 1) {
+                if (gpx->Tadc > -273.0f || gpx->RHadc > -0.5f) printf("  (");
+                if (gpx->Tadc > -273.0f) printf(" T0=%.1fC", gpx->Tadc);
+                if (gpx->RHadc > -0.5f)  printf(" RH0=%.0f%%", gpx->RHadc);
+                if (gpx->Tadc > -273.0f || gpx->RHadc > -0.5f) printf(" ) ");
+            }
         }
 
         if (gpx->option.col) {
@@ -723,14 +735,10 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
                 printf("\"id\": \"MRZ-%d-%d\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%02dZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f",
                         gpx->snC, gpx->snD, gpx->yr, gpx->mth, gpx->day, gpx->hrs, gpx->min, gpx->sec, gpx->lat, gpx->lon, gpx->alt);
                 printf(", \"vel_h\": %.5f, \"heading\": %.5f", gpx->vH, gpx->vD);
-
                 if ( !ofs_ptucfg ) {
                     printf(", \"vel_v\": %.5f", gpx->vV);
                 }
-                if ( !ofs_ptucfg )
-                {
-                    printf(", \"sats\": %d", gpx->numSats);
-                }
+                printf(", \"sats\": %d", gpx->numSats);
 
                 if (gpx->option.ptu) {
                     if (gpx->T > -273.0f) {
