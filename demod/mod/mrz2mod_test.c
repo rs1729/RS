@@ -768,7 +768,7 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
 
                 // Reference time/position
                 printf(", \"ref_datetime\": \"%s\"", "UTC" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
-                printf(", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
+                printf(", \"ref_position\": \"%s\"", !ofs_ptucfg ? "GPS" : "MSL" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
 
                 #ifdef VER_JSN_STR
                     ver_jsn = VER_JSN_STR;
