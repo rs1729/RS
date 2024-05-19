@@ -656,7 +656,21 @@ static void print_gpx(gpx_t *gpx, int crcOK) {
         if ( !ofs_ptucfg ) {
             printf(" vV: %3.1f ", gpx->vV);
         }
+
         if (gpx->option.vbs > 1) printf("  sats: %d ", gpx->numSats);
+
+        if (gpx->option.vbs > 1 && ofs_ptucfg < 0)
+        {
+            static float alt0;
+            static int t0;
+            if (gpx->crcOK && gpx->sec_day > t0) {
+                if (t0 > 0 && gpx->sec_day < t0+10) {
+                    printf(" (d_alt: %+4.1f) ", (gpx->alt - alt0)/(float)(gpx->sec_day - t0) );
+                }
+                alt0 = gpx->alt;
+                t0 = gpx->sec_day;
+            }
+        }
 
         if (gpx->option.ptu) {
             if (gpx->T > -273.0f || gpx->RH > -0.5f) printf(" ");
