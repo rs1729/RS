@@ -643,6 +643,8 @@ static int init_buffers(dsp_t *dsp) {
     float t_bw; // dec_lowpass: transition_bandwidth
     int taps; // dec_lowpass: taps
 
+    int wideIF = IF_sr > 60e3;
+
     //if (dsp->opt_IFmin) IF_sr = IF_SAMPLE_RATE_MIN;
     if (IF_sr > sr_base) IF_sr = sr_base;
     if (IF_sr < sr_base) {
@@ -652,6 +654,12 @@ static int init_buffers(dsp_t *dsp) {
 
     f_lp = (IF_sr+20e3)/(4.0*sr_base); // for IF=48k
     t_bw = (IF_sr-20e3)/*/2.0*/;
+
+    if (wideIF) {                         // IF=96k
+        f_lp = (IF_sr+60e3)/(4.0*sr_base);
+        t_bw = (IF_sr-60e3)/*/2.0*/;
+    }
+    else
     if (dsp->opt_IFmin) {
         t_bw = (IF_sr-12e3);
     }
