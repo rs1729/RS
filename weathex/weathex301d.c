@@ -226,7 +226,7 @@ int read_rawbit(FILE *fp, int *bit) {
 }
 
 
-int f32soft_read(FILE *fp, float *s) {
+int f32soft_read(FILE *fp, float *s, int inv) {
     unsigned int word = 0;
     short *b = (short*)&word;
     float *f = (float*)&word;
@@ -242,6 +242,8 @@ int f32soft_read(FILE *fp, float *s) {
         *s = *b/128.0;
         if (bps == 16) { *s /= 256.0; }
     }
+
+    if (inv) *s = -*s;
 
     return 0;
 }
@@ -555,7 +557,8 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
             option_verbose = 1;
         }
-        else if   (strcmp(*argv, "--softin") == 0) { option_softin = 1; }  // float32 soft input
+        else if   (strcmp(*argv, "--softin") == 0)  { option_softin = 1; }  // float32 soft input
+        else if   (strcmp(*argv, "--softinv") == 0) { option_softin = 2; }  // float32 inverted soft input
         else if   (strcmp(*argv, "-b" ) == 0) { option_b = 1; }
         else if   (strcmp(*argv, "-t" ) == 0) { option_timestamp = 1; }
         else if ( (strcmp(*argv, "-r") == 0) || (strcmp(*argv, "--raw") == 0) ) {
@@ -611,7 +614,7 @@ int main(int argc, char **argv) {
         sample_rate = baudrate;
         sample_count = 0;
 
-        while (!f32soft_read(fp, &s)) {
+        while (!f32soft_read(fp, &s, option_softin == 2)) {
 
             bit = option_inv ? (s<=0.0f) : (s>=0.0f);  // softbit s: bit=0 <=> s<0 , bit=1 <=> s>=0
 
