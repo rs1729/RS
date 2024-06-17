@@ -1715,7 +1715,7 @@ static float corr_softhdb(hdb_t *hdb) { // max score in window probably not need
     return sum;
 }
 
-int f32soft_read(FILE *fp, float *s) {
+int f32soft_read(FILE *fp, float *s, int inv) {
     unsigned int word = 0;
     short *b = (short*)&word;
     float *f = (float*)&word;
@@ -1732,17 +1732,19 @@ int f32soft_read(FILE *fp, float *s) {
         if (bps == 16) { *s /= 256.0; }
     }
 
+    if (inv) *s = -*s;
+
     return 0;
 }
 
-int find_softbinhead(FILE *fp, hdb_t *hdb, float *score) {
+int find_softbinhead(FILE *fp, hdb_t *hdb, float *score, int inv) {
     int headlen = hdb->len;
     float sbit;
     float mv;
 
     //*score = 0.0;
 
-    while ( f32soft_read(fp, &sbit) != EOF )
+    while ( f32soft_read(fp, &sbit, inv) != EOF )
     {
         hdb->bufpos = (hdb->bufpos+1) % headlen;
         hdb->sbuf[hdb->bufpos] = sbit;

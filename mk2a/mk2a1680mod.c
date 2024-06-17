@@ -1623,7 +1623,7 @@ static float corr_softhdb(hdb_t *hdb) { // max score in window probably not need
 }
 
 static
-int f32soft_read(FILE *fp, float *s) {
+int f32soft_read(FILE *fp, float *s, int inv) {
     unsigned int word = 0;
     short *b = (short*)&word;
     float *f = (float*)&word;
@@ -1640,18 +1640,20 @@ int f32soft_read(FILE *fp, float *s) {
         if (bps == 16) { *s /= 256.0; }
     }
 
+    if (inv) *s = -*s;
+
     return 0;
 }
 
 static
-int find_softbinhead(FILE *fp, hdb_t *hdb, float *score) {
+int find_softbinhead(FILE *fp, hdb_t *hdb, float *score, int inv) {
     int headlen = hdb->len;
     float sbit;
     float mv;
 
     //*score = 0.0;
 
-    while ( f32soft_read(fp, &sbit) != EOF )
+    while ( f32soft_read(fp, &sbit, inv) != EOF )
     {
         hdb->bufpos = (hdb->bufpos+1) % headlen;
         hdb->sbuf[hdb->bufpos] = sbit;
@@ -2207,6 +2209,10 @@ int main(int argc, char **argv) {
          else if  (strcmp(*argv, "--decFM1") == 0) {   // FM decimation
             option_decFM = 1;
         }
+        /*
+        else if   (strcmp(*argv, "--softin") == 0)  { option_softin = 1; }  // float32 soft input
+        else if   (strcmp(*argv, "--softinv") == 0) { option_softin = 2; }  // float32 inverted soft input
+        */
         else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
         else if   (strcmp(*argv, "--noLUT") == 0) { option_noLUT = 1; }
         else if   (strcmp(*argv, "--min") == 0) {
@@ -2380,7 +2386,7 @@ int main(int argc, char **argv) {
     while ( 1 )
     {
         if (option_softin) {
-            header_found = find_softbinhead(fp, &hdb, &_mv);
+            header_found = find_softbinhead(fp, &hdb, &_mv, option_softin == 2);
         }
         else {                                                              // FM-audio:
             header_found = find_header(&dsp, thres, 1, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
@@ -2405,7 +2411,7 @@ int main(int argc, char **argv) {
             {
                 if (option_softin) {
                         float s = 0.0;
-                        bitQ = f32soft_read(fp, &s);
+                        bitQ = f32soft_read(fp, &s, option_softin == 2);
                         if (bitQ != EOF) {
                             bit = (s>=0.0);
                         }
