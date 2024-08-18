@@ -553,22 +553,15 @@ static int print_position(gpx_t *gpx, int len, int ecc_frm, int ecc_tlm, int ecc
         }
 
         if ( crc_ok ) fprintf(stdout, " [OK]");  // std frame: frame[104..105]==0x4000 ?
-        else {
-            if (gpx->frame[pos_F8] == 0xF8) fprintf(stdout, " [NO]");
-            else {
-                crc_ok = crc32ok_cont(gpx->frame);
-                if ( crc_ok ) fprintf(stdout, " [OK]");
-                else {
-                    if ( ecc_std == 0 ) {    // continuous frame: pos_F8_full==pos_F8_std+11 ?
-                        fprintf(stdout, " [ok]");
-                        std_ok = 1;
-                    }
-                    else {
-                        fprintf(stdout, " [no]");
-                        std_ok = 0;
-                    }
-                }
+        else {                                   // continuous frame: pos_F8_full==pos_F8_std+11 ?
+            crc_ok = crc32ok_cont(gpx->frame);
+            if ( crc_ok ) fprintf(stdout, " [ok]");
+            else if ( ecc_std == 0 ) {
+                fprintf(stdout, " [oo]");
+                std_ok = 1;
             }
+            else if (gpx->frame[pos_F8] == 0xF8) fprintf(stdout, " [NO]");
+            else fprintf(stdout, " [no]");
         }
 
         // (imet54:GPS+PTU) status: 003E , (imet50:GPS); 0030
@@ -684,17 +677,18 @@ static void print_frame(gpx_t *gpx, int len, int b2B) {
         }
 
         if ( crc_ok ) fprintf(stdout, " [OK]");  // std frame: frame[104..105]==0x4000 ?
-        else {
-            if (gpx->frame[pos_F8] == 0xF8) fprintf(stdout, " [NO]");  // full frame: pos_F8_full==pos_F8_std+11 ?
-            else {
-                crc_ok = crc32ok_cont(gpx->frame);
-                if ( crc_ok ) fprintf(stdout, " [OK]");
-                else {
-                    if ( ecc_std == 0 ) fprintf(stdout, " [ok]");
-                    else                fprintf(stdout, " [no]");
-                }
+        else {                                   // continuous frame: pos_F8_full==pos_F8_std+11 ?
+            crc_ok = crc32ok_cont(gpx->frame);
+            if ( crc_ok ) fprintf(stdout, " [ok]");
+            else if ( ecc_std == 0 ) {
+                fprintf(stdout, " [oo]");
             }
+            else if (gpx->frame[pos_F8] == 0xF8) fprintf(stdout, " [NO]");
+            else fprintf(stdout, " [no]");
         }
+        // [ok] # (-1):
+        // CRC32 more reliable than CRC16
+        // ecc_frm=-1 => errors in parity only ?  (JSON output only if crc_ok and ecc_frm >= 0)
         if (gpx->option.ecc && ecc_frm != 0) {
             fprintf(stdout, " # (%d)", ecc_frm);
             fprintf(stdout, " [%d]", ecc_tlm);
