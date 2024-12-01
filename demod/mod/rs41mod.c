@@ -104,6 +104,7 @@ typedef struct {
     int frnr;
     char id[9];
     ui8_t numSV;
+    ui8_t isUTC;
     int week; int tow_ms; int gpssec;
     int jahr; int monat; int tag;
     int wday;
@@ -476,6 +477,7 @@ static int get_SondeID(gpx_t *gpx, int crc, int ofs) {
             gpx->lat = 0.0; gpx->lon = 0.0; gpx->alt = 0.0;
             gpx->vH  = 0.0; gpx->vD  = 0.0; gpx->vV  = 0.0;
             gpx->numSV = 0;
+            gpx->isUTC = 0;
             gpx->T = -273.15f;
             gpx->RH = -1.0f;
             gpx->P = -1.0f;
@@ -948,6 +950,7 @@ static int get_GPStime(gpx_t *gpx, int ofs) {
     gpx->std =  gpstime / 3600;
     gpx->min = (gpstime % 3600) / 60;
     gpx->sek =  gpstime % 60 + ms/1000.0;
+    gpx->isUTC = 0;
 
     return 0;
 }
@@ -962,6 +965,7 @@ static int get_GPS1(gpx_t *gpx, int ofs) {
         // reset GPS1-data (json)
         gpx->jahr = 0; gpx->monat = 0; gpx->tag = 0;
         gpx->std = 0; gpx->min = 0; gpx->sek = 0.0;
+        gpx->isUTC = 0;
         return -1;
     }
 
@@ -1108,6 +1112,7 @@ static int get_posdatetime(gpx_t *gpx, int pos_posdatetime) {
         // reset GPS1-data (json)
         gpx->jahr = 0; gpx->monat = 0; gpx->tag = 0;
         gpx->std = 0; gpx->min = 0; gpx->sek = 0.0;
+        gpx->isUTC = 0;
         // reset GPS3-data (json)
         gpx->lat = 0.0; gpx->lon = 0.0; gpx->alt = 0.0;
         gpx->vH  = 0.0; gpx->vD  = 0.0; gpx->vV  = 0.0;
@@ -1115,17 +1120,21 @@ static int get_posdatetime(gpx_t *gpx, int pos_posdatetime) {
         return -1;
     }
 
+    // ublox M10 UBX-NAV-POSECEF (0x01 0x01) ?
     err |= get_ECEFkoord(gpx, pos_posdatetime+2); // plausibility-check: altitude, if ecef=(0,0,0)
 
+    // ublox M10 UBX-NAV-PVT (0x01 0x07) ? (UTC?)
     // date
     gpx->jahr  = gpx->frame[pos_posdatetime+20] | gpx->frame[pos_posdatetime+21]<<8;
     gpx->monat = gpx->frame[pos_posdatetime+22];
     gpx->tag   = gpx->frame[pos_posdatetime+23];
-    // time (GPS/UTC?)
+    // time
     gpx->std = gpx->frame[pos_posdatetime+24];
     gpx->min = gpx->frame[pos_posdatetime+25];
     gpx->sek = gpx->frame[pos_posdatetime+26];
+    gpx->isUTC = 1;
 
+    ///TODO: numSV/fixOK
     //gpx->numSV = gpx->frame[pos_numSats+ofs];
 
     return err;
@@ -2102,6 +2111,7 @@ static int print_position(gpx_t *gpx, int ec) {
                             break;
 
                     case pck_960A: // 0x960A
+                            // ? 64 bit data integrity and authenticity ?
                             break;
 
                     case pck_8226_POSDATETIME: // 0x8226
@@ -2239,9 +2249,8 @@ static int print_position(gpx_t *gpx, int ec) {
                             fprintf(stdout, ", \"tx_frequency\": %d", gpx->freq );
                         }
 
-                        // Reference time/position
-                        //           (fw 0x50dd: datetime UTC ?)
-                        fprintf(stdout, ", \"ref_datetime\": \"%s\"", "GPS" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
+                        // Reference time/position      (fw 0x50dd: datetime UTC ?)
+                        fprintf(stdout, ", \"ref_datetime\": \"%s\"", gpx->isUTC ? "UTC" : "GPS" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
                         fprintf(stdout, ", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
 
                         #ifdef VER_JSN_STR
