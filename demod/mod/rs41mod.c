@@ -384,9 +384,9 @@ GPS chip: ublox UBX-G6010-ST
 #define pck_SGM_CRYPT  0x80A7  // Packet type for an Encrypted payload
 
 // fw 0x50dd
-#define pck_960A               0x960A  //
-#define pck_8226_POS_DATETIME  0x8226  // ECEF-POS/VEL , DATE/TIME
-#define pck_8329               0x8329  //
+#define pck_960A              0x960A  //
+#define pck_8226_POSDATETIME  0x8226  // ECEF-POS/VEL , DATE/TIME
+#define pck_8329              0x8329  //
 
 
 /*
@@ -1011,7 +1011,7 @@ static void ecef2elli(double X[], double *lat, double *lon, double *alt) {
     *lon = lam*180/M_PI;
 }
 
-static int get_GPSkoord(gpx_t *gpx, int ofs) {
+static int get_ECEFkoord(gpx_t *gpx, int pos_ecef) {
     int i, k;
     unsigned byte;
     ui8_t XYZ_bytes[4];
@@ -1027,14 +1027,14 @@ static int get_GPSkoord(gpx_t *gpx, int ofs) {
     for (k = 0; k < 3; k++) {
 
         for (i = 0; i < 4; i++) {
-            byte = gpx->frame[pos_GPSecefX+ofs + 4*k + i];
+            byte = gpx->frame[pos_ecef + 4*k + i];
             XYZ_bytes[i] = byte;
         }
         memcpy(&XYZ, XYZ_bytes, 4);
         X[k] = XYZ / 100.0;
 
         for (i = 0; i < 2; i++) {
-            byte = gpx->frame[pos_GPSecefV+ofs + 2*k + i];
+            byte = gpx->frame[pos_ecef+12 + 2*k + i];
             gpsVel_bytes[i] = byte;
         }
         vel16 = gpsVel_bytes[0] | gpsVel_bytes[1] << 8;
@@ -1073,8 +1073,6 @@ static int get_GPSkoord(gpx_t *gpx, int ofs) {
     gpx->vD = dir;
 
     gpx->vV = vU;
-
-    gpx->numSV = gpx->frame[pos_numSats+ofs];
 
     return 0;
 }
@@ -1092,87 +1090,41 @@ static int get_GPS3(gpx_t *gpx, int ofs) {
         gpx->numSV = 0;
         return -1;
     }
+    // pos_GPS3+2 = pos_GPSecefX
+    err |= get_ECEFkoord(gpx, pos_GPS3+ofs+2); // plausibility-check: altitude, if ecef=(0,0,0)
 
-    err |= get_GPSkoord(gpx, ofs); // plausibility-check: altitude, if ecef=(0,0,0)
+    gpx->numSV = gpx->frame[pos_numSats+ofs];
 
     return err;
 }
 
-static int get_posdatetime(gpx_t *gpx, int pos_ofs) {
+static int get_posdatetime(gpx_t *gpx, int pos_posdatetime) {
     int err=0;
-    int i, k;
-    unsigned byte;
-    ui8_t XYZ_bytes[4];
-    int XYZ; // 32bit
-    double X[3], lat, lon, alt;
-    ui8_t gpsVel_bytes[2];
-    short vel16; // 16bit
-    double V[3];
-    double phi, lam, dir;
-    double vN; double vE; double vU;
 
-    err = check_CRC(gpx, pos_ofs, pck_8226_POS_DATETIME);
-
-    pos_ofs += 2;
-
-    for (k = 0; k < 3; k++) {
-
-        for (i = 0; i < 4; i++) {
-            byte = gpx->frame[pos_ofs + 4*k + i];
-            XYZ_bytes[i] = byte;
-        }
-        memcpy(&XYZ, XYZ_bytes, 4);
-        X[k] = XYZ / 100.0;
-
-        for (i = 0; i < 2; i++) {
-            byte = gpx->frame[pos_ofs+12 + 2*k + i];
-            gpsVel_bytes[i] = byte;
-        }
-        vel16 = gpsVel_bytes[0] | gpsVel_bytes[1] << 8;
-        V[k] = vel16 / 100.0;
-
+    err = check_CRC(gpx, pos_posdatetime, pck_8226_POSDATETIME);
+    if (err) {
+        ///TODO: fw 0x50dd , ec < 0
+        gpx->crc |= crc_GPS1 | crc_GPS3;
+        // reset GPS1-data (json)
+        gpx->jahr = 0; gpx->monat = 0; gpx->tag = 0;
+        gpx->std = 0; gpx->min = 0; gpx->sek = 0.0;
+        // reset GPS3-data (json)
+        gpx->lat = 0.0; gpx->lon = 0.0; gpx->alt = 0.0;
+        gpx->vH  = 0.0; gpx->vD  = 0.0; gpx->vV  = 0.0;
+        gpx->numSV = 0;
+        return -1;
     }
 
-    // ECEF-Position
-    ecef2elli(X, &lat, &lon, &alt);
-    gpx->lat = lat;
-    gpx->lon = lon;
-    gpx->alt = alt;
-    if ((alt < -1000) || (alt > 80000)) return -3; // plausibility-check: altitude, if ecef=(0,0,0)
+    err |= get_ECEFkoord(gpx, pos_posdatetime+2); // plausibility-check: altitude, if ecef=(0,0,0)
 
-
-    // ECEF-Velocities
-    // ECEF-Vel -> NorthEastUp
-    phi = lat*M_PI/180.0;
-    lam = lon*M_PI/180.0;
-    vN = -V[0]*sin(phi)*cos(lam) - V[1]*sin(phi)*sin(lam) + V[2]*cos(phi);
-    vE = -V[0]*sin(lam) + V[1]*cos(lam);
-    vU =  V[0]*cos(phi)*cos(lam) + V[1]*cos(phi)*sin(lam) + V[2]*sin(phi);
-
-    // NEU -> HorDirVer
-    gpx->vH = sqrt(vN*vN+vE*vE);
-/*
-    double alpha;
-    alpha = atan2(gpx->vN, gpx->vE)*180/M_PI;  // ComplexPlane (von x-Achse nach links) - GeoMeteo (von y-Achse nach rechts)
-    dir = 90-alpha;                            // z=x+iy= -> i*conj(z)=y+ix=re(i(pi/2-t)), Achsen und Drehsinn vertauscht
-    if (dir < 0) dir += 360;                   // atan2(y,x)=atan(y/x)=pi/2-atan(x/y) , atan(1/t) = pi/2 - atan(t)
-    gpx->vD2 = dir;
-*/
-    dir = atan2(vE, vN) * 180 / M_PI;
-    if (dir < 0) dir += 360;
-    gpx->vD = dir;
-
-    gpx->vV = vU;
-
-
-    gpx->jahr  = gpx->frame[pos_ofs+18] | gpx->frame[pos_ofs+19]<<8;
-    gpx->monat = gpx->frame[pos_ofs+20];
-    gpx->tag   = gpx->frame[pos_ofs+21];
-
-    gpx->std = gpx->frame[pos_ofs+22];
-    gpx->min = gpx->frame[pos_ofs+23];
-    gpx->sek = gpx->frame[pos_ofs+24];
-
+    // date
+    gpx->jahr  = gpx->frame[pos_posdatetime+20] | gpx->frame[pos_posdatetime+21]<<8;
+    gpx->monat = gpx->frame[pos_posdatetime+22];
+    gpx->tag   = gpx->frame[pos_posdatetime+23];
+    // time (GPS/UTC?)
+    gpx->std = gpx->frame[pos_posdatetime+24];
+    gpx->min = gpx->frame[pos_posdatetime+25];
+    gpx->sek = gpx->frame[pos_posdatetime+26];
 
     //gpx->numSV = gpx->frame[pos_numSats+ofs];
 
@@ -2152,7 +2104,7 @@ static int print_position(gpx_t *gpx, int ec) {
                     case pck_960A: // 0x960A
                             break;
 
-                    case pck_8226_POS_DATETIME: // 0x8226
+                    case pck_8226_POSDATETIME: // 0x8226
                             err13 = get_posdatetime(gpx, pos);
                             if ( !err13 ) {
                                 if (out) prn_posdatetime(gpx);
@@ -2288,6 +2240,7 @@ static int print_position(gpx_t *gpx, int ec) {
                         }
 
                         // Reference time/position
+                        //           (fw 0x50dd: datetime UTC ?)
                         fprintf(stdout, ", \"ref_datetime\": \"%s\"", "GPS" ); // {"GPS", "UTC"} GPS-UTC=leap_sec
                         fprintf(stdout, ", \"ref_position\": \"%s\"", "GPS" ); // {"GPS", "MSL"} GPS=ellipsoid , MSL=geoid
 
@@ -2322,6 +2275,7 @@ static int print_position(gpx_t *gpx, int ec) {
 
         pck = (gpx->frame[pos_PTU]<<8) | gpx->frame[pos_PTU+1];
         ofs = 0;
+        ///TODO: fw 0x50dd
 
         if (pck < 0x8000) {
             //err0 = get_PTU(gpx, 0, pck, 0);
