@@ -1160,6 +1160,8 @@ int main(int argc, char **argv) {
     int rawhex = 0;
     int cfreq = -1;
 
+    float baudrate = -1;
+
     FILE *fp = NULL;
     char *fpname = NULL;
 
@@ -1222,6 +1224,14 @@ int main(int argc, char **argv) {
         }
         else if ( (strcmp(*argv, "-c") == 0) || (strcmp(*argv, "--color") == 0) ) {
             gpx.option.col = 1;
+        }
+        else if ( (strcmp(*argv, "--br") == 0) ) {
+            ++argv;
+            if (*argv) {
+                baudrate = atof(*argv);
+                if (baudrate < 9000 || baudrate > 10000) baudrate = BAUD_RATE; // default: M20:9600, M10:9615
+            }
+            else return -1;
         }
         //else if   (strcmp(*argv, "--res") == 0) { option_res = 1; }
         else if ( (strcmp(*argv, "--ptu") == 0) ) {
@@ -1391,6 +1401,12 @@ int main(int argc, char **argv) {
 
             if ( dsp.sps < 8 ) {
                 fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
+            }
+
+            if (baudrate > 0) {
+                dsp.br = (float)baudrate;
+                dsp.sps = (float)dsp.sr/dsp.br;
+                fprintf(stderr, "sps corr: %.4f\n", dsp.sps);
             }
 
             //headerlen = dsp.hdrlen;
