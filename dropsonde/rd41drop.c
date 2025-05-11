@@ -357,7 +357,7 @@ void Gps2Date(long GpsWeek, long GpsSeconds, int *Year, int *Month, int *Day) {
 #define pos_CCC         (OFS+0x17)   // 17 bytes
 #define pos_DDD         (OFS+0x2A)   // 12 bytes
 #define pos_EEE         (OFS+0x38)   // 13 bytes
-#define pos_FFF         (OFS+0x47)   // 27 bytes
+#define pos_FFF         (OFS+0x47)   // 27 bytes (0x0A0A0A0A... RS92 Header ?)
 #define pos_pckIDint    (OFS+0x64)   // 14 bytes
 
 
