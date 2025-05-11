@@ -919,7 +919,7 @@ void print_frame() {
             if (option_verbose) {
                 fprintf(stdout," vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
                 //fprintf(stdout," ENU=(%.2f,%.2f,%.2f) ", gpx.vE, gpx.vN, gpx.vU);
-                fprintf(stdout," sats1: %2d ", gpx.sats1);
+                fprintf(stdout," sats: %2d ", gpx.sats1);
             }
             if (option_verbose == 2) {
                 fprintf(stdout, " alt2: %.2fm ", gpx.alt2);
