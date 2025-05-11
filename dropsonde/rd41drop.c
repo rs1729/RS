@@ -485,6 +485,10 @@ int get_GPSvelalt() {
     alt1_i3 = (frame_bytes[pos_CCC+6+ 0]<<16) | (frame_bytes[pos_CCC+6+ 1]<<8) | frame_bytes[pos_CCC+6+ 2];
     if (alt1_i3 & 0x800000) alt1_i3 -= 0x1000000;
 
+    // pos_CCC+9 .. posCCC+12: time
+
+    gpx.sats1 = frame_bytes[pos_CCC+13];
+
     //vel2
     vH2 = (frame_bytes[pos_EEE + 0] << 8) | frame_bytes[pos_EEE + 1];
     _D2 = (frame_bytes[pos_EEE + 2] << 8) | frame_bytes[pos_EEE + 3];
@@ -493,6 +497,8 @@ int get_GPSvelalt() {
     // alt2
     alt2_i3 = (frame_bytes[pos_EEE+6+ 0]<<16) | (frame_bytes[pos_EEE+6+ 1]<<8) | frame_bytes[pos_EEE+6+ 2];
     if (alt2_i3 & 0x800000) alt2_i3 -= 0x1000000;
+
+    gpx.sats2 = frame_bytes[pos_EEE+9];
 
     gpx.vH = vH1/100.0;
     gpx.vD = _D1/100.0;
@@ -910,20 +916,20 @@ void print_frame() {
                 //fprintf(stdout, "(E:%.2fm/s) ", gpx.sAcc1);
                 #endif
             }
-            //if (option_verbose) fprintf(stdout," sats: %2d ", gpx.sats1);
             if (option_verbose) {
                 fprintf(stdout," vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
                 //fprintf(stdout," ENU=(%.2f,%.2f,%.2f) ", gpx.vE, gpx.vN, gpx.vU);
+                fprintf(stdout," sats1: %2d ", gpx.sats1);
             }
             if (option_verbose == 2) {
                 fprintf(stdout, " alt2: %.2fm ", gpx.alt2);
                 fprintf(stdout," vH2: %.1fm/s  D2: %.1f°  vV2: %.1fm/s ", gpx.vH2, gpx.vD2, gpx.vV2);
+                fprintf(stdout," sats2: %2d ", gpx.sats2);
                 //fprintf(stdout," ENU2=(%.2f,%.2f,%.2f) ", gpx.vE2, gpx.vN2, gpx.vU2);
                 if (option_verbose == 3) {
                     #if 0
                     fprintf(stdout," V2: (%5.2f,%5.2f,%5.2f) ", gpx.vX2, gpx.vY2, gpx.vZ2);
                     fprintf(stdout, "(E:%.2fm/s) ", gpx.sAcc2);
-                    fprintf(stdout," sats: %2d ", gpx.sats2);
                     #endif
                 }
             }
