@@ -27,7 +27,7 @@ typedef struct {
     int week; int gpstow;
     int jahr; int monat; int tag;
     int wday;
-    int std; int min; int sek; int ms;
+    int std; int min; int sek; int ms; int cs;
     double lat; double lon;
     double alt;
     //
@@ -322,8 +322,7 @@ void Gps2Date(long GpsWeek, long GpsSeconds, int *Year, int *Month, int *Day) {
 #define OFS             (0x02)  // HEADLEN/(2*BITS)
 #define pos_FrameNb     (OFS+0x01)   // 2 byte
 // ublox5 NAV-SOL
-//#define pos_GPSTOW      (OFS+0x18)   // iTow 4 byte (+ fTOW? 4 byte)
-#define pos_GPSTOW      (OFS+0x20)    // iTow 4 byte (+ fTOW? 4 byte)
+#define pos_GPSTOW      (OFS+0x18)   // iTow 4 byte (+ fTOW? 4 byte)
 #define pos_GPSweek     (OFS+0x20)    // 2 byte
 #define pos_GPSecefX    (OFS+0x24)    // 4 byte
 #define pos_GPSecefY    (OFS+0x28)    // 4 byte
@@ -357,7 +356,7 @@ void Gps2Date(long GpsWeek, long GpsSeconds, int *Year, int *Month, int *Day) {
 #define pos_CCC         (OFS+0x17)   // 17 bytes
 #define pos_DDD         (OFS+0x2A)   // 12 bytes
 #define pos_EEE         (OFS+0x38)   // 13 bytes
-#define pos_FFF         (OFS+0x47)   // 27 bytes (0x0A0A0A0A... RS92 Header ?)
+#define pos_FFF         (OFS+0x47)   // 27 bytes (0x0A0A0A0A...)
 #define pos_pckIDint    (OFS+0x64)   // 14 bytes
 
 
@@ -448,13 +447,14 @@ int get_GPStime() {
     gpx.std = frame_bytes[pos_CCC+ 9] & 0x1F;
     gpx.min = frame_bytes[pos_CCC+10];
     gpx.sek = frame_bytes[pos_CCC+11];
-    gpx.ms  = frame_bytes[pos_CCC+12]*10;
+    gpx.cs  = frame_bytes[pos_CCC+12];
+    gpx.ms  = gpx.cs*10;
 
     return 0;
 }
 
 int get_GPSlatlon() {
-    double lat, lon, alt;
+    double lat, lon;
     int lat_i4, lon_i4;
 
     lat_i4 = (frame_bytes[pos_DDD+0+ 0]<<24) | (frame_bytes[pos_DDD+0+ 1]<<16) | (frame_bytes[pos_DDD+0+ 2]<<8) | frame_bytes[pos_DDD+0+ 3];
@@ -540,7 +540,6 @@ void ecef2elli(double X[], double *lat, double *lon, double *h) {
     *lat = phi*180/M_PI;
     *lon = lam*180/M_PI;
 }
-
 
 int get_GPSkoord_rd94() {
     int i, k;
@@ -739,7 +738,6 @@ int get_Sensors2() {
     return 0;
 }
 
-
 int getBlock_FrNb(){  // block 0: frame counter
     unsigned bytes;
     unsigned crc;
@@ -747,10 +745,10 @@ int getBlock_FrNb(){  // block 0: frame counter
 
      // header (next frame)
     if ( frame_bytes[OFS+116] != 0x1A ) {
-        chk |= (0x1 << 6);
+        chk |= (0x1 << 7);
     }
     if ( frame_bytes[OFS+117] != 0xCF ) {
-        chk |= (0x1 << 7);
+        chk |= (0x1 << 8);
     }
 
     bytes = crc16(frame_bytes+pos_pckFrm, 3);
@@ -883,7 +881,7 @@ void print_frame() {
             fprintf(stdout, "  # check: ");  // blocks: 0=F, 1=S, 2=G1, 3=G2, 4=G3, 5=G4, 6=I
             for (i = 0; i < 7; i++) fprintf(stdout, "%d", (chk>>i)&1);
             //fprintf(stdout, "_");
-            //for (i = 6; i < 8; i++) fprintf(stdout, "%d", (chk>>i)&1);
+            //for (i = 7; i < 9; i++) fprintf(stdout, "%d", (chk>>i)&1);
         }
 
         fprintf(stdout, "\n");
@@ -902,7 +900,8 @@ void print_frame() {
             fprintf(stdout, "[%5d] ", gpx.frnr);
             //fprintf(stdout, "%s ", weekday[gpx.wday]);
             //fprintf(stdout, " %04d-%02d-%02d", gpx.jahr, gpx.monat, gpx.tag);
-            fprintf(stdout, " %02d:%02d:%02d.%03d",  gpx.std, gpx.min, gpx.sek, gpx.ms);
+            //fprintf(stdout, " %02d:%02d:%02d.%03d",  gpx.std, gpx.min, gpx.sek, gpx.ms);
+            fprintf(stdout, " %02d:%02d:%02d.%02d",  gpx.std, gpx.min, gpx.sek, gpx.cs);
             //if (option_verbose) fprintf(stdout, " (W %d)", gpx.week);
             fprintf(stdout, "  ");
             fprintf(stdout, " lat: %.5f° ", gpx.lat);
@@ -910,25 +909,25 @@ void print_frame() {
             fprintf(stdout, " alt: %.2fm ", gpx.alt);
             if (option_verbose == 3) {
                 #if 0
-                //fprintf(stdout," (%7.2f,%7.2f,%7.2f) ", gpx.X, gpx.Y, gpx.Z);
+                //fprintf(stdout, " (%7.2f,%7.2f,%7.2f) ", gpx.X, gpx.Y, gpx.Z);
                 //fprintf(stdout, " (E:%.2fm) ", gpx.pAcc);
-                //fprintf(stdout," V1: (%5.2f,%5.2f,%5.2f) ", gpx.vX1, gpx.vY1, gpx.vZ1);
+                //fprintf(stdout, " V1: (%5.2f,%5.2f,%5.2f) ", gpx.vX1, gpx.vY1, gpx.vZ1);
                 //fprintf(stdout, "(E:%.2fm/s) ", gpx.sAcc1);
                 #endif
             }
             if (option_verbose) {
-                fprintf(stdout," vH: %.1fm/s  D: %.1f°  vV: %.1fm/s ", gpx.vH, gpx.vD, gpx.vV);
-                //fprintf(stdout," ENU=(%.2f,%.2f,%.2f) ", gpx.vE, gpx.vN, gpx.vU);
-                fprintf(stdout," sats: %2d ", gpx.sats1);
+                fprintf(stdout, " vH: %.2fm/s  D: %.1f°  vV: %.2fm/s ", gpx.vH, gpx.vD, gpx.vV);
+                //fprintf(stdout, " ENU=(%.2f,%.2f,%.2f) ", gpx.vE, gpx.vN, gpx.vU);
+                fprintf(stdout, " sats: %2d ", gpx.sats1);
             }
             if (option_verbose == 2) {
                 fprintf(stdout, " alt2: %.2fm ", gpx.alt2);
-                fprintf(stdout," vH2: %.1fm/s  D2: %.1f°  vV2: %.1fm/s ", gpx.vH2, gpx.vD2, gpx.vV2);
-                fprintf(stdout," sats2: %2d ", gpx.sats2);
-                //fprintf(stdout," ENU2=(%.2f,%.2f,%.2f) ", gpx.vE2, gpx.vN2, gpx.vU2);
+                fprintf(stdout, " vH2: %.2fm/s  D2: %.1f°  vV2: %.2fm/s ", gpx.vH2, gpx.vD2, gpx.vV2);
+                fprintf(stdout, " sats2: %2d ", gpx.sats2);
+                //fprintf(stdout, " ENU2=(%.2f,%.2f,%.2f) ", gpx.vE2, gpx.vN2, gpx.vU2);
                 if (option_verbose == 3) {
                     #if 0
-                    fprintf(stdout," V2: (%5.2f,%5.2f,%5.2f) ", gpx.vX2, gpx.vY2, gpx.vZ2);
+                    fprintf(stdout, " V2: (%5.2f,%5.2f,%5.2f) ", gpx.vX2, gpx.vY2, gpx.vZ2);
                     fprintf(stdout, "(E:%.2fm/s) ", gpx.sAcc2);
                     #endif
                 }
