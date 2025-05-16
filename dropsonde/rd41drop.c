@@ -43,7 +43,6 @@ typedef struct {
     double sAcc2;
     int sats2;
     double alt2;
-    double vN2; double vE2; double vU2;
     double vH2; double vD2; double vV2;
     //
     double P; double T; double U1; double U2;
@@ -340,19 +339,24 @@ void Gps2Date(long GpsWeek, long GpsSeconds, int *Year, int *Month, int *Day) {
 #define pos_sensorU1    (OFS+0x0D)   // 4 byte float32
 #define pos_sensorU2    (OFS+0x11)   // 4 byte float32
 // internal
-#define pos_sensorTi    (OFS+0x6C)   // 4 byte float32
+#define pos94_ID        (OFS+0x5D)   // 4 byte
+#define pos94_rev       (OFS+0x61)   // 2 byte char? // e.g. "A5"
+#define pos94_bat       (OFS+0x66)   // 2 byte
+#define pos94_sensorTi  (OFS+0x68)   // 4 byte float32
+//
 #define pos_ID          (OFS+0x64)   // 4 byte
-#define pos_rev         (OFS+0x70)   // 2 byte char? // e.g. "A5"
+#define pos_sensorTi    (OFS+0x6C)   // 4 byte float32
 #define pos_bat         (OFS+0x6A)   // 2 byte
+#define pos_rev         (OFS+0x70)   // 2 byte char? // e.g. "A5"
 // checksums
 #define pos_chkFrNb     (pos_FrameNb-1   +  3)  // 16 bit
 #define pos_chkPTU      (pos_sensorP     + 17)  // 16 bit
-#define pos_chkGPS1     (pos_GPSTOW      + 45)  // 16 bit
+#define pos_chkGPS1     (pos_GPSTOW      + 47)  // 16 bit
 #define pos_chkGPS2     (pos_GPSecefV2-1 + 18)  // 16 bit
-#define pos_chkInt      (pos_ID          + 21)  // 16 bit
+#define pos_chkInt      (pos94_ID        + 21)  // 16 bit
 
 #define pos_pckFrm      (OFS+0x00)   //  3 bytes
-#define pos_pckPTU      (OFS+0x05)   // 16 bytes
+#define pos_pckPTU      (OFS+0x05)   // 16 bytes (RD41) / 17 bytes (RD94)
 #define pos_CCC         (OFS+0x17)   // 17 bytes
 #define pos_DDD         (OFS+0x2A)   // 12 bytes
 #define pos_EEE         (OFS+0x38)   // 13 bytes
@@ -523,7 +527,7 @@ double a = EARTH_a,
        e2  = EARTH_a2_b2 / (EARTH_a*EARTH_a),
        ee2 = EARTH_a2_b2 / (EARTH_b*EARTH_b);
 
-void ecef2elli(double X[], double *lat, double *lon, double *h) {
+void ecef2elli(double X[], double *lat, double *lon, double *alt) {
     double phi, lam, R, p, t;
 
     lam = atan2( X[1] , X[0] );
@@ -535,7 +539,7 @@ void ecef2elli(double X[], double *lat, double *lon, double *h) {
                  p - e2 * a * cos(t)*cos(t)*cos(t) );
 
     R = a / sqrt( 1 - e2*sin(phi)*sin(phi) );
-    *h = p / cos(phi) - R;
+    *alt = p / cos(phi) - R;
 
     *lat = phi*180/M_PI;
     *lon = lam*180/M_PI;
@@ -546,7 +550,7 @@ int get_GPSkoord_rd94() {
     unsigned byte;
     ui8_t XYZ_bytes[4];
     int XYZ; // 32bit
-    double X[3], lat, lon, h;
+    double X[3], lat, lon, alt;
 
     for (k = 0; k < 3; k++) {
 
@@ -560,10 +564,10 @@ int get_GPSkoord_rd94() {
     }
 
     // ECEF-Position
-    ecef2elli(X, &lat, &lon, &h);
+    ecef2elli(X, &lat, &lon, &alt);
     gpx.lat = lat;
     gpx.lon = lon;
-    gpx.alt = h;
+    gpx.alt = alt;
 
     for (i = 0; i < 4; i++) {
         byte = frame_bytes[pos_GPSpAcc + i];
@@ -575,7 +579,7 @@ int get_GPSkoord_rd94() {
     gpx.Y = X[1];
     gpx.Z = X[2];
 
-    if ((h < -1000) || (h > 80000)) return 0x0200;
+    if ((alt < -1000) || (alt > 80000)) return 0x0200;
 
 /*
     for (k = 0; k < 3; k++) {
@@ -738,7 +742,7 @@ int get_Sensors2() {
     return 0;
 }
 
-int getBlock_FrNb(){  // block 0: frame counter
+int getBlock_FrNb() {  // block 0: frame counter
     unsigned bytes;
     unsigned crc;
     int chk = 0;
@@ -760,7 +764,7 @@ int getBlock_FrNb(){  // block 0: frame counter
     return chk;
 }
 
-int getBlock_PTU(){  // block 1: sensors P, T, U1, U2
+int getBlock_PTU() {  // block 1: sensors P, T, U1, U2
     unsigned bytes;
     unsigned crc;
     int chk = 0;
@@ -774,7 +778,7 @@ int getBlock_PTU(){  // block 1: sensors P, T, U1, U2
     return chk;
 }
 
-int getBlock_GPS(){  // block 2,3: GPS pos+vel1, vel2
+int getBlock_GPS() {  // block 2,3,4: GPS vel1+alt1+time, pos, vel2+alt2
     unsigned bytes;
     unsigned crc;
     int chk = 0, err = 0;
@@ -803,7 +807,7 @@ int getBlock_GPS(){  // block 2,3: GPS pos+vel1, vel2
     return chk;  // | (err<<8);
 }
 
-int getBlock_Int(){  // block 4: SondeID, internalTemp, battery
+int getBlock_Int() {  // block 6: SondeID, internalTemp, battery
     unsigned bytes;
     unsigned crc;
     int chk = 0;
@@ -831,7 +835,7 @@ void print_frame() {
             //fprintf(stdout, "%02X ", frame_bytes[i]);
             if (option_raw == 2) {
               if ( i==OFS-1
-/*
+              /*
                 || i==OFS+0  || i==OFS+2                            // frame-counter
                 || i==OFS+4  || i==OFS+8 || i==OFS+12 || i==OFS+16  // sensors (P,T,U1,U2)
                 || i==OFS+20 || i==OFS+21
@@ -840,8 +844,8 @@ void print_frame() {
                 || i==OFS+35 || i==OFS+39 || i==OFS+43              // ECEF-pos
                 || i==OFS+47
                 || i==OFS+51 || i==OFS+55 || i==OFS+59              // ECEF-vel1
-                || i==OFS+63 || i==OFS+66
-                || i==OFS+67 || i==OFS+68                           // sats-1
+                || i==OFS+63 || i==OFS+67
+                || i==OFS+69 || i==OFS+70                           // sats-1
                 || i==OFS+72
                 || i==OFS+73 || i==OFS+77 || i==OFS+81              // ECEF-vel2
                 || i==OFS+85
@@ -850,7 +854,7 @@ void print_frame() {
                 || i==OFS+101                                       // bat
                 || i==OFS+103 || i==OFS+107                         // internT
                 || i==OFS+113 || i==OFS+115
-*/
+              */
                  ) fprintf(stdout, "  ");
 
               if ( i==pos_pckFrm +3-1)  fprintf(stdout, " ");
@@ -915,8 +919,8 @@ void print_frame() {
                 //fprintf(stdout, "(E:%.2fm/s) ", gpx.sAcc1);
                 #endif
             }
+            fprintf(stdout, " vH: %.2fm/s  D: %.1f°  vV: %.2fm/s ", gpx.vH, gpx.vD, gpx.vV);
             if (option_verbose) {
-                fprintf(stdout, " vH: %.2fm/s  D: %.1f°  vV: %.2fm/s ", gpx.vH, gpx.vD, gpx.vV);
                 //fprintf(stdout, " ENU=(%.2f,%.2f,%.2f) ", gpx.vE, gpx.vN, gpx.vU);
                 fprintf(stdout, " sats: %2d ", gpx.sats1);
             }
@@ -924,7 +928,6 @@ void print_frame() {
                 fprintf(stdout, " alt2: %.2fm ", gpx.alt2);
                 fprintf(stdout, " vH2: %.2fm/s  D2: %.1f°  vV2: %.2fm/s ", gpx.vH2, gpx.vD2, gpx.vV2);
                 fprintf(stdout, " sats2: %2d ", gpx.sats2);
-                //fprintf(stdout, " ENU2=(%.2f,%.2f,%.2f) ", gpx.vE2, gpx.vN2, gpx.vU2);
                 if (option_verbose == 3) {
                     #if 0
                     fprintf(stdout, " V2: (%5.2f,%5.2f,%5.2f) ", gpx.vX2, gpx.vY2, gpx.vZ2);
