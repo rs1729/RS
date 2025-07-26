@@ -363,6 +363,10 @@ static ui16_t u2be(ui8_t *bytes) {  // 16bit unsigned int
     return  bytes[1] | (bytes[0]<<8);
 }
 
+static ui32_t u3be(ui8_t *bytes) {  // 24bit unsigned int
+    return  bytes[2] | (bytes[1]<<8) | (bytes[0]<<16);
+}
+
 // -----------------------------------------------------------------------------
 
 #define PREAMBLE         4
@@ -499,6 +503,9 @@ static void print_frame(gpx_t *gpx, int pos) {
 
             int cnt = u2(frm+pos_CNT);
             printf(" [%4d]  ", cnt);
+
+            ui32_t sn = u3be(frm+pos_CNT+3); // SN?
+            printf(" (%6d)  ", sn);
 
 
             if (option_verbose) printf(" [%04X:%04X] ", crcdat, crcval);
