@@ -10,6 +10,11 @@
 #include <string.h>
 #include <math.h>
 
+#ifdef ECC
+//needs bch_ecc_mod.c, bch_ecc_mod.h
+#include "bch_ecc_mod.c"
+#endif
+
 // optional JSON "version"
 //  (a) set global
 //      gcc -DVERSION_JSN [-I<inc_dir>] ...
@@ -30,6 +35,7 @@ static int option_verbose = 0,
            option_raw = 0,
            option_inv = 0,
            option_b = 0,
+           option_ecc = 0,
            option_timestamp = 0,
            option_json = 0,
            wavloaded = 0;
@@ -72,6 +78,17 @@ typedef struct {
 
 static gpx_t gpx; // = {0}
 
+#ifdef ECC
+static ui8_t cw[255];
+static ui8_t err_pos[255], err_val[255];
+static int   errs1, errs2;
+
+static RS_t RS_CF06 = { .N=255, .t=3, .R=6, .K=249, .b=1, .p=1, 1, {0}, {0} }; // RS(255,249), t=3, b=1, p=1, f=0x11D
+
+static int parlen = 6;
+static int msg1len = 42;
+static int msg2len = 41;
+#endif
 
 static int sample_rate = 0, bits_sample = 0, channels = 0;
 static float samples_per_bit = 0;
@@ -288,13 +305,43 @@ static int print_cf06() {
     int crcdat1, crcval1, crc_ok1,
         crcdat2, crcval2, crc_ok2;
 
+    if (option_ecc == 2) {  // always (frame_bytes+OFS)[55..64] = 0xAA ?
+        for (j = 0; j < 10; j++) frame_bytes[OFS+55+j] = 0xAA;
+    }
+
+    #ifdef ECC
+    if (option_ecc)
+    {
+        memset(cw, 0, 255);
+        for (j = 0; j < msg1len; j++) cw[255-1-j] = frame_bytes[OFS+7+j];
+        for (j = 0; j < parlen;  j++) cw[255-1-msg1len-j] = frame_bytes[OFS+7+msg1len+j];
+        errs1 = rs_decode(&RS_CF06, cw, err_pos, err_val);
+        if (errs1 > 0) {
+            for (j = 0; j < msg1len; j++) frame_bytes[OFS+7+j] = cw[255-1-j];
+            for (j = 0; j < parlen;  j++) frame_bytes[OFS+7+msg1len+j] = cw[255-1-msg1len-j];
+        }
+
+        memset(cw, 0, 255);
+        for (j = 0; j < msg2len; j++) cw[255-1-j] = frame_bytes[OFS+55+j];
+        for (j = 0; j < parlen;  j++) cw[255-1-msg2len-j] = frame_bytes[OFS+55+msg2len+j];
+        errs2 = rs_decode(&RS_CF06, cw, err_pos, err_val);
+        if (errs2 > 0) {
+            for (j = 0; j < msg2len; j++) frame_bytes[OFS+55+j] = cw[255-1-j];
+            for (j = 0; j < parlen;  j++) frame_bytes[OFS+55+msg2len+j] = cw[255-1-msg2len-j];
+        }
+    }
+    #endif
+
     // CRC_1
     crcdat1 = (frame_bytes[OFS+47]<<8) | frame_bytes[OFS+47+1];
     crcval1 = crc16(frame_bytes+OFS+7, 40);
     crc_ok1 = (crcdat1 == crcval1);
-    // CRC_2
+    // CRC_2                                                  // (frame_bytes+OFS)[55..64] = 0xAA ?
+    // int _crcval2 = crc16(frame_bytes+OFS+65, 29) ^ 0x39BB; // init: crc16(0xAA..AA), 10);
+    // int _crcvalAA = crc16(frame_bytes+OFS+55, 10);         // crc16(0xAA..AA, 10) = 0x8a8f;
+    // int _crcval3 = crc16_init8a8f(frame_bytes+OFS+65, 29); // init: 0x8a8f
     crcdat2 = (frame_bytes[OFS+94]<<8) | frame_bytes[OFS+94+1];
-    crcval2 = crc16(frame_bytes+OFS+65, 29) ^ 0x39BB; // crc16(0xA9BD)=0x39BB;
+    crcval2 = crc16(frame_bytes+OFS+55, 39);
     crc_ok2 = (crcdat2 == crcval2);
 
     if (option_raw) {
@@ -303,6 +350,9 @@ static int print_cf06() {
                 printf("%02X ", frame_bytes[j]);
             }
             printf(" #  [%s,%s]", crc_ok1 ? "OK1" : "NO1", crc_ok2 ? "OK2" : "NO2");
+            #ifdef ECC
+            if (option_ecc && (errs1 || errs2)) printf("  (%d,%d)", errs1, errs2);
+            #endif
         }
         else {
             for (j = 0; j < BITFRAMELEN; j++) {
@@ -413,6 +463,10 @@ static int print_cf06() {
             printf(" ");
             printf(" %s", crc_ok2 ? "[OK2]" : "[NO2]");
             if (option_verbose) printf(" # [%04X:%04X]", crcdat2, crcval2);
+
+            #ifdef ECC
+            if (option_ecc && (errs1 || errs2)) printf("  (%d,%d)", errs1, errs2);
+            #endif
         }
 
         printf("\n");
@@ -649,6 +703,8 @@ int main(int argc, char **argv) {
         else if ( (strcmp(*argv, "-R") == 0) || (strcmp(*argv, "--RAW") == 0) ) {
             option_raw = 2;
         }
+        else if   (strcmp(*argv, "--ecc" ) == 0) { option_ecc = 1; }
+        else if   (strcmp(*argv, "--ecc2") == 0) { option_ecc = 2; }
         else if   (strcmp(*argv, "--json") == 0) {
             option_json = 1;
         }
@@ -677,6 +733,10 @@ int main(int argc, char **argv) {
 
     if (cfreq > 0) gpx.jsn_freq = (cfreq+500)/1000;
 
+    #ifdef ECC
+    RS_CF06.GF = GF256RS; // f=0x11D
+    rs_init_RS(&RS_CF06);
+    #endif
 
     bit_count = 0;
     frames = 0;
