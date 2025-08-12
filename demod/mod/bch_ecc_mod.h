@@ -92,8 +92,9 @@ static RS_t RS16ccsds = { 15, 2, 4, 11, 6, 1, 1, {0}, {0} };
 
 #ifndef INCLUDESTATIC
 
-int rs_init_RS255(RS_t *RS);
-int rs_init_RS255ccsds(RS_t *RS);
+int rs_init_RS(RS_t *RS);
+int rs_init_RS255(RS_t *RS); // RS(255, 231)
+int rs_init_RS255ccsds(RS_t *RS); // RS(255, 223)
 int rs_init_RS15ccsds(RS_t *RS);
 int rs_init_BCH64(RS_t *RS);
 
