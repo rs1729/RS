@@ -268,20 +268,12 @@ $ for code in  {0..255}
 
 
 static int get_GPSweek(gpx_t *gpx) {
-    int i;
-    unsigned byte;
-    ui8_t gpsweek_bytes[2];
     int gpsweek;
 
     //gpx->numSV   = gpx->frame_bytes[pos_GPSsats];
     //gpx->utc_ofs = gpx->frame_bytes[pos_GPSutc];
 
-    for (i = 0; i < 2; i++) {
-        byte = gpx->frame_bytes[pos_GPSweek + i];
-        gpsweek_bytes[i] = byte;
-    }
-
-    gpsweek = (gpsweek_bytes[0] << 8) + gpsweek_bytes[1];
+    gpsweek = (gpx->frame_bytes[pos_GPSweek] << 8) + gpx->frame_bytes[pos_GPSweek + 1];
 
     if (gpsweek > 4000) return -1;
 
@@ -298,20 +290,13 @@ static char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 static int get_GPStime(gpx_t *gpx) {
     int i, ret = 0;
-    unsigned byte;
-    ui8_t gpstime_bytes[4];
     int gpstime, day;
     int ms;
     double sec_gps0 = 0.0;
 
-    for (i = 0; i < 3; i++) {
-        byte = gpx->frame_bytes[pos_GPSTOW + i];
-        gpstime_bytes[i] = byte;
-    }
-
     gpstime = 0;
     for (i = 0; i < 3; i++) {
-        gpstime |= gpstime_bytes[i] << (8*(2-i));
+        gpstime |= gpx->frame_bytes[pos_GPSTOW + i] << (8*(2-i));
     }
 
     gpx->tow_ms = gpstime*1000;
@@ -342,93 +327,55 @@ static int get_GPStime(gpx_t *gpx) {
 }
 
 //static double B60B60 = (1<<30)/90.0; // 2^32/360 = 2^30/90 = 0xB60B60.711x // M10
-static double B60B60 = 1e6; // M20
+static double GPS_scale = 1e6; // M20
 
 static int get_GPSlat(gpx_t *gpx) {
     int i;
-    unsigned byte;
-    ui8_t gpslat_bytes[4];
     int gpslat;
-    double lat;
-
-    for (i = 0; i < 4; i++) {
-        byte = gpx->frame_bytes[pos_GPSlat + i];
-        gpslat_bytes[i] = byte;
-    }
 
     gpslat = 0;
     for (i = 0; i < 4; i++) {
-        gpslat |= gpslat_bytes[i] << (8*(3-i));
+        gpslat |= gpx->frame_bytes[pos_GPSlat + i] << (8*(3-i));
     }
-    lat = gpslat / B60B60;
-    gpx->lat = lat;
+    gpx->lat = gpslat / GPS_scale;
 
     return 0;
 }
 
 static int get_GPSlon(gpx_t *gpx) {
     int i;
-    unsigned byte;
-    ui8_t gpslon_bytes[4];
     int gpslon;
-    double lon;
-
-    for (i = 0; i < 4; i++) {
-        byte = gpx->frame_bytes[pos_GPSlon + i];
-        gpslon_bytes[i] = byte;
-    }
 
     gpslon = 0;
     for (i = 0; i < 4; i++) {
-        gpslon |= gpslon_bytes[i] << (8*(3-i));
+        gpslon |= gpx->frame_bytes[pos_GPSlon + i] << (8*(3-i));
     }
-    lon = gpslon / B60B60;
-    gpx->lon = lon;
+    gpx->lon = gpslon / GPS_scale;
 
     return 0;
 }
 
 static int get_GPSalt(gpx_t *gpx) { // 24 bit
     int i;
-    unsigned byte;
-    ui8_t gpsalt_bytes[4];
     int gpsalt;
-    double alt;
-
-    for (i = 0; i < 3; i++) {
-        byte = gpx->frame_bytes[pos_GPSalt + i];
-        gpsalt_bytes[i] = byte;
-    }
 
     gpsalt = 0;
     for (i = 0; i < 3; i++) {
-        gpsalt |= gpsalt_bytes[i] << (8*(2-i));
+        gpsalt |= gpx->frame_bytes[pos_GPSalt + i] << (8*(2-i));
     }
-    alt = gpsalt / 100.0;
-    gpx->alt = alt;
+    gpx->alt = gpsalt / 100.0;
 
     return 0;
 }
 
 static int get_GPSvel(gpx_t *gpx) {
-    int i;
-    unsigned byte;
-    ui8_t gpsVel_bytes[2];
     short vel16;
     double vx, vy, dir, alpha;
 
-    for (i = 0; i < 2; i++) {
-        byte = gpx->frame_bytes[pos_GPSvE + i];
-        gpsVel_bytes[i] = byte;
-    }
-    vel16 = gpsVel_bytes[0] << 8 | gpsVel_bytes[1];
+    vel16 = gpx->frame_bytes[pos_GPSvE] << 8 | gpx->frame_bytes[pos_GPSvE + 1];
     vx = vel16 / 1e2; // ost
 
-    for (i = 0; i < 2; i++) {
-        byte = gpx->frame_bytes[pos_GPSvN + i];
-        gpsVel_bytes[i] = byte;
-    }
-    vel16 = gpsVel_bytes[0] << 8 | gpsVel_bytes[1];
+    vel16 = gpx->frame_bytes[pos_GPSvN] << 8 | gpx->frame_bytes[pos_GPSvN + 1];
     vy= vel16 / 1e2; // nord
 
     gpx->vx = vx;
@@ -444,11 +391,7 @@ static int get_GPSvel(gpx_t *gpx) {
     if (dir < 0) dir += 360;
     gpx->vD = dir;
 
-    for (i = 0; i < 2; i++) {
-        byte = gpx->frame_bytes[pos_GPSvU + i];
-        gpsVel_bytes[i] = byte;
-    }
-    vel16 = gpsVel_bytes[0] << 8 | gpsVel_bytes[1];
+    vel16 = gpx->frame_bytes[pos_GPSvU] << 8 | gpx->frame_bytes[pos_GPSvU + 1];
     gpx->vV = vel16 / 1e2;
 
     return 0;
