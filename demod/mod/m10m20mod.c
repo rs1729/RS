@@ -66,11 +66,12 @@ dduudduudduudduu duduudduuduudduu  ddududuudduduudd uduuddududududud uudduduuddu
 #define HEADLEN 32  // HEADLEN+HEADOFS=32 <= strlen(header)
 #define HEADOFS  0
                  // Sync-Header (raw)               // Sonde-Header (bits)
-//char head[] = "11001100110011001010011001001100"; //"0110010010011111"; // M10: 64 9F , M2K2: 64 8F
+//char head[] = "11001100110011001010011001001100"; //"0110010010011111"; // M10: 64 9F  (M2K2: 64 8F)
                                                     //"0111011010011111"; // M10: 76 9F , w/ aux-data
-                                                    //"0110010001001001"; // M10-dop: 64 49 09
+                                                    //"0110010001001001"; // M10-dop: 64 49
                                                     //"0110010010101111"; // M10+: 64 AF w/ gtop-GPS
                                                     //"0100010100100000"; // M20: 45 20 (baud=9600)
+                                                    //"0110011010011111"; // M10: 66 9F (baud=9600)
 static char rawheader[] = "10011001100110010100110010011001";
 
 #define FRAME_LEN       (100+1)   // 0x64+1
@@ -1261,10 +1262,11 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
         for (j = 0; j < 4; j++) { h += (gpx->type>>j) & 1; } // 0x9F & 0x0F  (bit0..3)
         if (h < 2 || h == 2 && (gpx->type & 0xF0) == 0x20) { _t20 = 1; }
         if (_t20) {
-            if (gpx->m10bd9616 == 0) { ret = BAUD_M20; }
+            if (gpx->m10bd9616 == 0) { ret = BAUD_M20; } // 45 20: 9600 baud
         }
         else {
-            ret = gpx->m10bd9616 ? BAUD_M10 : BAUD_M20;
+            ret = gpx->m10bd9616 ? BAUD_M10  // 64 9F/AF: 9616 baud  (M10dub 64 49)
+                                 : BAUD_M20; // 66 9F   : 9600 baud  (2025)
         }
     }
 
@@ -1393,6 +1395,7 @@ static int M10bd9616(dsp_t *dsp, int bit) {
     // (pos_m10GPSweek*8+1)*2*spsM10
     // 514*spsM10: s0==s1
     // 514*spsM20: s0!=s1
+    // M10gtop: pos_m10GPSweek <-> pos_m10gtopGPS_SATstatus ?
     double sps9616 = dsp->DFT.sr/(double)BAUD_M10;
     int sympos = m10GPSweekbit14*2*sps9616 + 0.5;
     int __pos = dsp->mv_pos + sympos + 1;
