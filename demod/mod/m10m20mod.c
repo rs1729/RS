@@ -985,20 +985,20 @@ static float get_BatV(gpx_t *gpx) {
 
 /* -------------------------------------------------------------------------- */
 
-static int print_pos(gpx_t *gpx, int bcOK, int csOK) {
+static int print_pos(gpx_t *gpx, int len, int bcOK, int csOK) {
     int err, err2;
     int pos_CNT = (gpx->type == t_M20) ? pos_m20CNT : pos_m10CNT;
     int pos_SN = (gpx->type == t_M20) ? pos_m20SN : pos_m10SN;
 
     err = 0; err2 = 0;
-    if (gpx->type != t_M10plus)
+    if (gpx->type != t_M10plus && len > 0x24)
     {
         err |= get_GPStime(gpx); // incl. get_GPSweek(gpx)
         err |= get_GPSpos(gpx);
         err2 = get_GPSvel(gpx);
         Gps2Date(gpx->week, gpx->gpssec, &gpx->jahr, &gpx->monat, &gpx->tag);
     }
-    else if (gpx->type == t_M10plus) {
+    else if (gpx->type == t_M10plus && len > 0x24) {
         err |= get_gtopGPStime(gpx);
         err |= get_gtopGPSdate(gpx);
         err |= get_gtopGPSpos(gpx);
@@ -1236,6 +1236,10 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
     }
 
     flen = gpx->frame_bytes[0];
+    if (flen == 0x00) {
+        return 0;
+    }
+    if (pos < flen*8) flen = pos/8;
 
     if (flen == stdFLEN) gpx->auxlen = 0;
     else {
@@ -1368,7 +1372,7 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
             fprintf(stdout, "\n");
         }
         if (gpx->option.slt /*&& gpx->option.jsn*/ && gpx->type != t_M10dub) {
-            print_pos(gpx, bc, cs1 == cs2);
+            print_pos(gpx, flen, bc, cs1 == cs2);
         }
     }
     else if (gpx->type == t_M10dub) {
@@ -1381,7 +1385,7 @@ static int print_frame(gpx_t *gpx, int pos, int b2B) {
             fprintf(stdout, "\n");
         }
     }
-    else print_pos(gpx, bc, cs1 == cs2);
+    else print_pos(gpx, flen, bc, cs1 == cs2);
 
     return ret;  //(gpx->frame_bytes[0]<<8)|gpx->frame_bytes[1]
 }
