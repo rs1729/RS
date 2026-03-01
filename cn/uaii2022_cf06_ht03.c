@@ -57,6 +57,8 @@ static int bufpos = 0;
 static char frame_bits[BITFRAMELEN+1];
 static ui8_t frame_bytes[FRAMELEN+1];
 
+#define OFS 5 // preamble
+
 typedef struct {
     int frnr;
     ui32_t sn;
@@ -85,10 +87,14 @@ static int   errs1, errs2;
 
 static RS_t RS_CF06 = { .N=255, .t=3, .R=6, .K=249, .b=1, .p=1, 1, {0}, {0} }; // RS(255,249), t=3, b=1, p=1, f=0x11D
 
-static int parlen = 6;
-static int msg1len = 42;
-static int msg2len = 41;
+static int parlen = 6;  // RS_CF06.R
 #endif
+// CF-06
+static int msg1ofs = OFS+7;
+static int msg1len = 42;
+static int msg2ofs = OFS+55;
+static int msg2len = 41;
+
 
 static int sample_rate = 0, bits_sample = 0, channels = 0;
 static float samples_per_bit = 0;
@@ -298,50 +304,54 @@ static ui32_t crc16(ui8_t bytes[], int len) { // CF06AH
 
 static char weekday[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
-#define OFS 5 // preamble
-
 static int print_cf06() {
     int j;
     int crcdat1, crcval1, crc_ok1,
         crcdat2, crcval2, crc_ok2;
 
     if (option_ecc == 2) {  // always (frame_bytes+OFS)[55..64] = 0xAA ?
-        for (j = 0; j < 10; j++) frame_bytes[OFS+55+j] = 0xAA;
+        for (j = 0; j < 10; j++) frame_bytes[msg2ofs+j] = 0xAA;
     }
 
     #ifdef ECC
     if (option_ecc)
     {
         memset(cw, 0, 255);
-        for (j = 0; j < msg1len; j++) cw[255-1-j] = frame_bytes[OFS+7+j];
-        for (j = 0; j < parlen;  j++) cw[255-1-msg1len-j] = frame_bytes[OFS+7+msg1len+j];
+        for (j = 0; j < msg1len; j++) cw[255-1-j] = frame_bytes[msg1ofs+j];
+        for (j = 0; j < parlen;  j++) cw[255-1-msg1len-j] = frame_bytes[msg1ofs+msg1len+j];
         errs1 = rs_decode(&RS_CF06, cw, err_pos, err_val);
+        for (j = 0; j < errs1; j++) { // outside shortened code ?
+            if (err_pos[j] < 255-msg1len-parlen) errs1 = -5;
+        }
         if (errs1 > 0) {
-            for (j = 0; j < msg1len; j++) frame_bytes[OFS+7+j] = cw[255-1-j];
-            for (j = 0; j < parlen;  j++) frame_bytes[OFS+7+msg1len+j] = cw[255-1-msg1len-j];
+            for (j = 0; j < msg1len; j++) frame_bytes[msg1ofs+j] = cw[255-1-j];
+            for (j = 0; j < parlen;  j++) frame_bytes[msg1ofs+msg1len+j] = cw[255-1-msg1len-j];
         }
 
         memset(cw, 0, 255);
-        for (j = 0; j < msg2len; j++) cw[255-1-j] = frame_bytes[OFS+55+j];
-        for (j = 0; j < parlen;  j++) cw[255-1-msg2len-j] = frame_bytes[OFS+55+msg2len+j];
+        for (j = 0; j < msg2len; j++) cw[255-1-j] = frame_bytes[msg2ofs+j];
+        for (j = 0; j < parlen;  j++) cw[255-1-msg2len-j] = frame_bytes[msg2ofs+msg2len+j];
         errs2 = rs_decode(&RS_CF06, cw, err_pos, err_val);
+        for (j = 0; j < errs2; j++) { // outside shortened code ?
+            if (err_pos[j] < 255-msg2len-parlen) errs2 = -5;
+        }
         if (errs2 > 0) {
-            for (j = 0; j < msg2len; j++) frame_bytes[OFS+55+j] = cw[255-1-j];
-            for (j = 0; j < parlen;  j++) frame_bytes[OFS+55+msg2len+j] = cw[255-1-msg2len-j];
+            for (j = 0; j < msg2len; j++) frame_bytes[msg2ofs+j] = cw[255-1-j];
+            for (j = 0; j < parlen;  j++) frame_bytes[msg2ofs+msg2len+j] = cw[255-1-msg2len-j];
         }
     }
     #endif
 
     // CRC_1
     crcdat1 = (frame_bytes[OFS+47]<<8) | frame_bytes[OFS+47+1];
-    crcval1 = crc16(frame_bytes+OFS+7, 40);
+    crcval1 = crc16(frame_bytes+msg1ofs, msg1len-2); //len=40
     crc_ok1 = (crcdat1 == crcval1);
     // CRC_2                                                  // (frame_bytes+OFS)[55..64] = 0xAA ?
     // int _crcval2 = crc16(frame_bytes+OFS+65, 29) ^ 0x39BB; // init: crc16(0xAA..AA), 10);
     // int _crcvalAA = crc16(frame_bytes+OFS+55, 10);         // crc16(0xAA..AA, 10) = 0x8a8f;
     // int _crcval3 = crc16_init8a8f(frame_bytes+OFS+65, 29); // init: 0x8a8f
     crcdat2 = (frame_bytes[OFS+94]<<8) | frame_bytes[OFS+94+1];
-    crcval2 = crc16(frame_bytes+OFS+55, 39);
+    crcval2 = crc16(frame_bytes+msg2ofs, msg2len-2); //len=39
     crc_ok2 = (crcdat2 == crcval2);
 
     if (option_raw) {
@@ -373,7 +383,7 @@ static int print_cf06() {
         ui32_t sn = 0;
         for (j = 0; j < 4; j++) {
             sn *= 100;
-            sn += frame_bytes[OFS+7+j] % 100;
+            sn += frame_bytes[msg1ofs+j] % 100;
         }
         printf(" (%08d)  ", sn);
         gpx.sn = sn;
@@ -640,6 +650,8 @@ static int print_frame() {
                     break;
     }
 
+    // crc(zero-frm)=0x0000=ok ; check position ?
+    if (frm_ok && gpx.frnr == 0 && gpx.sn == 0) frm_ok = 0;
     if (option_json && frm_ok && !option_raw) {
         char *ver_jsn = NULL;
         printf("{ \"type\": \"%s\"", rs_str);
@@ -683,10 +695,9 @@ int main(int argc, char **argv) {
         if      ( (strcmp(*argv, "-h") == 0) || (strcmp(*argv, "--help") == 0) ) {
             fprintf(stderr, "%s [options] audio.wav\n", fpname);
             fprintf(stderr, "  options:\n");
-            fprintf(stderr, "       -v\n");
-            fprintf(stderr, "       -r\n");
-            fprintf(stderr, "       -i\n");
-            fprintf(stderr, "       -b\n");
+            fprintf(stderr, "       -v     (verbose)\n");
+            fprintf(stderr, "       -r     (raw)\n");
+            //fprintf(stderr, "       --ecc  (CF-06: ECC)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-i") == 0) || (strcmp(*argv, "--invert") == 0) ) {
