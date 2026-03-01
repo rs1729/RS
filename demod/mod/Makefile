@@ -3,7 +3,7 @@ CC = gcc
 COPTS = -O3
 
 .PHONY: all
-all: rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod mts01mod
+all: rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod m10m20mod imet54mod mp3h1mod mts01mod cf06ht03mod
 
 rs41mod: rs41mod.c demod_mod.o bch_ecc_mod.o
 	$(CC) $(COPTS) -o rs41mod rs41mod.c demod_mod.o bch_ecc_mod.o -lm
@@ -16,6 +16,9 @@ m10mod: m10mod.c demod_mod.o
 
 mXXmod: mXXmod.c demod_mod.o
 	$(CC) $(COPTS) -o mXXmod mXXmod.c demod_mod.o -lm
+
+m10m20mod: m10m20mod.c demod_mod.o
+	$(CC) $(COPTS) -o m10m20mod m10m20mod.c demod_mod.o -lm
 
 imet54mod: imet54mod.c demod_mod.o
 	$(CC) $(COPTS) -o imet54mod imet54mod.c demod_mod.o -lm
@@ -35,6 +38,9 @@ mp3h1mod: mp3h1mod.c demod_mod.o
 mts01mod: mts01mod.c demod_mod.o
 	$(CC) $(COPTS) -o mts01mod mts01mod.c demod_mod.o -lm
 
+cf06ht03mod: cf06ht03mod.c demod_mod.o bch_ecc_mod.o
+	$(CC) $(COPTS) -o cf06ht03mod cf06ht03mod.c demod_mod.o bch_ecc_mod.o -lm
+
 demod_mod.o: demod_mod.c demod_mod.h
 	$(CC) -Ofast -c demod_mod.c
 
@@ -43,7 +49,7 @@ bch_ecc_mod.o: bch_ecc_mod.c bch_ecc_mod.h
 
 .PHONY: clean
 clean:
-	rm -f rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod imet54mod mp3h1mod mts01mod
+	rm -f rs41mod rs92mod lms6Xmod meisei100mod dfm09mod m10mod mXXmod m10m20mod imet54mod mp3h1mod mts01mod cf06ht03mod
 	rm -f demod_mod.o
 	rm -f bch_ecc_mod.o
 
