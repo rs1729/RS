@@ -79,6 +79,10 @@ static char meisei_header[] = "110011001101001101001101010100101010110010101010"
 //int  mrz_sps = 2400;
 static char mrz_header[] = "1001100110011001""1001101010101010"; // 0xAA 0xBF
 
+//int  cf06ht03_sps = 2400;
+static char cf06ht03_header[] = "01010101" //"01010101""01010101"  // preamble (AA AA) AA  // imet_preamble takes over ...
+                                "10110100""00101011""11000110"; // 2D D4 63
+
 //int  imet54_sps = 4800;
 static char imet54_header[] = "0000000001""0101010101""0001001001""0001001001"; // 0x00 0xAA 0x24 0x24
 
@@ -159,6 +163,7 @@ static float set_lpIQ = 0.0;
 #define tn_RD94RD41  10
 #define tn_MRZ       12
 #define tn_MTS01     13
+#define tn_CF06HT03  14
 #define tn_C34C50    15
 #define tn_WXR301    16
 #define tn_WXRpn9    17
@@ -169,10 +174,10 @@ static float set_lpIQ = 0.0;
 #define tn_IMET1rs   28
 #define tn_IMET1ab   29
 
-#define idxIMETafsk  15
-#define idxRS        16
-#define idxI4        17
-#define Nrs          18
+#define idxIMETafsk  16
+#define idxRS        17
+#define idxI4        18
+#define Nrs          19
 static rsheader_t rs_hdr[Nrs] = {
     { 2500, 0, 0, dfm_header,      1.0, 0.0, 0.65, 2, NULL, "DFM9",     tn_DFM,      0, 1, 0.0, 0.0}, // DFM6: -2 ?
     { 4800, 0, 0, rs41_header,     0.5, 0.0, 0.70, 2, NULL, "RS41",     tn_RS41,     0, 1, 0.0, 0.0},
@@ -185,6 +190,7 @@ static rsheader_t rs_hdr[Nrs] = {
     { 4800, 0, 0, rd94rd41_header, 1.0, 0.0, 0.70, 2, NULL, "RD94RD41", tn_RD94RD41, 0, 1, 0.0, 0.0}, // Dropsonde RD94/RD41
     { 2400, 0, 0, mrz_header,      1.5, 0.0, 0.80, 2, NULL, "MRZ",      tn_MRZ,      0, 1, 0.0, 0.0},
     { 1200, 0, 0, mts01_header,    1.0, 0.0, 0.65, 2, NULL, "MTS01",    tn_MTS01,    0, 0, 0.0, 0.0},
+    { 2400, 0, 0, cf06ht03_header, 0.7, 0.0, 0.80, 2, NULL, "CF06HT03", tn_CF06HT03, 0, 1, 0.0, 0.0},
     { 5800, 0, 0, c34_preheader,   1.5, 0.0, 0.80, 2, NULL, "C34C50",   tn_C34C50,   0, 2, 0.0, 0.0}, // C34/C50 2900 Hz tone
     { 4800, 0, 0, weathex_header,  1.0, 0.0, 0.65, 2, NULL, "WXR301",   tn_WXR301,   0, 3, 0.0, 0.0},
     { 5000, 0, 0, wxr2pn9_header,  1.0, 0.0, 0.65, 2, NULL, "WXRPN9",   tn_WXRpn9,   0, 3, 0.0, 0.0},
@@ -1358,6 +1364,14 @@ int main(int argc, char **argv) {
 
     ui32_t frm2_M10M20 = 0;
 
+    int n, m, mf;
+    int D = 0; //N_DFT/2 - 3;
+    int nD, nT, T;
+    float df;
+    float pow800, pow2200, pow2400, pow1200;
+    int bin800, bin2200, bin2400, bin1200;
+
+
 #ifdef CYGWIN
     _setmode(fileno(stdin), _O_BINARY);  // _setmode(_fileno(stdin), _O_BINARY);
 #endif
@@ -1479,6 +1493,25 @@ int main(int argc, char **argv) {
         return -50;
     };
 
+    D = N_DFT/2 - 3;
+    df = bin2freq(1);
+    mf = 50.0/df;
+    if (mf < 1) mf = 1;
+    //if (freq2bin(2500) > N_DFT/2) goto ende;
+
+    bin2200 = freq2bin(2200);
+    bin2400 = freq2bin(2400);
+    bin800 = freq2bin(800);
+    bin1200 = freq2bin(1200);
+
+    for (n = 0; n < N_DFT; n++) {
+        xn[n] = 0.0;
+        db[n] = 0.0;
+    }
+    nD = 0;
+    nT = 0;
+    T = sample_rate / D;
+
     for (j = 0; j < Nrs; j++) {
         mv[j] = 0.0;
         mv_pos[j] = 0;
@@ -1492,6 +1525,34 @@ int main(int argc, char **argv) {
     while ( f32buf_sample(fp, option_inv) != EOF ) {
 
         if (tl > 0 && sample_in > (tl+1)*sample_rate) break;  // (int)sample_out < 0
+
+        xn[nD % D] = buf_fm[rs_hdr[j].lpIQ][sample_out % M];
+        nD++;
+
+        if (nD % D == 0) {
+            dft(xn, X);
+            for (m = 0; m < N_DFT; m++) db[m] += cabs(X[m]);
+            nT += 1;
+        }
+
+        if (nT >= T) {  // every sample_rate time
+
+            pow2200 = 0.0;
+            for (n = 0; n < mf; n++) pow2200 += db[ bin2200 - mf/4 + n ];
+
+            pow2400 = 0.0;
+            for (n = 0; n < mf; n++) pow2400 += db[ bin2400 - mf/4 + n ];
+
+            pow800 = 0.0;
+            for (n = 0; n < mf; n++) pow800 += db[ bin800 - mf/4 + n ];
+
+            pow1200 = 0.0;
+            for (n = 0; n < mf; n++) pow1200 += db[ bin1200 - mf/4 + n ];
+
+            nT = 0;
+            for (m = 0; m < N_DFT; m++) db[m] = 0;
+
+        }
 
         k += 1;
 
@@ -1541,52 +1602,11 @@ int main(int argc, char **argv) {
 
                         if ( strncmp(rs_hdr[j].type, "IMETafsk", 8) == 0 ) // ? j == idxIMETafsk
                         {
-                            int n, m;
-                            int D = N_DFT/2 - 3;
-                            float df;
-                            float pow2200, pow2400;
-                            int bin2200, bin2400;
-
-                            for (n = 0; n < N_DFT; n++) {
-                                xn[n] = 0.0;
-                                db[n] = 0.0;
-                            }
-
-                            n = 0;
-                            while (n < sample_rate) { // 1 sec
-
-                                if (f32buf_sample(fp, option_inv) == EOF) break;//goto ende;
-
-                                xn[n % D] = buf_fm[rs_hdr[j].lpIQ][sample_out % M];
-                                n++;
-
-                                if (n % D == 0) {
-                                    dft(xn, X);
-                                    for (m = 0; m < N_DFT; m++) db[m] += cabs(X[m]);
-                                }
-                            }
-
-                            df = bin2freq(1);
-                            m = 50.0/df;
-                            if (m < 1) m = 1;
-                            if (freq2bin(2500) > N_DFT/2) goto ende;
-
-                            bin2200 = freq2bin(2200);
-                            pow2200 = 0.0;
-                            for (n = 0; n < m; n++) pow2200 += db[ bin2200 - m/4 + n ];
-
-                            bin2400 = freq2bin(2400);
-                            pow2400 = 0.0;
-                            for (n = 0; n < m; n++) pow2400 += db[ bin2400 - m/4 + n ];
-
 
                             mv[j] = fabs(mv[j]);
 
-                            if (pow2200 > pow2400) {  // IMET1RS: peak1: 1200Hz > peak2: 2200Hz > pow(800Hz)
-                                int bin800 = freq2bin(800);
-                                float pow800 = 0.0;
-                                for (n = 0; n < m; n++) pow800 += db[ bin800 - m/4 + n ];
-                                if (pow2200 > pow800) { // IMET -> IMET1RS/IMET4
+                            if (pow2200 > pow2400 && pow2400 > 0.0) {   // IMET1RS: peak1: 1200Hz > peak2: 2200Hz > pow(800Hz)
+                                if (pow2200 > pow800 && pow800 > 0.0) { // IMET -> IMET1RS/IMET4
                                     int _j0 = j;
                                     if (option_iq && set_lpIQ > 50e3) j = idxRS; else j = idxI4;
                                     mv[j] = mv[_j0];
