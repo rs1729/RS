@@ -198,22 +198,24 @@ static int print_cf06(gpx_t *gpx) {
         }
         printf("\n");
     }
-    else {
+    if (gpx->option.jsn || !gpx->option.raw)
+    {
+        ui32_t sn;
         ui32_t val;
         int ival;
         ui32_t gpstime;
-        ui32_t std, min, ms;
+        ui32_t ms;
         int wday;
-        float sek = 0.0f;
+        i16_t val16;
+        float vN, vE, vU, vH, vD;
 
-        ui32_t sn = 0;
+        sn = 0;
         for (j = 0; j < 4; j++) {
             sn *= 100;
             sn += gpx->frame_bytes[OFS+7+j] % 100;
         }
-        printf(" (%08d)  ", sn);
         gpx->sn = sn;
-        sprintf(gpx->id, "%08d", sn);
+        sprintf(gpx->id, "%08d", gpx->sn);
 
         gpstime = 0;
         for (j = 0; j < 4; j++) gpstime |= gpx->frame_bytes[OFS+11+j] << (8*j);
@@ -230,80 +232,76 @@ static int print_cf06(gpx_t *gpx) {
 
         gpstime %= (24*3600);
 
-        std =  gpstime / 3600;
-        min = (gpstime % 3600) / 60;
-        sek =  gpstime % 60 + ms/1000.0;
-        gpx->std = std;
-        gpx->min = min;
-        gpx->sek = sek;
-
-        printf("%s ", weekday[wday]);
-
-        printf("%02d:%02d:%06.3f ", std, min, sek);
-        printf(" ");
+        gpx->std =  gpstime / 3600;
+        gpx->min = (gpstime % 3600) / 60;
+        gpx->sek =  gpstime % 60 + ms/1000.0;
 
         val = 0;
         for (j = 0; j < 4; j++) val |= gpx->frame_bytes[OFS+15+j] << (8*j);
         ival = (int)val;
-        float lon = ival / 1e7;
-        printf(" lon: %.4f ", lon);
-        gpx->lon = lon;
+        gpx->lon = ival / 1e7;
 
         val = 0;
         for (j = 0; j < 4; j++) val |= gpx->frame_bytes[OFS+19+j] << (8*j);
         ival = (int)val;
-        float lat = ival / 1e7;
-        printf(" lat: %.4f ", lat);
-        gpx->lat = lat;
+        gpx->lat = ival / 1e7;
 
         val = 0;
         for (j = 0; j < 4; j++) val |= gpx->frame_bytes[OFS+23+j] << (8*j);
         ival = (int)val;
-        float alt = ival / 1e3;
-        printf(" alt: %.1f ", alt);  // MSL
-        gpx->alt = alt;
+        gpx->alt = ival / 1e3;
 
 
-        i16_t val16;
         val16 = 0;
         for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+27+j] << (8*j);
-        float vE = val16/100.0f;
+        vE = val16/100.0f;
         val16 = 0;
         for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+29+j] << (8*j);
-        float vN = val16/100.0f;
+        vN = val16/100.0f;
         val16 = 0;
         for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+31+j] << (8*j);
-        float vU = -val16/100.0f;
+        vU = -val16/100.0f;
         //printf(" (%.2f,%.2f,%.2f) ", vE, vN, vU);
-        float vH = sqrt(vN*vN+vE*vE);
-        float vD = atan2(vE, vN) * 180.0 / M_PI;
+        vH = sqrt(vN*vN+vE*vE);
+        vD = atan2(vE, vN) * 180.0 / M_PI;
         if (vD < 0) vD += 360;
-        printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", vH, vD, vU);
         gpx->vH = vH;
         gpx->vD = vD;
         gpx->vV = vU;
 
-        printf(" ");
 
-        // 8-bit counter
-        val = gpx->frame_bytes[OFS+45];
-        printf("[%3d] ", val);
-
-        printf(" ");
-
-        // CRC_1
-        printf(" %s", crc_ok1 ? "[OK1]" : "[NO1]");
-        if (gpx->option.vbs) printf(" # [%04X:%04X]", crcdat1, crcval1);
-        // CRC_2
-        if (gpx->option.vbs) {
+        if (!gpx->option.raw)
+        {
+            printf(" (%08d)  ", gpx->sn);
+            printf("%s ", weekday[gpx->wday]);
+            printf("%02d:%02d:%06.3f ", gpx->std, gpx->min, gpx->sek);
             printf(" ");
-            printf(" %s", crc_ok2 ? "[OK2]" : "[NO2]");
-            if (gpx->option.vbs) printf(" # [%04X:%04X]", crcdat2, crcval2);
+            printf(" lon: %.4f ", gpx->lon);
+            printf(" lat: %.4f ", gpx->lat);
+            printf(" alt: %.1f ", gpx->alt);  // MSL
+            printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
+            printf(" ");
 
-            if (gpx->option.ecc && (errs1 || errs2)) printf("  (%d,%d)", errs1, errs2);
+            // 8-bit counter
+            val = gpx->frame_bytes[OFS+45];
+            printf("[%3d] ", val);
+
+            printf(" ");
+
+            // CRC_1
+            printf(" %s", crc_ok1 ? "[OK1]" : "[NO1]");
+            if (gpx->option.vbs) printf(" # [%04X:%04X]", crcdat1, crcval1);
+            // CRC_2
+            if (gpx->option.vbs) {
+                printf(" ");
+                printf(" %s", crc_ok2 ? "[OK2]" : "[NO2]");
+                if (gpx->option.vbs) printf(" # [%04X:%04X]", crcdat2, crcval2);
+
+                if (gpx->option.ecc && (errs1 || errs2)) printf("  (%d,%d)", errs1, errs2);
+            }
+
+            printf("\n");
         }
-
-        printf("\n");
     }
 
     return crc_ok1; // crc_ok1 && crc_ok2
@@ -352,86 +350,83 @@ static int print_ht03(gpx_t *gpx) {
         }
         printf("\n");
     }
-    else {
-
+    if (gpx->option.jsn || !gpx->option.raw)
+    {
         // SN/ID? DBG
         ////for (j=0;j<4;j++) printf("%02X", gpx->frame_bytes[OFS+7+j]); printf(" ");
-        ui32_t sn = 0;
+        ui32_t sn;
+        int val;
+        i16_t val16;
+        float *fval;
+        float vN, vE, vU, vH, vD;
+
+        sn = 0;
         for (j = 0; j < 4; j++) sn |= gpx->frame_bytes[OFS+7+j] << (8*(3-j));
-        printf(" (%08X) ", sn);
         gpx->sn = sn;
-        sprintf(gpx->id, "%08X", sn);
+        sprintf(gpx->id, "%08X", gpx->sn);
 
-        printf(" ");
+        gpx->std = gpx->frame_bytes[OFS+12] & 0x1F;
+        gpx->min = gpx->frame_bytes[OFS+13] & 0x3F;
+        gpx->sek = (gpx->frame_bytes[OFS+14] | (gpx->frame_bytes[OFS+13] & 0xC0) << 2) / 10.0f;
 
-        ui32_t std, min;
-        float sek = 0.0f;
-        std = gpx->frame_bytes[OFS+12] & 0x1F;
-        min = gpx->frame_bytes[OFS+13] & 0x3F;
-        sek = (gpx->frame_bytes[OFS+14] | (gpx->frame_bytes[OFS+13] & 0xC0) << 2) / 10.0f;
-        printf("%02d:%02d:%04.1f ", std, min, sek);  // UTC
-        printf(" ");
-        gpx->std = std;
-        gpx->min = min;
-        gpx->sek = sek;
+        // GPS: little endian
 
-        int val;  // GPS: little endian
+        //val = 0; for (j = 0; j < 4; j++) val |= gpx->frame_bytes[OFS+16+j] << (8*j);
+        fval = (float*)(gpx->frame_bytes+OFS+16);
+        gpx->lon = *fval * 180.0 / M_PI;
 
-        val = 0;
-        for (j = 0; j < 4; j++) val |= gpx->frame_bytes[OFS+16+j] << (8*j);
-        float *fval = (float*)(gpx->frame_bytes+OFS+16);
-        float lon = *fval * 180.0 / M_PI;
-        printf(" lon: %.4f ", lon);
-        gpx->lon = lon;
-
-        val = 0;
-        for (j = 0; j < 4; j++) val |= gpx->frame_bytes[OFS+20+j] << (8*j);
+        //val = 0; for (j = 0; j < 4; j++) val |= gpx->frame_bytes[OFS+20+j] << (8*j);
         fval = (float*)(gpx->frame_bytes+OFS+20);
-        float lat = *fval * 180.0 / M_PI;
-        printf(" lat: %.4f ", lat);
-        gpx->lat = lat;
+        gpx->lat = *fval * 180.0 / M_PI;
 
         val = 0; // signed int32 or int24
         for (j = 0; j < 4; j++) val |= gpx->frame_bytes[OFS+24+j] << (8*j);
-        float alt = val/10.0f;
-        printf(" alt: %.1f ", alt);  // MSL
-        gpx->alt = alt;
+        gpx->alt = val/10.0f;
 
-        i16_t val16;
         val16 = 0;
         for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+28+j] << (8*j);
-        float vN = val16/100.0f;
+        vN = val16/100.0f;
         val16 = 0;
         for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+30+j] << (8*j);
-        float vE = val16/100.0f;
+        vE = val16/100.0f;
         val16 = 0;
         for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+32+j] << (8*j);
-        float vU = val16/100.0f;
+        vU = val16/100.0f;
         //printf(" (%.2f,%.2f,%.2f) ", vN, vE, vU);
-        float vH = sqrt(vN*vN+vE*vE);
-        float vD = atan2(vE, vN) * 180.0 / M_PI;
+        vH = sqrt(vN*vN+vE*vE);
+        vD = atan2(vE, vN) * 180.0 / M_PI;
         if (vD < 0) vD += 360;
-        printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", vH, vD, vU);
         gpx->vH = vH;
         gpx->vD = vD;
         gpx->vV = vU;
 
 
-        printf(" ");
-
         // counter ?  big endian
-        int cnt = 0;
-        for (j = 0; j < 2; j++) cnt |= gpx->frame_bytes[OFS+97+j] << (8*(1-j));
-        printf(" [%5d] ", cnt);
-        gpx->frnr = cnt;
+        val = 0;
+        for (j = 0; j < 2; j++) val |= gpx->frame_bytes[OFS+97+j] << (8*(1-j));
+        gpx->frnr = val;
 
-        printf(" ");
 
-        // CRC
-        printf(" %s", crc_ok ? "[OK]" : "[NO]");
-        if (gpx->option.vbs) printf(" # [%04X:%04X]", crcdat, crcval);
+        if (!gpx->option.raw)
+        {
+            printf(" (%08X) ", gpx->sn);
+            printf(" ");
+            printf("%02d:%02d:%04.1f ", gpx->std, gpx->min, gpx->sek);  // UTC
+            printf(" ");
+            printf(" lon: %.4f ", gpx->lon);
+            printf(" lat: %.4f ", gpx->lat);
+            printf(" alt: %.1f ", gpx->alt);  // MSL
+            printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
+            printf(" ");
+            printf(" [%5d] ", gpx->frnr);
+            printf(" ");
 
-        printf("\n");
+            // CRC
+            printf(" %s", crc_ok ? "[OK]" : "[NO]");
+            if (gpx->option.vbs) printf(" # [%04X:%04X]", crcdat, crcval);
+
+            printf("\n");
+        }
     }
 
     return crc_ok;
@@ -482,7 +477,7 @@ static int print_frame(gpx_t *gpx, int len_bytes, int b2B) {
 
     // crc(zero-frm)=0x0000=ok ; check position ?
     if (frm_ok && gpx->frnr == 0 && gpx->sn == 0) frm_ok = 0;
-    if (gpx->option.jsn && frm_ok && !gpx->option.raw) {
+    if (gpx->option.jsn && frm_ok) {
         char *ver_jsn = NULL;
         printf("{ \"type\": \"%s\"", rs_str);
         printf(", \"frame\": %d, \"id\": \"%.4s-%.8s\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
