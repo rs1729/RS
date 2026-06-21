@@ -2,7 +2,7 @@
 /*
     UAII2022 Lindenberg
     Aerospace Newsky CF-06AH
-    Huayuntianyi HT03G-1U
+    Huayuntianyi HT03G-1U (GTH3)
 */
 
 #include <stdio.h>
@@ -307,7 +307,7 @@ static int print_cf06(gpx_t *gpx) {
     return crc_ok1; // crc_ok1 && crc_ok2
 }
 
-static ui32_t crc16rev(ui8_t bytes[], int len) { // HT03G
+static ui32_t crc16rev(ui8_t bytes[], int len) { // HT03G/GTH3
     ui32_t crc16poly = 0x8408; //rev(0x1021)
     ui32_t rem = 0; // init value
     int i, j;
@@ -469,7 +469,7 @@ static int print_frame(gpx_t *gpx, int len_bytes, int b2B) {
                     rs_str = "CF06"; // CF-06-AH
                     break;
         case HT03:  frm_ok = print_ht03(gpx);
-                    rs_str = "HT03"; // HT03G-1U
+                    rs_str = "HT03"; // HT03G-1U, GTH3
                     break;
         default:
                     break;
