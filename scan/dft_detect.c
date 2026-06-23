@@ -182,7 +182,7 @@ static float set_lpIQ = 0.0;
 #define tn_RD94RD41  10
 #define tn_MRZ       12
 #define tn_MTS01     13
-#define tn_CF06HT03  14
+#define tn_CF6GTH    14
 #define tn_C34C50    15
 #define tn_WXR301    16
 #define tn_WXRpn9    17
@@ -209,7 +209,7 @@ static rsheader_t rs_hdr[Nrs] = {
     { 4800, 0, 0, rd94rd41_header, 1.0, 0.0, 0.70, 2, NULL, "RD94RD41", tn_RD94RD41, 0, 1, 0.0, 0.0}, // Dropsonde RD94/RD41
     { 2400, 0, 0, mrz_header,      1.5, 0.0, 0.80, 2, NULL, "MRZ",      tn_MRZ,      0, 1, 0.0, 0.0},
     { 1200, 0, 0, mts01_header,    1.0, 0.0, 0.65, 2, NULL, "MTS01",    tn_MTS01,    0, 0, 0.0, 0.0},
-    { 2400, 0, 0, cf06ht03_header, 0.7, 0.0, 0.80, 2, NULL, "CF06HT03", tn_CF06HT03, 0, 1, 0.0, 0.0},
+    { 2400, 0, 0, cf06ht03_header, 0.7, 0.0, 0.80, 2, NULL, "CF6GTH",   tn_CF6GTH,   0, 1, 0.0, 0.0},
     { 5800, 0, 0, c34_preheader,   1.5, 0.0, 0.80, 2, NULL, "C34C50",   tn_C34C50,   0, 2, 0.0, 0.0}, // C34/C50 2900 Hz tone
     { 4800, 0, 0, weathex_header,  1.0, 0.0, 0.65, 2, NULL, "WXR301",   tn_WXR301,   0, 3, 0.0, 0.0},
     { 5000, 0, 0, wxr2pn9_header,  1.0, 0.0, 0.65, 2, NULL, "WXRPN9",   tn_WXRpn9,   0, 3, 0.0, 0.0},
@@ -221,12 +221,8 @@ static rsheader_t rs_hdr[Nrs] = {
 };
 
 
-// Runtime per-type enable flags, set via the --types CLI argument.
-// Defaults to all-on; --types T1,T2,... turns off everything except the
-// listed entries.
+// --types filter: 1 = scan, 0 = skip. default all-on.
 static int type_enabled[Nrs];
-// Set when the user passed --types so we know whether to warn about
-// compile-excluded types they asked for.
 static int user_set_types = 0;
 
 
@@ -1461,9 +1457,7 @@ int main(int argc, char **argv) {
             set_lpIQ = bw_kHz * 1e3;
         }
         else if   (strcmp(*argv, "--types") == 0) {
-            // Comma-separated list of rs_hdr type names to enable; surrounding whitespace is ignored.
-            // Empty argument is rejected; omit --types entirely to scan all.
-            // Unknown names abort with an error.
+            // --types T1,T2,... : case-sensitive, whitespace trimmed
             ++argv;
             if (*argv == NULL || (*argv)[0] == '\0') {
                 fprintf(stderr, "error: --types requires a non-empty comma-separated list\n");
@@ -1479,34 +1473,43 @@ int main(int argc, char **argv) {
                     char token[64];
                     size_t len = (size_t)(p - start);
                     if (len >= sizeof(token)) {
-                        fprintf(stderr, "error: --types: token too long\n");
-                        return -1;
+                        // bad token, skip it but keep going
+                        fprintf(stderr, "warning: --types: token too long, ignored\n");
                     }
-                    memcpy(token, start, len);
-                    token[len] = '\0';
-                    char *t = token;
-                    while (*t == ' ' || *t == '\t') t++;
-                    char *e = token + strlen(token);
-                    while (e > t && (*(e-1) == ' ' || *(e-1) == '\t')) { e--; *e = '\0'; }
-                    if (*t != '\0') {
-                        int matched = 0;
-                        for (n = 0; n < Nrs; n++) {
-                            if (strcmp(rs_hdr[n].type, t) == 0) {
-                                type_enabled[n] = 1;
-                                matched = 1;
-                                if (n > idxIMETafsk) type_enabled[idxIMETafsk] = 1;
-                                break;
+                    else {
+                        memcpy(token, start, len);
+                        token[len] = '\0';
+                        char *t = token;
+                        while (*t == ' ' || *t == '\t') t++;
+                        char *e = token + strlen(token);
+                        while (e > t && (*(e-1) == ' ' || *(e-1) == '\t')) { e--; *e = '\0'; }
+                        if (*t != '\0') {
+                            int matched = 0;
+                            for (n = 0; n < Nrs; n++) {
+                                if (strcmp(rs_hdr[n].type, t) == 0) {
+                                    type_enabled[n] = 1;
+                                    matched = 1;
+                                    if (n > idxIMETafsk) type_enabled[idxIMETafsk] = 1; // IMET1RS/IMET4 need AFSK preamble
+                                    break;
+                                }
                             }
-                        }
-                        if (!matched) {
-                            fprintf(stderr, "error: --types: unknown sonde type '%s'\n", t);
-                            return -1;
+                            if (!matched) {
+                                fprintf(stderr, "warning: --types: unknown sonde type '%s', ignored\n", t);
+                            }
                         }
                     }
                     if (*p == '\0') break;
                     start = p + 1;
                 }
                 p++;
+            }
+            // nothing valid in the list? fall back to scanning everything
+            // so the run keeps going (warning above tells the user why).
+            int any = 0;
+            for (n = 0; n < Nrs; n++) if (type_enabled[n]) { any = 1; break; }
+            if (!any) {
+                fprintf(stderr, "warning: --types: no valid types given, scanning all\n");
+                for (n = 0; n < Nrs; n++) type_enabled[n] = 1;
             }
         }
         else if ( (strcmp(*argv, "--dc") == 0) ) { option_dc = 1; }
@@ -1569,10 +1572,6 @@ int main(int argc, char **argv) {
 
     if (option_d2) {
         option_cont = 0;
-    }
-
-    if (user_set_types) {
-        // detecting only ...
     }
 
     if (option_pcmraw == 0) {
@@ -1661,7 +1660,7 @@ int main(int argc, char **argv) {
         if (k >= K-4) {
             for (j = 0; j <= idxIMETafsk; j++) { // incl. IMET-preamble
 
-                if ( !type_enabled[j] ) continue; // runtime --types filter
+                if ( !type_enabled[j] ) continue; // --types
 
                 mv0_pos[j] = mv_pos[j];
                 mp[j] = getCorrDFT(K, 0, mv+j, mv_pos+j, rs_hdr+j);
@@ -1676,7 +1675,7 @@ int main(int argc, char **argv) {
         header_found = 0;
         for (j = 0; j <= idxIMETafsk; j++) // incl. IMET-preamble
         {
-            if ( !type_enabled[j] ) continue; // runtime --types filter
+            if ( !type_enabled[j] ) continue; // --types
             if (mp[j] > 0 && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
                 if (mv_pos[j] > mv0_pos[j]) {
 
