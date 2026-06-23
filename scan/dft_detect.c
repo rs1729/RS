@@ -182,7 +182,7 @@ static float set_lpIQ = 0.0;
 #define tn_RD94RD41  10
 #define tn_MRZ       12
 #define tn_MTS01     13
-#define tn_CF06HT03  14
+#define tn_CF6GTH    14
 #define tn_C34C50    15
 #define tn_WXR301    16
 #define tn_WXRpn9    17
@@ -209,7 +209,7 @@ static rsheader_t rs_hdr[Nrs] = {
     { 4800, 0, 0, rd94rd41_header, 1.0, 0.0, 0.70, 2, NULL, "RD94RD41", tn_RD94RD41, 0, 1, 0.0, 0.0}, // Dropsonde RD94/RD41
     { 2400, 0, 0, mrz_header,      1.5, 0.0, 0.80, 2, NULL, "MRZ",      tn_MRZ,      0, 1, 0.0, 0.0},
     { 1200, 0, 0, mts01_header,    1.0, 0.0, 0.65, 2, NULL, "MTS01",    tn_MTS01,    0, 0, 0.0, 0.0},
-    { 2400, 0, 0, cf06ht03_header, 0.7, 0.0, 0.80, 2, NULL, "CF06HT03", tn_CF06HT03, 0, 1, 0.0, 0.0},
+    { 2400, 0, 0, cf06ht03_header, 0.7, 0.0, 0.80, 2, NULL, "CF6GTH",   tn_CF6GTH,   0, 1, 0.0, 0.0},
     { 5800, 0, 0, c34_preheader,   1.5, 0.0, 0.80, 2, NULL, "C34C50",   tn_C34C50,   0, 2, 0.0, 0.0}, // C34/C50 2900 Hz tone
     { 4800, 0, 0, weathex_header,  1.0, 0.0, 0.65, 2, NULL, "WXR301",   tn_WXR301,   0, 3, 0.0, 0.0},
     { 5000, 0, 0, wxr2pn9_header,  1.0, 0.0, 0.65, 2, NULL, "WXRPN9",   tn_WXRpn9,   0, 3, 0.0, 0.0},

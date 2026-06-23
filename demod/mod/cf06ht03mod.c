@@ -466,10 +466,10 @@ static int print_frame(gpx_t *gpx, int len_bytes, int b2B) {
     switch (rs_typ)
     {
         case CF06:  frm_ok = print_cf06(gpx);
-                    rs_str = "CF06"; // CF-06-AH
+                    rs_str = "CF6"; // CF-06-AH
                     break;
         case HT03:  frm_ok = print_ht03(gpx);
-                    rs_str = "HT03"; // HT03G-1U, GTH3
+                    rs_str = "GTH"; // HT03G-1U, GTH3
                     break;
         default:
                     break;
@@ -799,7 +799,7 @@ int main(int argc, char **argv) {
                         //bitQ = read_slbit(&dsp, &bit, 0, bitofs, bitpos-FRAMESTART, bl, 0); // symlen=1
                         bitQ = read_softbit2p(&dsp, &hsbit, 0, bitofs, bitpos-FRAMESTART, bl, 0, &hsbit1); // symlen=1
                         bit = hsbit.hb;
-                        if (gpx.option.ecc >= 3) bit = (hsbit.sb+hsbit1.sb)>=0;
+                        if (gpx.option.ecc >= 2) bit = (hsbit.sb+hsbit1.sb)>=0;
                     }
                     if ( bitQ == EOF ) break; // liest 2x EOF
 
