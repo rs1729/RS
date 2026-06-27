@@ -1430,6 +1430,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "       --bw <kHz>  (set IQ filter bw/kHz)\n");
             fprintf(stderr, "       --types <list>  (comma-separated rs_hdr type names to scan,\n");
             fprintf(stderr, "                        e.g. DFM9,RS41,RS92; default: scan all)\n");
+            fprintf(stderr, "       --exclude-types <list>  (comma-separated list)\n");
             fprintf(stderr, "  types:");
             for (j = 0; j < Nrs; j++) {
                 if (j == idxIMETafsk) continue; // == IMET1RS, IMET4
@@ -1439,6 +1440,7 @@ int main(int argc, char **argv) {
                 if (strncmp(rs_hdr[j].type, "M10", 4) == 0) fprintf(stderr, " (== M20)");
                 fprintf(stderr, "%s", j < Nrs-1 ? "," : "\n");
             }
+            fprintf(stderr, "       (IMET1RS=IMET4)\n");
             return 0;
         }
         else if ( (strcmp(*argv, "-v") == 0) || (strcmp(*argv, "--verbose") == 0) ) {
@@ -1462,16 +1464,21 @@ int main(int argc, char **argv) {
             if (bw_kHz < 1.0) bw_kHz = 0.0; // min. 1kHz
             set_lpIQ = bw_kHz * 1e3;
         }
-        else if   (strcmp(*argv, "--types") == 0) {
-            // --types T1,T2,... : case-sensitive, whitespace trimmed
+        else if ( (strcmp(*argv, "--types") == 0) || (strcmp(*argv, "--exclude-types") == 0) ) {
+            // --[exclude-]types T1,T2,... : case-sensitive, whitespace trimmed
+            int types_exclude = (strcmp(*argv, "--exclude-types") == 0) ? 1 : 0;
             ++argv;
             if (*argv == NULL || (*argv)[0] == '\0') {
-                fprintf(stderr, "error: --types requires a non-empty comma-separated list\n");
+                fprintf(stderr, "error: --types/--exclude-types require a non-empty comma-separated list\n");
                 return -1;
             }
-            user_set_types = 1;
+            user_set_types += 1;
+            if (user_set_types > 1) {
+                fprintf(stderr, "error: too many --types/--exclude-types\n");
+                return -1;
+            }
             int n;
-            for (n = 0; n < Nrs; n++) type_enabled[n] = 0;
+            for (n = 0; n < Nrs; n++) type_enabled[n] = types_exclude ? 1 : 0; // default init: 1
             const char *p = *argv;
             const char *start = p;
             while (1) {
@@ -1480,7 +1487,7 @@ int main(int argc, char **argv) {
                     size_t len = (size_t)(p - start);
                     if (len >= sizeof(token)) {
                         // bad token, skip it but keep going
-                        fprintf(stderr, "warning: --types: token too long, ignored\n");
+                        fprintf(stderr, "warning: --[exclude-]types: token too long, ignored\n");
                     }
                     else {
                         memcpy(token, start, len);
@@ -1493,14 +1500,14 @@ int main(int argc, char **argv) {
                             int matched = 0;
                             for (n = 0; n < Nrs; n++) {
                                 if (strcmp(rs_hdr[n].type, t) == 0) {
-                                    type_enabled[n] = 1;
+                                    type_enabled[n] = types_exclude ? 0 : 1;
                                     matched = 1;
-                                    if (n > idxIMETafsk) type_enabled[idxIMETafsk] = 1; // IMET1RS/IMET4 need AFSK preamble
+                                    if (n > idxIMETafsk) type_enabled[idxIMETafsk] = types_exclude ? 0 : 1; // IMET1RS/IMET4 need AFSK preamble
                                     break;
                                 }
                             }
                             if (!matched) {
-                                fprintf(stderr, "warning: --types: unknown sonde type '%s', ignored\n", t);
+                                fprintf(stderr, "warning: --[exclude-]types: unknown sonde type '%s', ignored\n", t);
                             }
                         }
                     }
@@ -1512,9 +1519,11 @@ int main(int argc, char **argv) {
             // nothing valid in the list? fall back to scanning everything
             // so the run keeps going (warning above tells the user why).
             int any = 0;
-            for (n = 0; n < Nrs; n++) if (type_enabled[n]) { any = 1; break; }
+            for (n = 0; n < Nrs; n++) {
+                if (type_enabled[n]) { any = 1; break; }
+            }
             if (!any) {
-                fprintf(stderr, "warning: --types: no valid types given, scanning all\n");
+                fprintf(stderr, "warning: --[exclude-]types: no valid types, scanning all\n");
                 for (n = 0; n < Nrs; n++) type_enabled[n] = 1;
             }
         }
@@ -1662,7 +1671,7 @@ int main(int argc, char **argv) {
         if (k >= K-4) {
             for (j = 0; j <= idxIMETafsk; j++) { // incl. IMET-preamble
 
-                if ( !type_enabled[j] ) continue; // --types
+                if ( !type_enabled[j] ) continue; // --[exclude-]types
 
                 mv0_pos[j] = mv_pos[j];
                 mp[j] = getCorrDFT(K, 0, mv+j, mv_pos+j, rs_hdr+j);
@@ -1677,7 +1686,7 @@ int main(int argc, char **argv) {
         header_found = 0;
         for (j = 0; j <= idxIMETafsk; j++) // incl. IMET-preamble
         {
-            if ( !type_enabled[j] ) continue; // --types
+            if ( !type_enabled[j] ) continue; // --[exclude-]types
             if (mp[j] > 0 && (mv[j] > rs_hdr[j].thres || mv[j] < -rs_hdr[j].thres)) {
                 if (mv_pos[j] > mv0_pos[j]) {
 
