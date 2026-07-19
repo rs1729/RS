@@ -84,7 +84,7 @@ typedef struct {
     float lat; float lon; float alt;
     float vH; float vD; float vV;
     //float vE; float vN; float vU;
-    float T; float RH;
+    float T; float RH; float P;
     char  frame_bits[BITFRAME_LEN+1];
     ui8_t frame_bytes[FRAME_LEN+1];
     //int freq;
@@ -273,6 +273,7 @@ static int print_cf06(gpx_t *gpx) {
 
         gpx->T = -273.15f;
         gpx->RH = -1.0f;
+        gpx->P = -1.0f;
 
 
         if (!gpx->option.raw)
@@ -405,8 +406,7 @@ static int print_ht03(gpx_t *gpx) {
         gpx->vD = vD;
         gpx->vV = vU;
 
-
-        // T, RH
+        // T, RH, P
         val16 = 0;
         for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+84+j] << (8*j);
         gpx->T = val16/100.0f;
@@ -414,6 +414,10 @@ static int print_ht03(gpx_t *gpx) {
         val16 = 0;
         for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+88+j] << (8*j);
         gpx->RH = val16/100.0f;
+
+        val = 0;
+        for (j = 0; j < 3; j++) val |= gpx->frame_bytes[OFS+90+j] << (8*j);
+        gpx->P = val/100.0f;
 
 
         // counter ?  big endian
@@ -434,8 +438,12 @@ static int print_ht03(gpx_t *gpx) {
             printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
             printf(" ");
             if (crc_ok) {
-                printf(" T=%.1fC ", gpx->T);
-                printf(" RH=%.0f%% ", gpx->RH);
+                if (gpx->T > -273.0) printf(" T=%.1fC ", gpx->T);
+                if (gpx->RH > -0.5) printf(" RH=%.0f%% ", gpx->RH);
+                if (gpx->P > 0.0 && gpx->P < 2e3) {
+                    if (gpx->P < 100.0) printf(" P=%.2fhPa ", gpx->P);
+                    else                printf(" P=%.1fhPa ", gpx->P);
+                }
                 printf(" ");
             }
             printf(" [%5d] ", gpx->frnr);
@@ -503,10 +511,13 @@ static int print_frame(gpx_t *gpx, int len_bytes, int b2B) {
         printf(", \"frame\": %d, \"id\": \"%.4s-%.8s\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                gpx->frnr, rs_str, gpx->id, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV );
         if (gpx->T > -273.0) {
-            fprintf(stdout, ", \"temp\": %.2f",  gpx->T );
+            printf(", \"temp\": %.2f",  gpx->T );
         }
         if (gpx->RH > -0.5) {
-            fprintf(stdout, ", \"humidity\": %.2f", gpx->RH );
+            printf(", \"humidity\": %.2f", gpx->RH );
+        }
+        if (gpx->P > 0.0) {
+            printf(", \"pressure\": %.2f",  gpx->P );
         }
 
         //printf(", \"subtype\": \"%s\"", rs_typ_str);
