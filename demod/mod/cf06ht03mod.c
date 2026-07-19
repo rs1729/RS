@@ -84,6 +84,7 @@ typedef struct {
     float lat; float lon; float alt;
     float vH; float vD; float vV;
     //float vE; float vN; float vU;
+    float T; float RH;
     char  frame_bits[BITFRAME_LEN+1];
     ui8_t frame_bytes[FRAME_LEN+1];
     //int freq;
@@ -270,6 +271,10 @@ static int print_cf06(gpx_t *gpx) {
         gpx->vV = vU;
 
 
+        gpx->T = -273.15f;
+        gpx->RH = -1.0f;
+
+
         if (!gpx->option.raw)
         {
             printf(" (%08d)  ", gpx->sn);
@@ -401,6 +406,16 @@ static int print_ht03(gpx_t *gpx) {
         gpx->vV = vU;
 
 
+        // T, RH
+        val16 = 0;
+        for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+84+j] << (8*j);
+        gpx->T = val16/100.0f;
+
+        val16 = 0;
+        for (j = 0; j < 2; j++) val16 |= gpx->frame_bytes[OFS+88+j] << (8*j);
+        gpx->RH = val16/100.0f;
+
+
         // counter ?  big endian
         val = 0;
         for (j = 0; j < 2; j++) val |= gpx->frame_bytes[OFS+97+j] << (8*(1-j));
@@ -418,6 +433,11 @@ static int print_ht03(gpx_t *gpx) {
             printf(" alt: %.1f ", gpx->alt);  // MSL
             printf("  vH: %4.1f  D: %5.1f  vV: %3.1f ", gpx->vH, gpx->vD, gpx->vV);
             printf(" ");
+            if (crc_ok) {
+                printf(" T=%.1fC ", gpx->T);
+                printf(" RH=%.0f%% ", gpx->RH);
+                printf(" ");
+            }
             printf(" [%5d] ", gpx->frnr);
             printf(" ");
 
@@ -482,6 +502,13 @@ static int print_frame(gpx_t *gpx, int len_bytes, int b2B) {
         printf("{ \"type\": \"%s\"", rs_str);
         printf(", \"frame\": %d, \"id\": \"%.4s-%.8s\", \"datetime\": \"%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f",
                gpx->frnr, rs_str, gpx->id, gpx->std, gpx->min, gpx->sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV );
+        if (gpx->T > -273.0) {
+            fprintf(stdout, ", \"temp\": %.2f",  gpx->T );
+        }
+        if (gpx->RH > -0.5) {
+            fprintf(stdout, ", \"humidity\": %.2f", gpx->RH );
+        }
+
         //printf(", \"subtype\": \"%s\"", rs_typ_str);
         if (gpx->jsn_freq > 0) {
             printf(", \"freq\": %d", gpx->jsn_freq);
