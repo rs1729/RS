@@ -222,7 +222,7 @@ static int print_cf06(gpx_t *gpx) {
         for (j = 0; j < 4; j++) gpstime |= gpx->frame_bytes[OFS+11+j] << (8*j);
 
         gpx->gpstow = gpstime;
-        gpx->frnr = gpx->gpstow/1000; // JSON: 7-day wrap-around
+        gpx->frnr = (gpx->gpstow + 500)/1000; // JSON: 7-day wrap-around
 
         ms = gpstime % 1000;
         gpstime /= 1000;
