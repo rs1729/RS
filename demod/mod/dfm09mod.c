@@ -610,7 +610,7 @@ static float get_Temp2(gpx_t *gpx) { // meas[0..4]
     float B0 = 3260.0;      // B/Kelvin, fit -55C..+40C
     float T0 = 25 + 273.15; // t0=25C
     float R0 = 5.0e3;       // R0=R25=5k
-    float Rf2 = 220e3;      // Rf2 = Rf = DFM09:220k , DFM17:332k
+    float Rf2 = gpx->Rf;    // Rf2 = Rf = DFM09:220k , DFM17:332k
     float g_o = f2/Rf2;     // approx gain
     float Rs_o = f1/g_o;    // = Rf2 * f1/f2;
     float Rf1 = Rs_o;       // Rf1 = Rs: dfm6:10k, dfm9:20k
@@ -673,7 +673,7 @@ static float get_Temp4(gpx_t *gpx) { // meas[0..4]
         f2 = gpx->meas24[4+2];
     }
     //float *meas = gpx->meas24;
-    float Rf = 220e3;    // Rf = DFM09:220k , DFM17:332k
+    float Rf = gpx->Rf;      // Rf = DFM09:220k , DFM17:332k
     float g = f2/Rf;
     float R = (f-f1) / g; // f,f1,f2 > 0 ?
     float T = 0; // T/Kelvin
@@ -1004,7 +1004,7 @@ static void print_gpx(gpx_t *gpx) {
                     if (gpx->option.dbg) {
                         float t2 = get_Temp2(gpx);
                         float t4 = get_Temp4(gpx);
-                        if (t2 > -270.0f) printf("  T2=%.1fC ", t2);
+                        if (t2 > -270.0f && gpx->option.vbs == 3) printf("  T2=%.1fC ", t2);
                         if (t4 > -270.0f) printf(" T4=%.1fC  ", t4);
                     }
                 }
@@ -1014,7 +1014,7 @@ static void print_gpx(gpx_t *gpx) {
                     if (gpx->status[2]> 0.0) printf("  sec: %.0f ", gpx->status[2]);
                 }
             }
-            if (gpx->option.dbg) {
+            if (gpx->option.dbg && gpx->option.vbs == 3) {
                 printf(" f0:%.1f", gpx->meas24[0]);
                 printf(" f1:%.1f", gpx->meas24[1]);
                 printf(" f2:%.1f", gpx->meas24[2]);
