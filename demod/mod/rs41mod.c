@@ -301,7 +301,7 @@ static int crc16(ui8_t data[], int len) {
             rem &= 0xFFFF;
         }
     }
-    return rem;
+    return rem; // >= 0 if CRC could be calculated
 }
 
 static int check_CRC(gpx_t *gpx, ui32_t pos, ui32_t pck) {
@@ -1484,11 +1484,9 @@ static int get_Aux(gpx_t *gpx, int out, int pos) {
         while ( pos+1 < FRAME_LEN  &&  gpx->frame[pos] == 0x7E ) {
 
             auxlen = gpx->frame[pos+1];
-            auxcrc = -1;
-            if ( pos + auxlen + 4 <= FRAME_LEN )
-                auxcrc = gpx->frame[pos+2+auxlen] | (gpx->frame[pos+2+auxlen+1]<<8);
+            auxcrc = (pos+auxlen+3 < FRAME_LEN) ? (gpx->frame[pos+2+auxlen] | (gpx->frame[pos+2+auxlen+1]<<8)) : -1;
 
-            if ( pos + auxlen + 4 <= FRAME_LEN && auxcrc == crc16(gpx->frame+pos+2, auxlen) ) {
+            if ( auxcrc >= 0 && auxcrc == crc16(gpx->frame+pos+2, auxlen) ) {
                 if (count7E == 0) {
                     if (out) fprintf(stdout, "\n # xdata = ");
                 }
