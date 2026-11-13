@@ -308,6 +308,7 @@ static int check_CRC(gpx_t *gpx, ui32_t pos, ui32_t pck) {
     ui32_t crclen = 0,
            crcdat = 0;
     // check only pck_type (variable len pcks 0x76, 0x7E)
+    if (pos + 1 >= FRAME_LEN) return -1;
     if (((pck>>8) & 0xFF) != gpx->frame[pos]) return -1;
     crclen = gpx->frame[pos+1];
     if (pos + crclen + 4 > FRAME_LEN) return -1;
@@ -522,7 +523,7 @@ static int get_FrameConf(gpx_t *gpx, int ofs) {
 
     if (crc == 0) {
         calfr = gpx->frame[pos_CalData+ofs];
-        if (gpx->calfrchk[calfr] == 0) // const?
+        if (calfr < 51 && gpx->calfrchk[calfr] == 0) // const?
         {                              // 0x32 not constant
             for (i = 0; i < 16; i++) {
                 gpx->calibytes[calfr*16 + i] = gpx->frame[pos_CalData+ofs+1+i];
@@ -1480,10 +1481,12 @@ static int get_Aux(gpx_t *gpx, int out, int pos) {
     if (frametype(gpx) <= 0) // pos7E == pos7611, 0x7E^0x76=0x08 ...
     {
         // 7Exx: xdata
-        while ( pos < FRAME_LEN  &&  gpx->frame[pos] == 0x7E ) {
+        while ( pos+1 < FRAME_LEN  &&  gpx->frame[pos] == 0x7E ) {
 
             auxlen = gpx->frame[pos+1];
-            auxcrc = gpx->frame[pos+2+auxlen] | (gpx->frame[pos+2+auxlen+1]<<8);
+            auxcrc = -1;
+            if ( pos + auxlen + 4 <= FRAME_LEN )
+                auxcrc = gpx->frame[pos+2+auxlen] | (gpx->frame[pos+2+auxlen+1]<<8);
 
             if ( pos + auxlen + 4 <= FRAME_LEN && auxcrc == crc16(gpx->frame+pos+2, auxlen) ) {
                 if (count7E == 0) {
